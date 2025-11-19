@@ -1,0 +1,1831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advanced OCR Accuracy Testing - CliCare</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    .header {
+      background: white;
+      padding: 25px 35px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    .header h1 {
+      color: #2d3748;
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .header p {
+      color: #718096;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .testing-guide {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
+
+    .testing-guide h3 {
+      color: #856404;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .testing-guide ul {
+      list-style-position: inside;
+      color: #856404;
+      font-size: 13px;
+      line-height: 1.8;
+      column-count: 3;
+      column-gap: 20px;
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 420px 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 25px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    .card h2 {
+      font-size: 18px;
+      color: #2d3748;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .upload-zone {
+      border: 3px dashed #cbd5e0;
+      border-radius: 8px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin-bottom: 15px;
+    }
+
+    .upload-zone:hover {
+      border-color: #667eea;
+      background: #f7fafc;
+    }
+
+    .upload-zone.active {
+      border-color: #667eea;
+      background: #edf2f7;
+    }
+
+    .upload-icon {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    .preview-container {
+      margin-top: 15px;
+      text-align: center;
+    }
+
+    .preview-image {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .preprocessing-panel {
+      background: #f7fafc;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+    }
+
+    .preprocessing-panel h3 {
+      font-size: 14px;
+      color: #2d3748;
+      margin-bottom: 12px;
+    }
+
+    .technique-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .technique-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px;
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 13px;
+    }
+
+    .technique-checkbox:hover {
+      background: #edf2f7;
+    }
+
+    .technique-checkbox input {
+      cursor: pointer;
+    }
+
+    .transformation-panel {
+      background: #f7fafc;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+    }
+
+    .transformation-panel h3 {
+      font-size: 14px;
+      color: #2d3748;
+      margin-bottom: 12px;
+    }
+
+    .slider-group {
+      margin-bottom: 12px;
+    }
+
+    .slider-group label {
+      display: block;
+      font-size: 12px;
+      color: #4a5568;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    .slider-group input[type="range"] {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: #e2e8f0;
+      outline: none;
+    }
+
+    .slider-value {
+      display: inline-block;
+      background: #667eea;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-left: 8px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #5a67d8;
+    }
+
+    .btn-primary:disabled {
+      background: #cbd5e0;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: #e2e8f0;
+      color: #2d3748;
+    }
+
+    .btn-secondary:hover {
+      background: #cbd5e0;
+    }
+
+    .btn-success {
+      background: #48bb78;
+      color: white;
+    }
+
+    .btn-success:hover {
+      background: #38a169;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .metric-card {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      opacity: 0.9;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .metric-value {
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .results-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 15px;
+      border-bottom: 2px solid #e2e8f0;
+    }
+
+    .tab-btn {
+      padding: 10px 20px;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: #718096;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-size: 13px;
+    }
+
+    .tab-btn.active {
+      color: #667eea;
+      border-bottom-color: #667eea;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+    }
+
+    .result-box {
+      background: #f7fafc;
+      border-radius: 8px;
+      padding: 15px;
+      min-height: 250px;
+    }
+
+    .result-box h3 {
+      font-size: 14px;
+      color: #2d3748;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .result-content {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 12px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      max-height: 400px;
+      overflow-y: auto;
+      color: #2d3748;
+      line-height: 1.6;
+    }
+
+    .attempts-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .attempt-card {
+      background: #f7fafc;
+      border-radius: 8px;
+      padding: 15px;
+      border-left: 4px solid #667eea;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .attempt-card:hover {
+      background: #edf2f7;
+      transform: translateX(4px);
+    }
+
+    .attempt-card.selected {
+      background: #e6fffa;
+      border-left-color: #38b2ac;
+    }
+
+    .attempt-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .attempt-title {
+      font-weight: 600;
+      color: #2d3748;
+      font-size: 14px;
+    }
+
+    .attempt-confidence {
+      background: #667eea;
+      color: white;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .attempt-details {
+      font-size: 12px;
+      color: #718096;
+      line-height: 1.6;
+    }
+
+    .parsed-fields {
+      display: grid;
+      gap: 10px;
+    }
+
+    .field-item {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .field-label {
+      font-size: 12px;
+      color: #718096;
+      font-weight: 600;
+    }
+
+    .field-value {
+      font-size: 14px;
+      color: #2d3748;
+      font-weight: 500;
+    }
+
+    .field-value.success {
+      color: #38a169;
+    }
+
+    .field-value.error {
+      color: #e53e3e;
+    }
+
+    .improvement-suggestions {
+      background: #fef5e7;
+      border-left: 4px solid #f39c12;
+      padding: 15px;
+      border-radius: 6px;
+      margin-top: 15px;
+    }
+
+    .improvement-suggestions h4 {
+      color: #d68910;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+
+    .improvement-suggestions ul {
+      list-style-position: inside;
+      color: #d68910;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+
+    .test-scenarios {
+      background: #e6fffa;
+      border-left: 4px solid #38b2ac;
+      padding: 15px;
+      border-radius: 6px;
+      margin-top: 15px;
+    }
+
+    .test-scenarios h4 {
+      color: #2c7a7b;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+
+    .test-scenarios ul {
+      list-style-position: inside;
+      color: #2c7a7b;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+
+    .log-container {
+      background: #1a202c;
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 15px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 350px;
+      overflow-y: auto;
+    }
+
+    .log-entry {
+      margin-bottom: 4px;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .log-time {
+      color: #90cdf4;
+    }
+
+    .log-error {
+      color: #fc8181;
+    }
+
+    .log-success {
+      color: #9ae6b4;
+    }
+
+    .log-info {
+      color: #e2e8f0;
+    }
+
+    .log-warning {
+      color: #fbd38d;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 3px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+      font-size: 13px;
+    }
+
+    .comparison-table th {
+      background: #667eea;
+      color: white;
+      padding: 10px;
+      text-align: left;
+      font-weight: 600;
+    }
+
+    .comparison-table td {
+      padding: 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .comparison-table tr:hover {
+      background: #f7fafc;
+    }
+
+    .best-result {
+      background: #c6f6d5;
+      font-weight: 600;
+    }
+
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .preview-item {
+      text-align: center;
+    }
+
+    .preview-item img {
+      max-width: 100%;
+      height: 120px;
+      object-fit: contain;
+      border-radius: 6px;
+      border: 2px solid #e2e8f0;
+      background: white;
+    }
+
+    .preview-item label {
+      display: block;
+      font-size: 11px;
+      color: #718096;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔬 Advanced OCR Accuracy Testing Suite</h1>
+      <p>Comprehensive testing platform for evaluating OCR performance across different conditions, preprocessing techniques, and ID formats</p>
+      
+      <div class="testing-guide">
+        <h3>📋 Testing Considerations (Test scenarios to evaluate)</h3>
+        <ul>
+          <li>✓ Lighting: Bright, dim, warm, cold, uneven</li>
+          <li>✓ Resolution: High-res, low-res, motion blur</li>
+          <li>✓ Orientation: Rotated (10°, 20°, 90°), skewed</li>
+          <li>✓ Quality: Glossy, matte, scratched, dirty, glare</li>
+          <li>✓ Background: White, black, wood, patterns</li>
+          <li>✓ ID Types: PhilHealth, License, National, Student</li>
+          <li>✓ Text Size: Small print, large print</li>
+          <li>✓ Text Color: Dark on light, light on dark, colored</li>
+          <li>✓ Cropping: Full, zoomed, misaligned</li>
+          <li>✓ Preprocessing: Multiple technique combinations</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">Best Confidence</div>
+        <div class="metric-value" id="bestConfidence">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Avg Processing</div>
+        <div class="metric-value" id="avgTime">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Total Attempts</div>
+        <div class="metric-value" id="totalAttempts">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Success Rate</div>
+        <div class="metric-value" id="successRate">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Status</div>
+        <div class="metric-value" id="statusMetric" style="font-size: 14px;">Ready</div>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <!-- Left Panel: Upload & Controls -->
+      <div class="card">
+        <h2>📤 Upload & Configure</h2>
+        <div class="upload-zone" id="uploadZone">
+          <div class="upload-icon">📷</div>
+          <div class="upload-text" style="font-size: 13px; color: #4a5568;">
+            <strong>Click to upload</strong> or drag and drop<br>
+            PNG, JPG (Max 10MB)
+          </div>
+        </div>
+        <input type="file" id="fileInput" accept="image/png,image/jpeg,image/jpg">
+        
+        <div class="preview-container" id="previewContainer" style="display:none;">
+          <img id="previewImage" class="preview-image" alt="Preview">
+        </div>
+
+        <!-- Image Transformations -->
+        <div class="transformation-panel">
+          <h3>🔄 Image Transformations</h3>
+          
+          <div class="slider-group">
+            <label>
+              Rotation Angle <span class="slider-value" id="rotationValue">0°</span>
+            </label>
+            <input type="range" id="rotationSlider" min="-45" max="45" value="0" step="5">
+          </div>
+
+          <div class="slider-group">
+            <label>
+              Brightness <span class="slider-value" id="brightnessValue">0</span>
+            </label>
+            <input type="range" id="brightnessSlider" min="-100" max="100" value="0" step="10">
+          </div>
+
+          <div class="slider-group">
+            <label>
+              Contrast <span class="slider-value" id="contrastValue">1.0</span>
+            </label>
+            <input type="range" id="contrastSlider" min="0.5" max="2.0" value="1.0" step="0.1">
+          </div>
+        </div>
+
+        <!-- Preprocessing Techniques -->
+        <div class="preprocessing-panel">
+          <h3>⚙️ Preprocessing Techniques</h3>
+          <div class="technique-grid">
+            <label class="technique-checkbox">
+              <input type="checkbox" value="grayscale"> Grayscale
+            </label>
+            <label class="technique-checkbox">
+              <input type="checkbox" value="contrastEnhancement"> Contrast
+            </label>
+            <label class="technique-checkbox">
+              <input type="checkbox" value="binaryThreshold"> Binary Threshold
+            </label>
+            <label class="technique-checkbox">
+              <input type="checkbox" value="adaptiveThreshold"> Adaptive Threshold
+            </label>
+            <label class="technique-checkbox">
+              <input type="checkbox" value="gaussianBlur"> Gaussian Blur
+            </label>
+            <label class="technique-checkbox">
+              <input type="checkbox" value="sharpen"> Sharpen
+            </label>
+            <label class="technique-checkbox">
+              <input type="checkbox" value="dilate"> Dilate
+            </label>
+            <label class="technique-checkbox">
+              <input type="checkbox" value="erode"> Erode
+            </label>
+            <label class="technique-checkbox">
+              <input type="checkbox" value="invert"> Invert Colors
+            </label>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button class="btn btn-primary" id="processBtn" disabled>
+            <span>🚀 Process OCR</span>
+          </button>
+          <button class="btn btn-success" id="testAllBtn" disabled>
+            <span>🔄 Test All</span>
+          </button>
+          <button class="btn btn-secondary" id="clearBtn" disabled>
+            <span>🗑️ Clear</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Panel: Results -->
+      <div class="card">
+        <h2>📊 Analysis Results</h2>
+        
+        <div class="results-tabs">
+          <button class="tab-btn active" data-tab="current">Current Result</button>
+          <button class="tab-btn" data-tab="attempts">All Attempts</button>
+          <button class="tab-btn" data-tab="comparison">Comparison</button>
+          <button class="tab-btn" data-tab="previews">Previews</button>
+        </div>
+
+        <!-- Tab: Current Result -->
+        <div class="tab-content active" id="currentTab">
+          <div class="comparison-grid">
+            <div class="result-box">
+              <h3>📝 Raw OCR Output</h3>
+              <div class="result-content" id="rawOutput">No results yet</div>
+            </div>
+            <div class="result-box">
+              <h3>✅ Parsed Fields</h3>
+              <div class="parsed-fields" id="parsedFields">
+                <div style="text-align: center; color: #a0aec0; padding: 20px; font-size: 13px;">
+                  Upload and process an image to see results
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="improvement-suggestions" id="suggestions" style="display:none;">
+            <h4>💡 Accuracy Improvement Suggestions</h4>
+            <ul id="suggestionsList"></ul>
+          </div>
+        </div>
+
+        <!-- Tab: All Attempts -->
+        <div class="tab-content" id="attemptsTab">
+          <div class="attempts-list" id="attemptsList">
+            <div style="text-align: center; color: #a0aec0; padding: 40px; font-size: 14px;">
+              No attempts yet. Process an image to see results.
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Comparison Table -->
+        <div class="tab-content" id="comparisonTab">
+          <div style="overflow-x: auto;">
+            <table class="comparison-table" id="comparisonTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Techniques</th>
+                  <th>Confidence</th>
+                  <th>Time (s)</th>
+                  <th>Name Found</th>
+                  <th>Method</th>
+                </tr>
+              </thead>
+              <tbody id="comparisonBody">
+                <tr>
+                  <td colspan="6" style="text-align: center; color: #a0aec0; padding: 30px;">
+                    No comparison data yet
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab: Preview Images -->
+        <div class="tab-content" id="previewsTab">
+          <div class="preview-grid" id="previewGrid">
+            <div style="grid-column: 1 / -1; text-align: center; color: #a0aec0; padding: 40px; font-size: 14px;">
+              No preview images yet
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Testing Scenarios Guide -->
+    <div class="card">
+      <h2>🧪 Recommended Test Scenarios</h2>
+      <div class="test-scenarios">
+        <h4>Test these common real-world conditions:</h4>
+        <ul>
+          <li><strong>Lighting Tests:</strong> Try bright office lighting, dim room, yellow warm light, cold white light</li>
+          <li><strong>Rotation Tests:</strong> Test with 10°, 20°, 30° rotation to simulate handheld captures</li>
+          <li><strong>Quality Tests:</strong> Upload images with glare, shadows, scratches, or dirt on the ID</li>
+          <li><strong>Background Tests:</strong> Place ID on white paper, dark desk, wooden table, patterned surface</li>
+          <li><strong>Format Tests:</strong> Test with PhilHealth ID, Driver's License, National ID, Student ID</li>
+          <li><strong>Preprocessing Combos:</strong> Try grayscale + sharpen + threshold, or blur + contrast + adaptive threshold</li>
+          <li><strong>Edge Cases:</strong> Partially cropped IDs, extreme zoom, poor camera quality</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Processing Log -->
+    <div class="card">
+      <h2>📋 Processing Log</h2>
+      <div class="log-container" id="logContainer">
+        <div class="log-entry log-info">
+          <span class="log-time">[Ready]</span> System initialized. Upload an ID image to begin comprehensive testing.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import Tesseract from 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
+
+    // ==================== OCR TESTING ENGINE ====================
+    class AdvancedOCRTester {
+      constructor() {
+        this.currentImage = null;
+        this.attempts = [];
+        this.preprocessedImages = [];
+        this.startTime = null;
+        
+        // Preprocessing techniques (same as tesseractOCR.js)
+        this.techniques = {
+          grayscale: this.applyGrayscale.bind(this),
+          contrastEnhancement: this.applyContrast.bind(this),
+          binaryThreshold: this.applyBinaryThreshold.bind(this),
+          adaptiveThreshold: this.applyAdaptiveThreshold.bind(this),
+          gaussianBlur: this.applyGaussianBlur.bind(this),
+          sharpen: this.applySharpen.bind(this),
+          dilate: this.applyDilate.bind(this),
+          erode: this.applyErode.bind(this),
+          invert: this.applyInvert.bind(this)
+        };
+      }
+
+      // ==================== LOGGING ====================
+      log(message, type = 'info') {
+        const logContainer = document.getElementById('logContainer');
+        const timestamp = new Date().toLocaleTimeString();
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${type}`;
+        entry.innerHTML = `<span class="log-time">[${timestamp}]</span> ${message}`;
+        logContainer.appendChild(entry);
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+
+      // ==================== IMAGE PROCESSING ====================
+      async processImage(imageDataUrl, selectedTechniques, transformations) {
+        this.startTime = Date.now();
+        this.log('Starting OCR processing with selected configuration...', 'info');
+        
+        try {
+          // Step 1: Apply transformations
+          let processedImage = imageDataUrl;
+          
+          if (transformations.rotation !== 0) {
+            this.log(`Rotating image by ${transformations.rotation}°...`, 'info');
+            processedImage = await this.rotateImage(processedImage, transformations.rotation);
+          }
+          
+          if (transformations.brightness !== 0 || transformations.contrast !== 1) {
+            this.log(`Adjusting lighting (brightness: ${transformations.brightness}, contrast: ${transformations.contrast})...`, 'info');
+            processedImage = await this.adjustLighting(processedImage, transformations.brightness, transformations.contrast);
+          }
+          
+          // Step 2: Apply preprocessing
+          if (selectedTechniques.length > 0) {
+            this.log(`Applying ${selectedTechniques.length} preprocessing technique(s): ${selectedTechniques.join(', ')}`, 'info');
+            processedImage = await this.applyPreprocessing(processedImage, selectedTechniques);
+          }
+          
+          // Step 3: Run OCR
+          this.log('Running Tesseract OCR engine...', 'info');
+          const { text, confidence } = await this.runOCR(processedImage);
+          
+          const processingTime = ((Date.now() - this.startTime) / 1000).toFixed(2);
+          this.log(`OCR completed in ${processingTime}s with ${confidence.toFixed(1)}% confidence`, 'success');
+          
+          // Step 4: Extract structured data
+          this.log('Extracting name using all ID format patterns...', 'info');
+          const extractedData = this.extractFields(text);
+          
+          // Save attempt
+          const attempt = {
+            id: this.attempts.length + 1,
+            timestamp: new Date().toLocaleString(),
+            rawText: text,
+            confidence: confidence,
+            processingTime: processingTime,
+            extractedData: extractedData,
+            techniques: selectedTechniques,
+            transformations: transformations,
+            processedImage: processedImage
+          };
+          
+          this.attempts.push(attempt);
+          this.preprocessedImages.push({
+            label: `Attempt #${attempt.id}`,
+            image: processedImage,
+            techniques: selectedTechniques.join(', ') || 'None'
+          });
+          
+          this.updateMetrics();
+          this.displayCurrentResult(attempt);
+          this.updateAttemptsList();
+          this.updateComparisonTable();
+          this.updatePreviewGrid();
+          this.generateSuggestions(attempt);
+          
+        } catch (error) {
+          this.log(`ERROR: ${error.message}`, 'error');
+          throw error;
+        }
+      }
+
+      // ==================== TRANSFORMATION FUNCTIONS ====================
+      async rotateImage(imageDataUrl, angle) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            const angleRad = (angle * Math.PI) / 180;
+            const cos = Math.abs(Math.cos(angleRad));
+            const sin = Math.abs(Math.sin(angleRad));
+            
+            canvas.width = img.width * cos + img.height * sin;
+            canvas.height = img.width * sin + img.height * cos;
+            
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(angleRad);
+            ctx.drawImage(img, -img.width / 2, -img.height / 2);
+            
+            resolve(canvas.toDataURL('image/jpeg', 0.95));
+          };
+          img.onerror = () => reject(new Error('Failed to rotate image'));
+          img.src = imageDataUrl;
+        });
+      }
+
+      async adjustLighting(imageDataUrl, brightness, contrast) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+              data[i] = Math.max(0, Math.min(255, contrast * data[i] + brightness));
+              data[i + 1] = Math.max(0, Math.min(255, contrast * data[i + 1] + brightness));
+              data[i + 2] = Math.max(0, Math.min(255, contrast * data[i + 2] + brightness));
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+            resolve(canvas.toDataURL('image/jpeg', 0.95));
+          };
+          img.onerror = () => reject(new Error('Failed to adjust lighting'));
+          img.src = imageDataUrl;
+        });
+      }
+
+      // ==================== PREPROCESSING TECHNIQUES ====================
+      async applyPreprocessing(imageDataUrl, techniques) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            
+            let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            for (const technique of techniques) {
+              if (this.techniques[technique]) {
+                imageData = this.techniques[technique](imageData);
+              }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+            resolve(canvas.toDataURL('image/jpeg', 0.95));
+          };
+          img.onerror = () => reject(new Error('Failed to apply preprocessing'));
+          img.src = imageDataUrl;
+        });
+      }
+
+      applyGrayscale(imageData) {
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          data[i] = data[i + 1] = data[i + 2] = gray;
+        }
+        return imageData;
+      }
+
+      applyContrast(imageData) {
+        const data = imageData.data;
+        const factor = 1.5;
+        for (let i = 0; i < data.length; i += 4) {
+          data[i] = Math.max(0, Math.min(255, (data[i] - 128) * factor + 128));
+          data[i + 1] = Math.max(0, Math.min(255, (data[i + 1] - 128) * factor + 128));
+          data[i + 2] = Math.max(0, Math.min(255, (data[i + 2] - 128) * factor + 128));
+        }
+        return imageData;
+      }
+
+      applyBinaryThreshold(imageData) {
+        const data = imageData.data;
+        const threshold = 140;
+        for (let i = 0; i < data.length; i += 4) {
+          const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          const binary = gray > threshold ? 255 : 0;
+          data[i] = data[i + 1] = data[i + 2] = binary;
+        }
+        return imageData;
+      }
+
+      applyAdaptiveThreshold(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        const output = new Uint8ClampedArray(data);
+        const blockSize = 15;
+        
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            let sum = 0;
+            let count = 0;
+            
+            for (let dy = -blockSize; dy <= blockSize; dy++) {
+              for (let dx = -blockSize; dx <= blockSize; dx++) {
+                const ny = y + dy;
+                const nx = x + dx;
+                if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                  const idx = (ny * width + nx) * 4;
+                  sum += data[idx];
+                  count++;
+                }
+              }
+            }
+            
+            const avg = sum / count;
+            const idx = (y * width + x) * 4;
+            const gray = data[idx];
+            const binary = gray > avg - 10 ? 255 : 0;
+            output[idx] = output[idx + 1] = output[idx + 2] = binary;
+          }
+        }
+        
+        for (let i = 0; i < data.length; i++) {
+          data[i] = output[i];
+        }
+        
+        return imageData;
+      }
+
+      applyGaussianBlur(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        const output = new Uint8ClampedArray(data);
+        
+        const kernel = [1, 2, 1, 2, 4, 2, 1, 2, 1];
+        const kernelSum = 16;
+        
+        for (let y = 1; y < height - 1; y++) {
+          for (let x = 1; x < width - 1; x++) {
+            let r = 0, g = 0, b = 0;
+            let ki = 0;
+            
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const idx = ((y + dy) * width + (x + dx)) * 4;
+                r += data[idx] * kernel[ki];
+                g += data[idx + 1] * kernel[ki];
+                b += data[idx + 2] * kernel[ki];
+                ki++;
+              }
+            }
+            
+            const idx = (y * width + x) * 4;
+            output[idx] = r / kernelSum;
+            output[idx + 1] = g / kernelSum;
+            output[idx + 2] = b / kernelSum;
+          }
+        }
+        
+        for (let i = 0; i < data.length; i++) {
+          data[i] = output[i];
+        }
+        
+        return imageData;
+      }
+
+      applySharpen(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        const output = new Uint8ClampedArray(data);
+        
+        const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+        
+        for (let y = 1; y < height - 1; y++) {
+          for (let x = 1; x < width - 1; x++) {
+            let r = 0, g = 0, b = 0;
+            let ki = 0;
+            
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const idx = ((y + dy) * width + (x + dx)) * 4;
+                r += data[idx] * kernel[ki];
+                g += data[idx + 1] * kernel[ki];
+                b += data[idx + 2] * kernel[ki];
+                ki++;
+              }
+            }
+            
+            const idx = (y * width + x) * 4;
+            output[idx] = Math.max(0, Math.min(255, r));
+            output[idx + 1] = Math.max(0, Math.min(255, g));
+            output[idx + 2] = Math.max(0, Math.min(255, b));
+          }
+        }
+        
+        for (let i = 0; i < data.length; i++) {
+          data[i] = output[i];
+        }
+        
+        return imageData;
+      }
+
+      applyDilate(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        const output = new Uint8ClampedArray(data);
+        
+        for (let y = 1; y < height - 1; y++) {
+          for (let x = 1; x < width - 1; x++) {
+            let maxVal = 0;
+            
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const idx = ((y + dy) * width + (x + dx)) * 4;
+                maxVal = Math.max(maxVal, data[idx]);
+              }
+            }
+            
+            const idx = (y * width + x) * 4;
+            output[idx] = output[idx + 1] = output[idx + 2] = maxVal;
+          }
+        }
+        
+        for (let i = 0; i < data.length; i++) {
+          data[i] = output[i];
+        }
+        
+        return imageData;
+      }
+
+      applyErode(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        const output = new Uint8ClampedArray(data);
+        
+        for (let y = 1; y < height - 1; y++) {
+          for (let x = 1; x < width - 1; x++) {
+            let minVal = 255;
+            
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const idx = ((y + dy) * width + (x + dx)) * 4;
+                minVal = Math.min(minVal, data[idx]);
+              }
+            }
+            
+            const idx = (y * width + x) * 4;
+            output[idx] = output[idx + 1] = output[idx + 2] = minVal;
+          }
+        }
+        
+        for (let i = 0; i < data.length; i++) {
+          data[i] = output[i];
+        }
+        
+        return imageData;
+      }
+
+      applyInvert(imageData) {
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          data[i] = 255 - data[i];
+          data[i + 1] = 255 - data[i + 1];
+          data[i + 2] = 255 - data[i + 2];
+        }
+        return imageData;
+      }
+
+      // ==================== OCR EXECUTION ====================
+      async runOCR(imageDataUrl) {
+        const { data: { text, confidence } } = await Tesseract.recognize(imageDataUrl, 'eng', {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              const progress = Math.round(m.progress * 100);
+              document.getElementById('statusMetric').textContent = `${progress}%`;
+            }
+          }
+        });
+        
+        return { text, confidence };
+      }
+
+      // ==================== NAME EXTRACTION (from tesseractOCR.js) ====================
+      extractFields(text) {
+        const lines = text.split('\n').map(line => line.trim().toUpperCase()).filter(line => line.length > 0);
+        
+        this.log(`Processing ${lines.length} lines of OCR text`, 'info');
+        
+        const result = {
+          name: null,
+          idType: null,
+          extractionMethod: null
+        };
+
+        // Try PhilHealth
+        const philhealthName = this.extractPhilHealthName(lines);
+        if (philhealthName) {
+          result.name = philhealthName;
+          result.idType = 'PhilHealth ID';
+          result.extractionMethod = 'PhilHealth Pattern';
+          this.log('✓ Name extracted using PhilHealth ID format', 'success');
+          return result;
+        }
+
+        // Try PLM
+        const plmName = this.extractPLMName(lines);
+        if (plmName) {
+          result.name = plmName;
+          result.idType = 'PLM Student ID';
+          result.extractionMethod = 'PLM Pattern';
+          this.log('✓ Name extracted using PLM Student ID format', 'success');
+          return result;
+        }
+
+        // Try Government ID
+        const govName = this.extractGovernmentIDName(lines);
+        if (govName) {
+          result.name = govName;
+          result.idType = 'Government ID';
+          result.extractionMethod = 'Government ID Pattern';
+          this.log('✓ Name extracted using Government ID format', 'success');
+          return result;
+        }
+
+        // Try Generic
+        const genericName = this.extractGenericName(lines);
+        if (genericName) {
+          result.name = genericName;
+          result.idType = 'Unknown';
+          result.extractionMethod = 'Generic Pattern';
+          this.log('✓ Name extracted using generic pattern', 'success');
+          return result;
+        }
+
+        this.log('✗ No name pattern matched any known ID format', 'error');
+        return result;
+      }
+
+      extractPhilHealthName(lines) {
+        const isPhilHealth = lines.some(line => 
+          line.includes('PHILHEALTH') || line.includes('PHIL HEALTH') ||
+          (line.includes('REPUBLIC OF THE PHILIPPINES') && lines.some(l => l.includes('HEALTH')))
+        );
+        
+        if (!isPhilHealth) return null;
+        
+        const pinPattern = /^\d{2}-\d{9}-\d$/;
+        
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          
+          if (line.includes('REPUBLIC') || line.includes('PHILIPPINES') || 
+              line.includes('PHILHEALTH') || line.includes('MALE') || 
+              line.includes('FEMALE') || /^\d{4}$/.test(line) || pinPattern.test(line)) {
+            continue;
+          }
+          
+          const nameWithCommaPattern = /^([A-Z\s]+),\s*([A-Z\s]+)$/;
+          const match = line.match(nameWithCommaPattern);
+          
+          if (match) {
+            const lastName = match[1].trim();
+            const firstMiddle = match[2].trim();
+            
+            const lastNameWords = lastName.split(/\s+/);
+            const firstMiddleWords = firstMiddle.split(/\s+/);
+            
+            if (lastNameWords.length >= 1 && lastNameWords.length <= 2 &&
+                firstMiddleWords.length >= 2 && firstMiddleWords.length <= 3 &&
+                lastName.length >= 2 && firstMiddle.length >= 3) {
+              return `${firstMiddle} ${lastName}`;
+            }
+          }
+        }
+        
+        return null;
+      }
+
+      extractPLMName(lines) {
+        const isPLMID = lines.some(line => 
+          line.includes('PAMANTASAN') || line.includes('LUNGSOD') || 
+          line.includes('MAYNILA') || line.includes('PLM')
+        );
+        
+        if (!isPLMID) return null;
+        
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          
+          if (line.includes('PAMANTASAN') || line.includes('LUNGSOD') || 
+              line.includes('MAYNILA') || line.includes('PLM') ||
+              /^\d{8,10}$/.test(line.replace(/\s/g, '')) ||
+              line.includes('STUDENT') || line.includes('NO:') || 
+              line.includes('VALID') || line.includes('UNTIL')) {
+            continue;
+          }
+          
+          if (this.isPLMStudentName(line)) {
+            return line.trim();
+          }
+        }
+        
+        return null;
+      }
+
+      isPLMStudentName(line) {
+        if (!line || line.length < 10 || line.length > 50) return false;
+        if (!/^[A-Z\s\.]+$/.test(line)) return false;
+        
+        const words = line.split(/\s+/).filter(word => word.length > 0);
+        if (words.length < 3 || words.length > 5) return false;
+        
+        const substantialWords = words.filter(word => word.replace('.', '').length > 2);
+        const institutionalTerms = ['UNIVERSITY', 'COLLEGE', 'DEPARTMENT'];
+        const hasInstitutionalTerms = words.some(word => 
+          institutionalTerms.some(term => word.includes(term))
+        );
+        
+        return substantialWords.length >= 2 && !hasInstitutionalTerms;
+      }
+
+      extractGovernmentIDName(lines) {
+        const namePattern = /([A-Z\s]+),\s*([A-Z\s]+)/;
+        
+        for (let line of lines) {
+          if (line.includes('REPUBLIC') || line.includes('PHILIPPINES') || 
+              line.includes('DRIVER') || line.includes('LICENSE')) {
+            continue;
+          }
+          
+          const nameMatch = line.match(namePattern);
+          if (nameMatch) {
+            const lastName = nameMatch[1].trim();
+            const firstMiddle = nameMatch[2].trim();
+            return `${firstMiddle} ${lastName}`;
+          }
+        }
+        
+        return null;
+      }
+
+      extractGenericName(lines) {
+        for (let line of lines) {
+          if (line.length > 8 && line.length < 60 && 
+              /^[A-Z\s\.]+$/.test(line) && 
+              !line.includes('MALE') && !line.includes('FEMALE') &&
+              !line.includes('PHL') && !line.includes('NCR')) {
+            
+            const words = line.split(/\s+/).filter(word => word.length > 1);
+            if (words.length >= 2 && words.length <= 5) {
+              return line.trim();
+            }
+          }
+        }
+        
+        return null;
+      }
+
+      // ==================== UI UPDATES ====================
+      updateMetrics() {
+        if (this.attempts.length === 0) return;
+        
+        const bestAttempt = this.attempts.reduce((best, current) => 
+          current.confidence > best.confidence ? current : best
+        );
+        
+        const avgTime = (this.attempts.reduce((sum, a) => sum + parseFloat(a.processingTime), 0) / this.attempts.length).toFixed(2);
+        const successCount = this.attempts.filter(a => a.extractedData.name !== null).length;
+        const successRate = ((successCount / this.attempts.length) * 100).toFixed(0);
+        
+        document.getElementById('bestConfidence').textContent = bestAttempt.confidence.toFixed(1) + '%';
+        document.getElementById('avgTime').textContent = avgTime + 's';
+        document.getElementById('totalAttempts').textContent = this.attempts.length;
+        document.getElementById('successRate').textContent = successRate + '%';
+        document.getElementById('statusMetric').textContent = 'Complete';
+      }
+
+      displayCurrentResult(attempt) {
+        // Raw output
+        document.getElementById('rawOutput').textContent = attempt.rawText || 'No text extracted';
+
+        // Parsed fields
+        const parsedContainer = document.getElementById('parsedFields');
+        parsedContainer.innerHTML = '';
+        
+        for (const [key, value] of Object.entries(attempt.extractedData)) {
+          const fieldItem = document.createElement('div');
+          fieldItem.className = 'field-item';
+          const valueClass = value ? 'success' : 'error';
+          fieldItem.innerHTML = `
+            <div class="field-label">${this.formatLabel(key)}</div>
+            <div class="field-value ${valueClass}">${value || 'Not detected'}</div>
+          `;
+          parsedContainer.appendChild(fieldItem);
+        }
+      }
+
+      updateAttemptsList() {
+        const listContainer = document.getElementById('attemptsList');
+        listContainer.innerHTML = '';
+        
+        this.attempts.slice().reverse().forEach((attempt, index) => {
+          const card = document.createElement('div');
+          card.className = 'attempt-card';
+          card.innerHTML = `
+            <div class="attempt-header">
+              <div class="attempt-title">Attempt #${attempt.id}</div>
+              <div class="attempt-confidence">${attempt.confidence.toFixed(1)}%</div>
+            </div>
+            <div class="attempt-details">
+              <strong>Techniques:</strong> ${attempt.techniques.join(', ') || 'None'}<br>
+              <strong>Time:</strong> ${attempt.processingTime}s<br>
+              <strong>Name Found:</strong> ${attempt.extractedData.name || 'No'}<br>
+              <strong>Method:</strong> ${attempt.extractedData.extractionMethod || 'N/A'}
+            </div>
+          `;
+          
+          card.addEventListener('click', () => {
+            this.displayCurrentResult(attempt);
+            document.querySelectorAll('.attempt-card').forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+          });
+          
+          listContainer.appendChild(card);
+        });
+      }
+
+      updateComparisonTable() {
+        const tbody = document.getElementById('comparisonBody');
+        tbody.innerHTML = '';
+        
+        const bestConfidence = Math.max(...this.attempts.map(a => a.confidence));
+        
+        this.attempts.forEach(attempt => {
+          const row = document.createElement('tr');
+          const isBest = attempt.confidence === bestConfidence;
+          if (isBest) row.classList.add('best-result');
+          
+          row.innerHTML = `
+            <td>#${attempt.id}</td>
+            <td style="font-size: 11px;">${attempt.techniques.join(', ') || 'None'}</td>
+            <td><strong>${attempt.confidence.toFixed(1)}%</strong></td>
+            <td>${attempt.processingTime}s</td>
+            <td>${attempt.extractedData.name ? '✓' : '✗'}</td>
+            <td style="font-size: 11px;">${attempt.extractedData.extractionMethod || 'N/A'}</td>
+          `;
+          
+          tbody.appendChild(row);
+        });
+      }
+
+      updatePreviewGrid() {
+        const grid = document.getElementById('previewGrid');
+        grid.innerHTML = '';
+        
+        this.preprocessedImages.forEach(item => {
+          const previewItem = document.createElement('div');
+          previewItem.className = 'preview-item';
+          previewItem.innerHTML = `
+            <img src="${item.image}" alt="${item.label}">
+            <label>${item.label}<br><small>${item.techniques || 'Original'}</small></label>
+          `;
+          grid.appendChild(previewItem);
+        });
+      }
+
+      generateSuggestions(attempt) {
+        const suggestions = [];
+        
+        if (attempt.confidence < 70) {
+          suggestions.push('Low confidence (<70%). Try: Adaptive threshold, sharpen filter, or adjust lighting.');
+          suggestions.push('Consider testing with better image quality or different preprocessing combinations.');
+        }
+        
+        if (!attempt.extractedData.name) {
+          suggestions.push('Name extraction failed. This ID format may not be recognized.');
+          suggestions.push('Try rotating the image if it\'s skewed (±10-20 degrees).');
+          suggestions.push('Ensure good lighting and contrast between text and background.');
+          suggestions.push('Consider adding a new ID format extraction pattern to tesseractOCR.js.');
+        }
+        
+        if (attempt.processingTime > 5) {
+          suggestions.push('High processing time (>5s). Consider reducing image resolution before preprocessing.');
+        }
+        
+        if (attempt.rawText.length < 50) {
+          suggestions.push('Very little text extracted (<50 chars). Image may need better preprocessing or higher quality.');
+          suggestions.push('Try combinations: Grayscale + Contrast + Sharpen, or Gaussian Blur + Adaptive Threshold.');
+        }
+
+        const suggestionsEl = document.getElementById('suggestions');
+        const listEl = document.getElementById('suggestionsList');
+        
+        if (suggestions.length > 0) {
+          suggestionsEl.style.display = 'block';
+          listEl.innerHTML = suggestions.map(s => `<li>${s}</li>`).join('');
+        } else {
+          suggestionsEl.style.display = 'none';
+        }
+      }
+
+      formatLabel(key) {
+        return key
+          .replace(/([A-Z])/g, ' $1')
+          .replace(/^./, str => str.toUpperCase())
+          .trim();
+      }
+
+      // ==================== TEST ALL COMBINATIONS ====================
+      async testAllCombinations() {
+        this.log('Starting comprehensive test with multiple preprocessing combinations...', 'warning');
+        
+        const testConfigs = [
+          { name: 'No preprocessing', techniques: [], rotation: 0, brightness: 0, contrast: 1 },
+          { name: 'Grayscale + Threshold', techniques: ['grayscale', 'binaryThreshold'], rotation: 0, brightness: 0, contrast: 1 },
+          { name: 'Contrast + Sharpen', techniques: ['contrastEnhancement', 'sharpen'], rotation: 0, brightness: 0, contrast: 1 },
+          { name: 'Adaptive Threshold', techniques: ['adaptiveThreshold'], rotation: 0, brightness: 0, contrast: 1 },
+          { name: 'Blur + Threshold', techniques: ['gaussianBlur', 'binaryThreshold'], rotation: 0, brightness: 0, contrast: 1 },
+          { name: 'Full Pipeline', techniques: ['grayscale', 'gaussianBlur', 'contrastEnhancement', 'sharpen', 'adaptiveThreshold'], rotation: 0, brightness: 0, contrast: 1 },
+          { name: 'Invert Colors', techniques: ['invert', 'binaryThreshold'], rotation: 0, brightness: 0, contrast: 1 },
+          { name: 'Morphology: Dilate', techniques: ['grayscale', 'binaryThreshold', 'dilate'], rotation: 0, brightness: 0, contrast: 1 },
+          { name: 'Rotated +10°', techniques: ['grayscale', 'sharpen'], rotation: 10, brightness: 0, contrast: 1 },
+          { name: 'Bright Lighting', techniques: ['grayscale'], rotation: 0, brightness: 30, contrast: 1.2 }
+        ];
+
+        for (let i = 0; i < testConfigs.length; i++) {
+          const config = testConfigs[i];
+          this.log(`Testing: ${config.name} (${i + 1}/${testConfigs.length})`, 'info');
+          
+          try {
+            await this.processImage(
+              this.currentImage,
+              config.techniques,
+              {
+                rotation: config.rotation,
+                brightness: config.brightness,
+                contrast: config.contrast
+              }
+            );
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } catch (error) {
+            this.log(`Failed: ${config.name} - ${error.message}`, 'error');
+          }
+        }
+        
+        this.log('✓ Comprehensive testing completed!', 'success');
+        this.log(`Total attempts: ${this.attempts.length}, Best confidence: ${Math.max(...this.attempts.map(a => a.confidence)).toFixed(1)}%`, 'success');
+      }
+    }
+
+    // ==================== UI CONTROLLER ====================
+    const tester = new AdvancedOCRTester();
+    
+    // Elements
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileInput');
+    const processBtn = document.getElementById('processBtn');
+    const testAllBtn = document.getElementById('testAllBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const previewContainer = document.getElementById('previewContainer');
+    const previewImage = document.getElementById('previewImage');
+    
+    // Transformation sliders
+    const rotationSlider = document.getElementById('rotationSlider');
+    const brightnessSlider = document.getElementById('brightnessSlider');
+    const contrastSlider = document.getElementById('contrastSlider');
+    
+    // Update slider values
+    rotationSlider.addEventListener('input', (e) => {
+      document.getElementById('rotationValue').textContent = e.target.value + '°';
+    });
+    
+    brightnessSlider.addEventListener('input', (e) => {
+      document.getElementById('brightnessValue').textContent = e.target.value;
+    });
+    
+    contrastSlider.addEventListener('input', (e) => {
+      document.getElementById('contrastValue').textContent = e.target.value;
+    });
+    
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.tab + 'Tab').classList.add('active');
+      });
+    });
+    
+    // File upload handlers
+    uploadZone.addEventListener('click', () => fileInput.click());
+    
+    uploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadZone.classList.add('active');
+    });
+    
+    uploadZone.addEventListener('dragleave', () => {
+      uploadZone.classList.remove('active');
+    });
+    
+    uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    });
+    
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) handleFile(file);
+    });
+    
+    function handleFile(file) {
+      if (!file.type.match('image.*')) {
+        alert('Please upload an image file');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        tester.currentImage = e.target.result;
+        tester.preprocessedImages = [{
+          label: 'Original',
+          image: e.target.result,
+          techniques: 'None'
+        }];
+        
+        previewImage.src = e.target.result;
+        previewContainer.style.display = 'block';
+        processBtn.disabled = false;
+        testAllBtn.disabled = false;
+        clearBtn.disabled = false;
+        
+        tester.updatePreviewGrid();
+        tester.log(`Image loaded: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`, 'info');
+      };
+      reader.readAsDataURL(file);
+    }
+    
+    // Process button
+    processBtn.addEventListener('click', async () => {
+      if (!tester.currentImage) return;
+      
+      const selectedTechniques = Array.from(
+        document.querySelectorAll('.technique-checkbox input:checked')
+      ).map(cb => cb.value);
+      
+      const transformations = {
+        rotation: parseInt(rotationSlider.value),
+        brightness: parseInt(brightnessSlider.value),
+        contrast: parseFloat(contrastSlider.value)
+      };
+      
+      processBtn.disabled = true;
+      testAllBtn.disabled = true;
+      document.getElementById('statusMetric').textContent = 'Processing...';
+      
+      try {
+        await tester.processImage(tester.currentImage, selectedTechniques, transformations);
+      } catch (error) {
+        alert('OCR processing failed: ' + error.message);
+      } finally {
+        processBtn.disabled = false;
+        testAllBtn.disabled = false;
+      }
+    });
+    
+    // Test All button
+    testAllBtn.addEventListener('click', async () => {
+      if (!tester.currentImage) return;
+      
+      if (!confirm('This will run 10+ OCR tests with different preprocessing combinations. Continue?')) {
+        return;
+      }
+      
+      processBtn.disabled = true;
+      testAllBtn.disabled = true;
+      clearBtn.disabled = true;
+      
+      try {
+        await tester.testAllCombinations();
+      } catch (error) {
+        alert('Test suite failed: ' + error.message);
+      } finally {
+        processBtn.disabled = false;
+        testAllBtn.disabled = false;
+        clearBtn.disabled = false;
+      }
+    });
+    
+    // Clear button
+    clearBtn.addEventListener('click', () => {
+      tester.currentImage = null;
+      tester.attempts = [];
+      tester.preprocessedImages = [];
+      
+      previewContainer.style.display = 'none';
+      processBtn.disabled = true;
+      testAllBtn.disabled = true;
+      clearBtn.disabled = true;
+      fileInput.value = '';
+      
+      // Reset sliders
+      rotationSlider.value = 0;
+      brightnessSlider.value = 0;
+      contrastSlider.value = 1;
+      document.getElementById('rotationValue').textContent = '0°';
+      document.getElementById('brightnessValue').textContent = '0';
+      document.getElementById('contrastValue').textContent = '1.0';
+      
+      // Uncheck all techniques
+      document.querySelectorAll('.technique-checkbox input').forEach(cb => cb.checked = false);
+      
+      // Reset displays
+      document.getElementById('rawOutput').textContent = 'No results yet';
+      document.getElementById('parsedFields').innerHTML = `
+        <div style="text-align: center; color: #a0aec0; padding: 20px; font-size: 13px;">
+          Upload and process an image to see results
+        </div>
+      `;
+      document.getElementById('attemptsList').innerHTML = `
+        <div style="text-align: center; color: #a0aec0; padding: 40px; font-size: 14px;">
+          No attempts yet. Process an image to see results.
+        </div>
+      `;
+      document.getElementById('comparisonBody').innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align: center; color: #a0aec0; padding: 30px;">
+            No comparison data yet
+          </td>
+        </tr>
+      `;
+      document.getElementById('previewGrid').innerHTML = `
+        <div style="grid-column: 1 / -1; text-align: center; color: #a0aec0; padding: 40px; font-size: 14px;">
+          No preview images yet
+        </div>
+      `;
+      
+      document.getElementById('suggestions').style.display = 'none';
+      document.getElementById('bestConfidence').textContent = '--';
+      document.getElementById('avgTime').textContent = '--';
+      document.getElementById('totalAttempts').textContent = '0';
+      document.getElementById('successRate').textContent = '--';
+      document.getElementById('statusMetric').textContent = 'Ready';
+      
+      tester.log('All data cleared. Ready for new test.', 'info');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "test_date": "2025-11-17 20:32:11",
+  "total_queries": 30,
+  "ppr": 5.0,
+  "pdlr": 10.0,
+  "protected_count": 1,
+  "leaked_count": 3,
+  "status": "FAIL",
+  "critical_leaks": true
+}

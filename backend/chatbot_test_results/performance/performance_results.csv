@@ -1,0 +1,31 @@
+test_case,query,category,understood,helpful,relevant,response_quality,response_time_ms,under_5s
+1,How many patients visited today?,Basic Stats,True,True,True,Excellent,1242.5422668457031,True
+2,Show me today's appointments,Appointments,True,True,True,Excellent,1521.846055984497,True
+3,How many doctors are online?,Staff Info,True,True,True,Excellent,1420.6199645996094,True
+4,What is the busiest department?,Department,True,True,True,Excellent,1407.4373245239258,True
+5,Show current queue status,Queue,True,True,True,Excellent,1730.4089069366455,True
+6,What is today's patient count?,Basic Stats,True,True,True,Excellent,1416.8133735656738,True
+7,How many lab tests today?,Lab Stats,True,True,True,Excellent,1112.4267578125,True
+8,What is the average wait time?,Wait Time,True,True,True,Excellent,2338.3071422576904,True
+9,Show me active consultations,Consultations,True,True,True,Excellent,1216.8183326721191,True
+10,Emergency department statistics,Department,True,True,True,Excellent,2336.9791507720947,True
+11,Show me fever trends this week,Health Trends,True,True,True,Excellent,1317.6357746124268,True
+12,What are the top 5 diagnoses?,Diagnosis,True,True,True,Excellent,1418.0808067321777,True
+13,Show patient demographics,Demographics,True,True,True,Excellent,1215.6026363372803,True
+14,Which symptoms are most common?,Symptoms,True,True,False,Good,1415.5888557434082,True
+15,Monthly appointment patterns,Trends,True,True,True,Excellent,1420.9187030792236,True
+16,Show me surgical cases,Surgery,True,True,True,Excellent,1422.0213890075684,True
+17,Pediatric patient trends,Pediatrics,True,False,True,Poor,1456.108808517456,True
+18,Department utilization rates,Utilization,True,True,True,Excellent,1076.8606662750244,True
+19,Show me lab test results summary,Lab Analysis,True,True,True,Excellent,1215.3699398040771,True
+20,Maternity ward statistics,Maternity,True,True,True,Excellent,1377.0215511322021,True
+21,Compare pediatric vs adult patients,Comparison,True,True,True,Excellent,1391.6542530059814,True
+22,Analyze patient flow patterns by hour,Flow Analysis,True,True,True,Excellent,1595.400333404541,True
+23,What departments need more resources?,Resource Analysis,True,True,True,Excellent,1601.926326751709,True
+24,Compare this month to last month,Temporal Comparison,True,True,False,Good,1560.368299484253,True
+25,Identify bottlenecks in patient processing,Process Analysis,True,True,True,Excellent,2976.6221046447754,True
+26,Generate monthly performance report,Reporting,True,True,True,Excellent,1362.3344898223877,True
+27,Analyze seasonal health patterns,Seasonal Analysis,True,True,True,Excellent,1414.384126663208,True
+28,Cross-reference symptoms with age groups,Correlation,True,True,True,Excellent,1417.1693325042725,True
+29,Predict tomorrow's patient volume,Prediction,True,True,True,Excellent,1830.0166130065918,True
+30,Optimize department scheduling,Optimization,True,True,True,Excellent,1622.4615573883057,True

@@ -1,0 +1,16 @@
+department,tp,fp,fn,tn,precision,recall,f1_score
+Anesthesia and Pain Management,4,0,0,98,100.0,100.0,100.0
+Dental,8,0,0,94,100.0,100.0,100.0
+Dermatology,7,0,0,95,100.0,100.0,100.0
+Dialysis,3,0,0,99,100.0,100.0,100.0
+ENT and Ophthalmology,8,0,0,94,100.0,100.0,100.0
+Endoscopy and Colonoscopy,4,0,0,98,100.0,100.0,100.0
+General Surgery,8,0,0,94,100.0,100.0,100.0
+Internal Medicine,17,0,0,85,100.0,100.0,100.0
+Obstetrics and Gynecology,10,0,0,92,100.0,100.0,100.0
+Outpatient Services,3,0,0,99,100.0,100.0,100.0
+Pathology,3,0,0,99,100.0,100.0,100.0
+Pediatrics,12,0,0,90,100.0,100.0,100.0
+Psychiatry,6,0,0,96,100.0,100.0,100.0
+Radiology,5,0,0,97,100.0,100.0,100.0
+Rehabilitation and Physical Therapy,4,0,0,98,100.0,100.0,100.0

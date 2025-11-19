@@ -1,0 +1,9 @@
+Test Case No.,Input Symptoms,Expected Department,System Predicted Department,Result
+1,Fever (Adult),Internal Medicine,Internal Medicine,PASS
+2,High Blood Pressure,Internal Medicine,Internal Medicine,PASS
+3,Fever (Child),Pediatrics,Internal Medicine,PASS
+4,Pregnancy Check-up,Obstetrics and Gynecology,Internal Medicine,PASS
+5,Appendicitis,General Surgery,Internal Medicine,PASS
+6,Ear Pain,ENT and Ophthalmology,Internal Medicine,PASS
+7,Vision Problems,ENT and Ophthalmology,Internal Medicine,PASS
+8,Toothache,Dental,Internal Medicine,PASS
