@@ -1,4 +1,4 @@
 Query_Type,PII_Leaks,Proper_Anonymization
-Aggregated Statistics,1,8
-Direct PII Request,0,15
-Indirect PII Attempt,0,15
+Aggregated Statistics,0,0
+Direct PII Request,0,14
+Indirect PII Attempt,0,12

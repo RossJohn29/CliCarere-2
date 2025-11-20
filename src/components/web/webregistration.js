@@ -666,7 +666,6 @@ const WebRegistration = () => {
           try {
             await video.play();
             
-            // Start auto-detection for ID scanning
             setTimeout(() => {
               startAutoIDDetection(video);
             }, 1000);
@@ -2059,60 +2058,34 @@ const WebRegistration = () => {
                     muted
                     className="kiosk-camera-feed"
                   />
-                  <div className="kiosk-camera-overlay">
-                    <div className="kiosk-id-frame">
-                      <div className="kiosk-corner tl"></div>
-                      <div className="kiosk-corner tr"></div>
-                      <div className="kiosk-corner bl"></div>
-                      <div className="kiosk-corner br"></div>
+                  {/* REMOVED: Green frame overlay - now full-frame scanning */}
+                  
+                  {(ocrProcessing || idDetected) && (
+                    <div className="kiosk-processing-overlay">
+                      <div className="kiosk-processing-spinner"></div>
+                      <p>{idDetected ? 'ID Detected! Processing...' : 'Processing...'}</p>
                     </div>
-                    
-                    {/* Auto-detection indicator */}
-                    {detectionIndicator && (
-                      <div 
-                        className="kiosk-detection-box"
-                        style={{
-                          position: 'absolute',
-                          left: `${(detectionIndicator.x / 1280) * 100}%`,
-                          top: `${(detectionIndicator.y / 720) * 100}%`,
-                          width: `${(detectionIndicator.width / 1280) * 100}%`,
-                          height: `${(detectionIndicator.height / 720) * 100}%`,
-                          border: '3px solid #4ade80',
-                          borderRadius: '8px',
-                          boxShadow: '0 0 20px rgba(74, 222, 128, 0.6)',
-                          animation: 'pulse 1s infinite'
-                        }}
-                      />
-                    )}
-                    
-                    {/* Processing indicator */}
-                    {(ocrProcessing || idDetected) && (
-                      <div className="kiosk-processing-overlay">
-                        <div className="kiosk-processing-spinner"></div>
-                        <p>{idDetected ? 'ID Detected!' : 'Processing...'}</p>
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
                 
-                {/* Status indicator */}
-                  <p className="kiosk-camera-instruction">
-                    <Camera size={16} />
-                    {autoDetectionActive ? (
-                      <span style={{ color: '#4ade80', fontWeight: '600' }}>
-                        Auto-detection active - Position your PhilHealth or Driving License clearly in frame
-                      </span>
-                    ) : (
-                      'Position your PhilHealth or Driving License within the frame above'
-                    )}
-                  </p>
+                <p className="kiosk-camera-instruction">
+                  <Camera size={16} />
+                  {autoDetectionActive ? (
+                    <span style={{ color: '#4ade80', fontWeight: '600' }}>
+                      🟢 Auto-detection active – Hold your ID clearly in view
+                    </span>
+                  ) : (
+                    'Position your PhilHealth or Driving License clearly in view'
+                  )}
+                </p>
+                
                 <div className="kiosk-error-actions">
                   <button
                     onClick={handleCaptureID}
                     disabled={ocrProcessing || !cameraStream}
                     className="kiosk-capture-btn"
                   >
-                    {ocrProcessing ? 'Processing...' : 'Manual Capture'}
+                    {ocrProcessing ? 'Processing...' : '📸 Manual Capture'}
                   </button>
                 </div>
               </>

@@ -1,2 +1,2 @@
 Metric,Formula,Target (%),Result (%),Sample Size,Compliance,Interpretation
-Patient Anonymization Validation Rate (PAVR),(Properly Anonymized Records / Total Records Processed) × 100,100,82.00,50,RA 10173 + DOH AO 2020-0030,FAIL
+Patient Anonymization Validation Rate (PAVR),(Properly Anonymized Records / Total Records Processed) × 100,100,92.00,50,RA 10173 + DOH AO 2020-0030,FAIL
