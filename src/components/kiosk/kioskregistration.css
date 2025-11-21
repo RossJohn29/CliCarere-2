@@ -1188,18 +1188,14 @@ select.kioskreg-form-input:focus {
   position: relative;
   overflow: hidden;
   width: 100%;
-  max-width: 640px; /* Max width for 720p aspect ratio */
+  max-width: 640px;
   margin: 0 auto 15px auto;
   background: #000;
   border-radius: var(--kioskreg-border-radius);
-  aspect-ratio: 16/9; /* Maintain 720p aspect ratio */
-}
-
-.kiosk-camera-feed {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+  min-height: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .kiosk-camera-overlay {
@@ -1208,31 +1204,11 @@ select.kioskreg-form-input:focus {
   left: 0;
   right: 0;
   bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
 }
-
-.kiosk-id-frame {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 80%;
-  height: 60%;
-  border: 3px dashed rgba(255, 255, 255, 0.8);
-  border-radius: var(--kioskreg-border-radius);
-}
-
-.kiosk-corner {
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  border: 4px solid var(--kioskreg-primary-color);
-}
-
-.kiosk-corner.tl { top: -2px; left: -2px; border-right: none; border-bottom: none; }
-.kiosk-corner.tr { top: -2px; right: -2px; border-left: none; border-bottom: none; }
-.kiosk-corner.bl { bottom: -2px; left: -2px; border-right: none; border-top: none; }
-.kiosk-corner.br { bottom: -2px; right: -2px; border-left: none; border-top: none; }
 
 .kiosk-camera-error,
 .kiosk-qr-error {
@@ -2128,36 +2104,6 @@ select.kioskreg-form-input:focus {
   transition: all 0.3s ease;
 }
 
-.kiosk-processing-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.85);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  gap: 15px;
-  z-index: 10;
-}
-
-.kiosk-processing-spinner {
-  border: 4px solid rgba(255, 255, 255, 0.3);
-  border-top: 4px solid #4ade80;
-  border-radius: 50%;
-  width: 50px;
-  height: 50px;
-  animation: spin 0.8s linear infinite;
-}
-
-.kiosk-processing-overlay p {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0;
-}
 
 @keyframes spin {
   to { transform: rotate(360deg); }
@@ -2194,19 +2140,12 @@ select.kioskreg-form-input:focus {
   font-weight: 400;
 }
 
-.kiosk-camera-container {
-  position: relative;
-  overflow: hidden;
-  aspect-ratio: 16/9;
-  background: #000;
-  border-radius: var(--kioskreg-border-radius);
-}
 
 .kiosk-camera-feed {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: auto;
   display: block;
+  object-fit: contain;
 }
 
 .kiosk-camera-overlay {
@@ -2223,17 +2162,19 @@ select.kioskreg-form-input:focus {
 
 .kiosk-id-frame {
   width: 85%;
+  max-width: 500px;
   aspect-ratio: 1.6;
-  border: 3px solid rgba(26, 103, 42, 0.8);
-  border-radius: 16px;
+  border: 3px solid var(--kioskreg-primary-color);
+  border-radius: 12px;
   position: relative;
+  background: transparent;
   box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.3);
 }
 
 .kiosk-corner {
   position: absolute;
-  width: 30px;
-  height: 30px;
+  width: 25px;
+  height: 25px;
 }
 
 .kiosk-corner.tl {
@@ -2241,7 +2182,7 @@ select.kioskreg-form-input:focus {
   left: -3px;
   border-top: 4px solid var(--kioskreg-primary-color);
   border-left: 4px solid var(--kioskreg-primary-color);
-  border-radius: 16px 0 0 0;
+  border-radius: 12px 0 0 0;
 }
 
 .kiosk-corner.tr {
@@ -2249,7 +2190,7 @@ select.kioskreg-form-input:focus {
   right: -3px;
   border-top: 4px solid var(--kioskreg-primary-color);
   border-right: 4px solid var(--kioskreg-primary-color);
-  border-radius: 0 16px 0 0;
+  border-radius: 0 12px 0 0;
 }
 
 .kiosk-corner.bl {
@@ -2257,7 +2198,7 @@ select.kioskreg-form-input:focus {
   left: -3px;
   border-bottom: 4px solid var(--kioskreg-primary-color);
   border-left: 4px solid var(--kioskreg-primary-color);
-  border-radius: 0 0 0 16px;
+  border-radius: 0 0 0 12px;
 }
 
 .kiosk-corner.br {
@@ -2265,7 +2206,7 @@ select.kioskreg-form-input:focus {
   right: -3px;
   border-bottom: 4px solid var(--kioskreg-primary-color);
   border-right: 4px solid var(--kioskreg-primary-color);
-  border-radius: 0 0 16px 0;
+  border-radius: 0 0 12px 0;
 }
 
 .kiosk-detection-box {
@@ -2280,33 +2221,35 @@ select.kioskreg-form-input:focus {
 
 .kiosk-processing-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.85);
+  padding: 25px 40px;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  color: white;
-  gap: 15px;
+  gap: 12px;
   z-index: 10;
+  pointer-events: none;
 }
 
 .kiosk-processing-spinner {
-  border: 4px solid rgba(255, 255, 255, 0.3);
-  border-top: 4px solid white;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top: 3px solid var(--kioskreg-primary-color);
   border-radius: 50%;
-  width: 50px;
-  height: 50px;
-  animation: spin 1s linear infinite;
+  width: 40px;
+  height: 40px;
+  animation: spin 0.8s linear infinite;
 }
 
 .kiosk-processing-overlay p {
-  font-size: 16px;
-  font-weight: 500;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
   margin: 0;
+  text-align: center;
 }
 
 .kiosk-error-actions {

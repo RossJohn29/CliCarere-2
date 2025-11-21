@@ -661,7 +661,12 @@ const WebRegistration = () => {
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
         video.muted = true;
-        
+
+        video.style.width = '100%';
+        video.style.height = 'auto';
+        video.style.maxHeight = '60vh';
+        video.style.objectFit = 'contain';
+                
         const playVideo = async () => {
           try {
             await video.play();
@@ -2012,88 +2017,96 @@ const WebRegistration = () => {
   const renderCameraModal = () => {
     if (!showCameraModal) return null;
 
-    return (
-      <div className="kiosk-popup-overlay">
-        <div className="kiosk-popup kiosk-camera-modal">
-          <div className="kiosk-popup-header">
-            <h3>Scan Philippine ID</h3>
-            <p style={{ fontSize: '0.9em', color: '#666', margin: '5px 0 0 0' }}>
-              Supported: PhilHealth, Driving License
-            </p>
-            <button onClick={closeCameraModal} className="kiosk-popup-close">
-              <X size={20} />
-            </button>
-          </div>
-          <div className="kiosk-popup-content">
-            {cameraError ? (
-              <div className="kiosk-camera-error">
-                <div className="kiosk-error-icon">
-                  <AlertTriangle size={48} />
-                </div>
-                <p>{cameraError}</p>
-                <div className="kiosk-error-actions">
-                  {cameraError.includes('HTTPS') ? (
-                    <button onClick={() => closeCameraModal(true)} className="kiosk-retry-btn">
+  return (
+    <div className="web-popup-overlay">
+      <div className="web-popup web-camera-modal">
+        <div className="web-popup-header">
+          <h3>Scan Philippine ID</h3>
+          <p style={{ fontSize: '0.9em', color: '#666', margin: '5px 0 0 0' }}>
+            Supported: PhilHealth, Driving License
+          </p>
+          <button onClick={closeCameraModal} className="web-popup-close">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="web-popup-content">
+          {cameraError ? (
+            <div className="web-camera-error">
+              <div className="web-error-icon">
+                <AlertTriangle size={48} />
+              </div>
+              <p>{cameraError}</p>
+              <div className="web-error-actions">
+                {cameraError.includes('HTTPS') ? (
+                  <button onClick={() => closeCameraModal(true)} className="web-retry-btn">
+                    Enter Manually
+                  </button>
+                ) : (
+                  <>
+                    <button onClick={retryIDCamera} className="web-retry-btn">
+                      <RotateCcw size={16} /> Try Again
+                    </button>
+                    <button onClick={() => closeCameraModal(true)} className="web-cancel-btn">
                       Enter Manually
                     </button>
-                  ) : (
-                    <>
-                      <button onClick={retryIDCamera} className="kiosk-retry-btn">
-                        <RotateCcw size={16} /> Try Again
-                      </button>
-                      <button onClick={() => closeCameraModal(true)} className="kiosk-cancel-btn">
-                        Enter Manually
-                      </button>
-                    </>
-                  )}
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="web-camera-container">
+                <video 
+                  id="camera-feed" 
+                  autoPlay
+                  playsInline
+                  muted
+                  className="web-camera-feed"
+                />
+                
+                <div className="web-camera-overlay">
+                  <div className="web-id-frame">
+                    <div className="web-corner tl"></div>
+                    <div className="web-corner tr"></div>
+                    <div className="web-corner bl"></div>
+                    <div className="web-corner br"></div>
+                    
+                    {(ocrProcessing || idDetected) && (
+                      <div className="web-processing-overlay">
+                        <div className="web-processing-spinner"></div>
+                        <p>{idDetected ? 'ID Detected! Processing...' : 'Processing...'}</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            ) : (
-              <>
-                <div className="kiosk-camera-container">
-                  <video 
-                    id="camera-feed" 
-                    autoPlay
-                    playsInline
-                    muted
-                    className="kiosk-camera-feed"
-                  />
-                  {/* REMOVED: Green frame overlay - now full-frame scanning */}
-                  
-                  {(ocrProcessing || idDetected) && (
-                    <div className="kiosk-processing-overlay">
-                      <div className="kiosk-processing-spinner"></div>
-                      <p>{idDetected ? 'ID Detected! Processing...' : 'Processing...'}</p>
-                    </div>
-                  )}
-                </div>
-                
-                <p className="kiosk-camera-instruction">
-                  <Camera size={16} />
-                  {autoDetectionActive ? (
-                    <span style={{ color: '#4ade80', fontWeight: '600' }}>
-                      🟢 Auto-detection active – Hold your ID clearly in view
-                    </span>
-                  ) : (
-                    'Position your PhilHealth or Driving License clearly in view'
-                  )}
-                </p>
-                
-                <div className="kiosk-error-actions">
-                  <button
-                    onClick={handleCaptureID}
-                    disabled={ocrProcessing || !cameraStream}
-                    className="kiosk-capture-btn"
-                  >
-                    {ocrProcessing ? 'Processing...' : '📸 Manual Capture'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+              
+              <p className="web-camera-instruction">
+                <Camera size={16} />
+                {autoDetectionActive ? (
+                  <span style={{ color: '#4ade80', fontWeight: '600' }}>
+                    🟢 Auto-detection active – Hold your ID clearly in view
+                  </span>
+                ) : (
+                  'Position your PhilHealth or Driving License clearly in view'
+                )}
+              </p>
+              
+              <div className="web-error-actions">
+                <button
+                  onClick={handleCaptureID}
+                  disabled={ocrProcessing || !cameraStream}
+                  className="web-capture-btn"
+                >
+                  {ocrProcessing ? 'Processing...' : '📸 Manual Capture'}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
-    );
+    </div>
+  );
   };
 
   const renderSuccessModal = () => {

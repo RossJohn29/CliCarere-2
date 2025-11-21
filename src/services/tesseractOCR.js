@@ -1,19 +1,20 @@
+// tesseractOCR.js
 import Tesseract from 'tesseract.js';
 
 /**
  * Enhanced auto-detection config for full-frame scanning
  */
 const AUTO_DETECTION_CONFIG = {
-  STABILITY_THRESHOLD: 400, // ms - reduced for faster response
-  CAPTURE_COOLDOWN: 4000, // ms - prevent rapid re-captures
-  MIN_CONTOUR_AREA: 30000, // Larger minimum for 720p
-  ASPECT_RATIO_MIN: 1.5, // Standard ID card ratio
+  STABILITY_THRESHOLD: 400,
+  CAPTURE_COOLDOWN: 4000,
+  MIN_CONTOUR_AREA: 30000,
+  ASPECT_RATIO_MIN: 1.5,
   ASPECT_RATIO_MAX: 1.7,
   EDGE_DENSITY_THRESHOLD: 0.12,
   BLUR_THRESHOLD: 120,
-  CONFIDENCE_THRESHOLD: 0.70, // Lowered slightly
-  STABLE_FRAMES_REQUIRED: 3, // Reduced for faster capture
-  FRAME_INTERVAL: 250 // ms between detection checks
+  CONFIDENCE_THRESHOLD: 0.70,
+  STABLE_FRAMES_REQUIRED: 3,
+  FRAME_INTERVAL: 250
 };
 
 /**
@@ -21,9 +22,15 @@ const AUTO_DETECTION_CONFIG = {
  */
 const OCR_CONFIG = {
   lang: 'eng',
-  oem: 1, // LSTM engine
-  psm: 6, // Assume uniform block of text
-  tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz0-9-,.',
+  oem: 3,
+  psm: 6,
+  tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz -.\',',
+  load_system_dawg: '0',
+  load_freq_dawg: '0',
+  load_unambig_dawg: '0',
+  load_punc_dawg: '0',
+  load_number_dawg: '0',
+  load_bigram_dawg: '0'
 };
 
 /**
@@ -42,7 +49,7 @@ export const preprocessingTechniques = {
   binaryThreshold: (imageData, threshold = 128) => {
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
-      const gray = data[i]; // Already grayscale
+      const gray = data[i];
       const binary = gray > threshold ? 255 : 0;
       data[i] = data[i + 1] = data[i + 2] = binary;
     }
@@ -164,7 +171,332 @@ export const preprocessingTechniques = {
       data[i + 2] = Math.max(0, Math.min(255, factor * data[i + 2] + contrast));
     }
     return imageData;
+  },
+
+  medianFilter: (imageData, radius = 1) => {
+    const width = imageData.width;
+    const height = imageData.height;
+    const data = imageData.data;
+    const output = new Uint8ClampedArray(data);
+    
+    for (let y = radius; y < height - radius; y++) {
+      for (let x = radius; x < width - radius; x++) {
+        const neighbors = [];
+        
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            const idx = ((y + dy) * width + (x + dx)) * 4;
+            neighbors.push(data[idx]);
+          }
+        }
+        
+        neighbors.sort((a, b) => a - b);
+        const median = neighbors[Math.floor(neighbors.length / 2)];
+        
+        const idx = (y * width + x) * 4;
+        output[idx] = output[idx + 1] = output[idx + 2] = median;
+      }
+    }
+    
+    for (let i = 0; i < data.length; i++) {
+      data[i] = output[i];
+    }
+    
+    return imageData;
   }
+};
+
+/**
+ * Enhanced OCR with Canvas preprocessing and multi-pass strategy
+ */
+export const processIDWithOCREnhanced = async (imageData, retryCount = 0) => {
+  try {
+    console.log(`🔍 OCR Attempt ${retryCount + 1}`);
+    
+    // Verify ID is fully in frame before processing
+    const frameCheck = await verifyIDInFrame(imageData);
+    if (!frameCheck.valid) {
+      return {
+        success: false,
+        name: null,
+        rawText: '',
+        confidence: 0,
+        shouldRetry: false,
+        message: 'ID not fully visible in frame. Please center the ID and try again.'
+      };
+    }
+    
+    // Multi-pass OCR with 3 Canvas-based preprocessing variations
+    const variations = await generateCanvasPreprocessingVariations(imageData);
+    const ocrResults = [];
+    
+    for (let i = 0; i < variations.length; i++) {
+      console.log(`📸 Processing variation ${i + 1}/${variations.length}`);
+      
+      const { data: { text, confidence } } = await Tesseract.recognize(
+        variations[i], 
+        OCR_CONFIG.lang,
+        {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              console.log(`Variation ${i + 1} Progress:`, Math.round(m.progress * 100) + '%');
+            }
+          },
+          ...OCR_CONFIG
+        }
+      );
+      
+      ocrResults.push({
+        text,
+        confidence,
+        variationIndex: i
+      });
+      
+      console.log(`📄 Variation ${i + 1} Raw Text:`, text);
+      console.log(`📊 Variation ${i + 1} Confidence:`, confidence);
+    }
+    
+    // Select best result using scoring algorithm
+    const bestResult = selectBestOCRResult(ocrResults);
+    console.log(`✅ Selected variation ${bestResult.variationIndex + 1} as best result`);
+    
+    const extractedName = extractNameFromID(bestResult.text);
+    
+    // ALWAYS return result, even with low confidence
+    if (extractedName) {
+      return {
+        success: true,
+        name: extractedName,
+        rawText: bestResult.text,
+        confidence: bestResult.confidence,
+        shouldRetry: false,
+        message: `Name extracted! (${Math.round(bestResult.confidence)}% confidence)`
+      };
+    }
+    
+    // If no name found, return raw text from best variation
+    return {
+      success: false,
+      name: null,
+      rawText: bestResult.text,
+      confidence: bestResult.confidence,
+      shouldRetry: false,
+      message: 'Could not extract name. Please verify the ID is clearly visible or enter manually.'
+    };
+    
+  } catch (error) {
+    console.error('❌ OCR Error:', error);
+    return {
+      success: false,
+      name: null,
+      rawText: '',
+      shouldRetry: false,
+      message: 'OCR processing failed. Please try again.',
+      error: error.message
+    };
+  }
+};
+
+/**
+ * Generate 3 preprocessing variations using Canvas API
+ */
+const generateCanvasPreprocessingVariations = async (imageDataUrl) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const variations = [];
+      
+      // Variation 1: Standard enhancement (grayscale + normalize + sharpen)
+      const canvas1 = document.createElement('canvas');
+      const ctx1 = canvas1.getContext('2d', { willReadFrequently: true });
+      canvas1.width = Math.min(img.width * 1.3, 1300);
+      canvas1.height = (canvas1.width / img.width) * img.height;
+      ctx1.drawImage(img, 0, 0, canvas1.width, canvas1.height);
+      
+      let imageData1 = ctx1.getImageData(0, 0, canvas1.width, canvas1.height);
+      imageData1 = preprocessingTechniques.grayscale(imageData1);
+      imageData1 = preprocessingTechniques.contrastEnhancement(imageData1, 1.2);
+      imageData1 = preprocessingTechniques.sharpen(imageData1);
+      imageData1 = preprocessingTechniques.medianFilter(imageData1, 2);
+      ctx1.putImageData(imageData1, 0, 0);
+      variations.push(canvas1.toDataURL('image/jpeg', 0.95));
+      
+      // Variation 2: High contrast + aggressive sharpening
+      const canvas2 = document.createElement('canvas');
+      const ctx2 = canvas2.getContext('2d', { willReadFrequently: true });
+      canvas2.width = Math.min(img.width * 1.4, 1400);
+      canvas2.height = (canvas2.width / img.width) * img.height;
+      ctx2.drawImage(img, 0, 0, canvas2.width, canvas2.height);
+      
+      let imageData2 = ctx2.getImageData(0, 0, canvas2.width, canvas2.height);
+      imageData2 = preprocessingTechniques.grayscale(imageData2);
+      imageData2 = preprocessingTechniques.contrastEnhancement(imageData2, 1.5);
+      imageData2 = preprocessingTechniques.sharpen(imageData2);
+      imageData2 = preprocessingTechniques.sharpen(imageData2); // Double sharpen
+      imageData2 = preprocessingTechniques.medianFilter(imageData2, 1);
+      ctx2.putImageData(imageData2, 0, 0);
+      variations.push(canvas2.toDataURL('image/jpeg', 0.95));
+      
+      // Variation 3: Binary threshold for clean text
+      const canvas3 = document.createElement('canvas');
+      const ctx3 = canvas3.getContext('2d', { willReadFrequently: true });
+      canvas3.width = Math.min(img.width * 1.2, 1200);
+      canvas3.height = (canvas3.width / img.width) * img.height;
+      ctx3.drawImage(img, 0, 0, canvas3.width, canvas3.height);
+      
+      let imageData3 = ctx3.getImageData(0, 0, canvas3.width, canvas3.height);
+      imageData3 = preprocessingTechniques.grayscale(imageData3);
+      imageData3 = preprocessingTechniques.contrastEnhancement(imageData3, 1.3);
+      imageData3 = preprocessingTechniques.sharpen(imageData3);
+      imageData3 = preprocessingTechniques.binaryThreshold(imageData3, 155);
+      ctx3.putImageData(imageData3, 0, 0);
+      variations.push(canvas3.toDataURL('image/jpeg', 0.95));
+      
+      console.log('✅ Generated 3 Canvas preprocessing variations');
+      resolve(variations);
+    };
+    
+    img.onerror = () => {
+      console.error('❌ Failed to load image for preprocessing');
+      resolve([imageDataUrl, imageDataUrl, imageDataUrl]);
+    };
+    
+    img.src = imageDataUrl;
+  });
+};
+
+/**
+ * Select best OCR result based on multiple criteria
+ */
+const selectBestOCRResult = (ocrResults) => {
+  if (ocrResults.length === 0) {
+    return { text: '', confidence: 0, variationIndex: 0 };
+  }
+  
+  let bestResult = null;
+  let bestScore = -1;
+  
+  for (let i = 0; i < ocrResults.length; i++) {
+    const result = ocrResults[i];
+    const text = result.text;
+    
+    // Calculate scoring factors
+    const confidenceScore = result.confidence / 100;
+    
+    // Length consistency (prefer 20-50 chars for typical full names)
+    const lengthScore = Math.max(0, 1 - Math.abs(text.length - 35) / 50);
+    
+    // Alphabetical percentage (prefer high letter-to-total ratio)
+    const letterCount = (text.match(/[A-Za-z]/g) || []).length;
+    const alphaScore = letterCount / Math.max(text.length, 1);
+    
+    // Clean character ratio (penalize excessive special chars)
+    const cleanChars = (text.match(/[A-Za-z\s,.-]/g) || []).length;
+    const cleanScore = cleanChars / Math.max(text.length, 1);
+    
+    // Line count (prefer 8-20 lines for structured ID text)
+    const lineCount = text.split('\n').filter(l => l.trim().length > 0).length;
+    const lineScore = lineCount >= 8 && lineCount <= 25 ? 1 : 0.5;
+    
+    // Weighted composite score
+    const compositeScore = (
+      confidenceScore * 0.30 +
+      lengthScore * 0.15 +
+      alphaScore * 0.25 +
+      cleanScore * 0.20 +
+      lineScore * 0.10
+    );
+    
+    console.log(`🔍 Variation ${i + 1} Score:`, {
+      confidence: confidenceScore.toFixed(2),
+      length: lengthScore.toFixed(2),
+      alpha: alphaScore.toFixed(2),
+      clean: cleanScore.toFixed(2),
+      lines: lineScore.toFixed(2),
+      composite: compositeScore.toFixed(2)
+    });
+    
+    if (compositeScore > bestScore) {
+      bestScore = compositeScore;
+      bestResult = result;
+    }
+  }
+  
+  return bestResult || ocrResults[0];
+};
+
+/**
+ * Verify ID is fully inside camera frame (Canvas-based)
+ */
+const verifyIDInFrame = async (imageDataUrl) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const grayData = new Uint8ClampedArray(canvas.width * canvas.height);
+      
+      // Convert to grayscale
+      for (let i = 0; i < imageData.data.length; i += 4) {
+        const gray = 0.299 * imageData.data[i] + 
+                     0.587 * imageData.data[i + 1] + 
+                     0.114 * imageData.data[i + 2];
+        grayData[i / 4] = gray;
+      }
+      
+      // Apply Sobel edge detection
+      const edges = applySobelEdgeDetection(grayData, canvas.width, canvas.height);
+      
+      // Check for edges near frame borders (5% margin)
+      const margin = Math.floor(Math.min(canvas.width, canvas.height) * 0.05);
+      const borderEdges = checkBorderEdges(edges, canvas.width, canvas.height, margin);
+      
+      // If significant edges detected at borders, ID might be cut off
+      if (borderEdges > 0.15) {
+        console.log('⚠️ ID appears to extend beyond frame borders');
+        resolve({ valid: false });
+      } else {
+        resolve({ valid: true });
+      }
+    };
+    
+    img.onerror = () => {
+      console.error('❌ Frame verification failed');
+      resolve({ valid: true }); // Default to valid if check fails
+    };
+    
+    img.src = imageDataUrl;
+  });
+};
+
+/**
+ * Check for edges near image borders
+ */
+const checkBorderEdges = (edges, width, height, margin) => {
+  let borderPixels = 0;
+  let edgePixels = 0;
+  
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      const isBorder = x < margin || x >= width - margin || 
+                       y < margin || y >= height - margin;
+      
+      if (isBorder) {
+        borderPixels++;
+        if (edges[idx] > 128) {
+          edgePixels++;
+        }
+      }
+    }
+  }
+  
+  return edgePixels / Math.max(borderPixels, 1);
 };
 
 /**
@@ -260,9 +592,6 @@ export const detectIDInFrame = (video, canvas) => {
   return bestScore > AUTO_DETECTION_CONFIG.CONFIDENCE_THRESHOLD ? bestRect : null;
 };
 
-// ... (Keep existing helper functions: applySobelEdgeDetection, findRectangularContours, etc.)
-// I'll include the essential ones:
-
 const applySobelEdgeDetection = (grayData, width, height) => {
   const edges = new Uint8ClampedArray(width * height);
   const sobelX = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
@@ -292,7 +621,7 @@ const applySobelEdgeDetection = (grayData, width, height) => {
 const findRectangularContours = (edges, width, height) => {
   const rectangles = [];
   const visited = new Uint8ClampedArray(width * height);
-  const stepSize = 15; // Smaller step for better detection
+  const stepSize = 15;
   
   for (let y = 0; y < height - 100; y += stepSize) {
     for (let x = 0; x < width - 180; x += stepSize) {
@@ -422,15 +751,12 @@ export const startAutoCapture = (video, onCapture, onDetection) => {
         sharpness: detection.sharpness
       });
       
-      // Keep only recent detections
       detectionHistory = detectionHistory.filter(d => now - d.time < 1500);
       
-      // Visual feedback (no overlay needed - just callback)
       if (onDetection) {
         onDetection(detection);
       }
       
-      // Check for stable frames
       if (detectionHistory.length >= AUTO_DETECTION_CONFIG.STABLE_FRAMES_REQUIRED) {
         const recentDetections = detectionHistory.slice(-AUTO_DETECTION_CONFIG.STABLE_FRAMES_REQUIRED);
         const isStable = checkStability(recentDetections);
@@ -439,27 +765,22 @@ export const startAutoCapture = (video, onCapture, onDetection) => {
           isCapturing = true;
           lastCaptureTime = now;
           
-          // Find best detection
           const bestDetection = recentDetections.reduce((best, current) => 
             current.confidence > best.confidence ? current : best
           );
           
-          // Capture and preprocess
           const processedImage = cropAndPreprocessID(video, bestDetection.boundingBox);
           
           detectionHistory = [];
           
-          // Trigger capture callback
           onCapture(processedImage, bestDetection);
           
-          // Cooldown period
           setTimeout(() => {
             isCapturing = false;
           }, AUTO_DETECTION_CONFIG.CAPTURE_COOLDOWN);
         }
       }
     } else {
-      // Reset if no detection for too long
       if (detectionHistory.length > 0 && now - detectionHistory[detectionHistory.length - 1].time > 800) {
         detectionHistory = [];
       }
@@ -488,12 +809,10 @@ const checkStability = (detections) => {
   for (let i = 1; i < detections.length; i++) {
     const current = detections[i].boundingBox;
     
-    // More lenient position check
     if (Math.abs(current.x - first.x) > 50 || Math.abs(current.y - first.y) > 50) {
       return false;
     }
     
-    // More lenient size check
     if (Math.abs(current.width - first.width) > first.width * 0.15 || 
         Math.abs(current.height - first.height) > first.height * 0.15) {
       return false;
@@ -511,119 +830,37 @@ export const cropAndPreprocessID = (video, boundingBox) => {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   
-  // Add padding
-  const padding = 10;
-  const x = Math.max(0, boundingBox.x - padding);
-  const y = Math.max(0, boundingBox.y - padding);
-  const width = Math.min(video.videoWidth - x, boundingBox.width + 2 * padding);
-  const height = Math.min(video.videoHeight - y, boundingBox.height + 2 * padding);
+  const videoAspect = video.videoWidth / video.videoHeight;
+  let sourceWidth = video.videoWidth;
+  let sourceHeight = video.videoHeight;
+  let sourceX = 0;
+  let sourceY = 0;
   
-  canvas.width = width;
-  canvas.height = height;
+  if (boundingBox) {
+    const padding = 10;
+    sourceX = Math.max(0, boundingBox.x - padding);
+    sourceY = Math.max(0, boundingBox.y - padding);
+    sourceWidth = Math.min(video.videoWidth - sourceX, boundingBox.width + 2 * padding);
+    sourceHeight = Math.min(video.videoHeight - sourceY, boundingBox.height + 2 * padding);
+  }
   
-  ctx.drawImage(video, x, y, width, height, 0, 0, width, height);
+  canvas.width = sourceWidth;
+  canvas.height = sourceHeight;
   
-  // Apply Mode #9 pipeline: grayscale → binary → dilate
+  ctx.drawImage(
+    video,
+    sourceX, sourceY, sourceWidth, sourceHeight,
+    0, 0, canvas.width, canvas.height
+  );
+  
   let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   imageData = preprocessingTechniques.grayscale(imageData);
-  imageData = preprocessingTechniques.binaryThreshold(imageData, 140); // Slightly higher threshold
+  imageData = preprocessingTechniques.binaryThreshold(imageData, 140);
   imageData = preprocessingTechniques.dilate(imageData, 1);
   
   ctx.putImageData(imageData, 0, 0);
   
   return canvas.toDataURL('image/jpeg', 0.95);
-};
-
-/**
- * Enhanced OCR with retry strategies
- */
-export const processIDWithOCREnhanced = async (imageData, retryCount = 0) => {
-  try {
-    console.log(`🔍 OCR Attempt ${retryCount + 1}`);
-    
-    // First attempt with default preprocessing
-    const { data: { text, confidence } } = await Tesseract.recognize(imageData, OCR_CONFIG.lang, {
-      logger: m => {
-        if (m.status === 'recognizing text') {
-          console.log('OCR Progress:', Math.round(m.progress * 100) + '%');
-        }
-      },
-      ...OCR_CONFIG
-    });
-    
-    console.log('📄 OCR Raw Text:', text);
-    console.log('📊 Confidence:', confidence);
-    
-    const extractedName = extractNameFromID(text);
-    
-    // ALWAYS return result, even with low confidence
-    if (extractedName) {
-      return {
-        success: true,
-        name: extractedName,
-        rawText: text,
-        confidence: confidence,
-        shouldRetry: false,
-        message: `Name extracted! (${Math.round(confidence)}% confidence)`
-      };
-    }
-    
-    // Retry with alternative preprocessing if no name found and retries available
-    if (retryCount < 1) {
-      console.log('⚠️ No name found, trying alternative preprocessing...');
-      
-      // Alternative: sharpen + adaptive threshold
-      const altImage = await applyAlternativePreprocessing(imageData);
-      return processIDWithOCREnhanced(altImage, retryCount + 1);
-    }
-    
-    // Final fallback: return raw text
-    return {
-      success: false,
-      name: null,
-      rawText: text,
-      confidence: confidence,
-      shouldRetry: false,
-      message: 'Could not extract name. Please verify the ID is clearly visible or enter manually.'
-    };
-    
-  } catch (error) {
-    console.error('❌ OCR Error:', error);
-    return {
-      success: false,
-      name: null,
-      rawText: '',
-      shouldRetry: false,
-      message: 'OCR processing failed. Please try again.',
-      error: error.message
-    };
-  }
-};
-
-/**
- * Alternative preprocessing for retry
- */
-const applyAlternativePreprocessing = async (imageDataUrl) => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-      
-      let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      imageData = preprocessingTechniques.grayscale(imageData);
-      imageData = preprocessingTechniques.sharpen(imageData);
-      imageData = preprocessingTechniques.adaptiveThreshold(imageData, 30, 15);
-      imageData = preprocessingTechniques.contrastEnhancement(imageData, 1.3);
-      
-      ctx.putImageData(imageData, 0, 0);
-      resolve(canvas.toDataURL('image/jpeg', 0.95));
-    };
-    img.src = imageDataUrl;
-  });
 };
 
 /**
@@ -634,21 +871,18 @@ export const extractNameFromID = (text) => {
   
   console.log('🔍 Processing lines:', lines);
 
-  // Try PhilHealth first
   const philhealthName = extractPhilHealthName(lines);
   if (philhealthName) {
     console.log('✅ PhilHealth name:', philhealthName);
     return philhealthName;
   }
 
-  // Try Driver's License
   const drivingLicenseName = extractDrivingLicenseName(lines);
   if (drivingLicenseName) {
     console.log('✅ Driver License name:', drivingLicenseName);
     return drivingLicenseName;
   }
 
-  // Fallback generic pattern
   const genericName = extractGenericName(lines);
   if (genericName) {
     console.log('✅ Generic name:', genericName);
@@ -659,13 +893,12 @@ export const extractNameFromID = (text) => {
   return null;
 };
 
-/**
- * PhilHealth name extraction (based on your sample)
- */
 export const extractPhilHealthName = (lines) => {
   const isPhilHealth = lines.some(line => 
     line.includes('PHILHEALTH') || 
     line.includes('PHIL HEALTH') ||
+    line.includes('PHILIPPINE HEALTH') ||
+    line.includes('INSURANCE CORPORATION') ||
     (line.includes('REPUBLIC') && lines.some(l => l.includes('HEALTH')))
   );
   
@@ -673,15 +906,30 @@ export const extractPhilHealthName = (lines) => {
   
   console.log('📋 PhilHealth ID detected');
   
-  // Look for "LASTNAME, FIRSTNAME MIDDLENAME" pattern
+  // Pattern 1: "MENDOZA, ROSS JOHN ESTACIO" (comma-separated)
   const nameWithCommaPattern = /^([A-Z\s]+),\s*([A-Z\s]+)$/;
   
+  // Pattern 2: PhilHealth ID number pattern (to skip)
+  const idNumberPattern = /^\d{2}-\d{9}-\d$/;
+  
   for (let line of lines) {
-    // Skip header lines
-    if (line.includes('REPUBLIC') || line.includes('PHILIPPINES') || 
-        line.includes('PHILHEALTH') || line.includes('INSURANCE') ||
-        line.includes('MALE') || line.includes('FEMALE') ||
-        /^\d{2}-\d{9}-\d$/.test(line)) {
+    // Skip header lines and ID numbers
+    if (line.includes('REPUBLIC') || 
+        line.includes('PHILIPPINES') ||
+        line.includes('PHILIPPINE') ||
+        line.includes('PHILHEALTH') || 
+        line.includes('INSURANCE') ||
+        line.includes('CORPORATION') ||
+        line.includes('HEALTH') ||
+        line.includes('MALE') || 
+        line.includes('FEMALE') ||
+        line.includes('STREET') ||
+        line.includes('BARANGAY') ||
+        line.includes('CITY') ||
+        line.includes('METRO') ||
+        line.includes('MANILA') ||
+        idNumberPattern.test(line) ||
+        /^\d{4}-\d{2}-\d{2}$/.test(line)) { // Date pattern
       continue;
     }
     
@@ -693,11 +941,12 @@ export const extractPhilHealthName = (lines) => {
       const lastWords = lastName.split(/\s+/);
       const firstWords = firstMiddle.split(/\s+/);
       
+      // Validate: last name (1-2 words), first+middle (2-4 words)
       if (lastWords.length >= 1 && lastWords.length <= 2 &&
-          firstWords.length >= 1 && firstWords.length <= 3 &&
-          lastName.length >= 2 && firstMiddle.length >= 2) {
+          firstWords.length >= 2 && firstWords.length <= 4 &&
+          lastName.length >= 2 && firstMiddle.length >= 4) {
         
-        // Return as "FIRSTNAME MIDDLENAME LASTNAME"
+        // Return as "FIRST MIDDLE LAST" format
         return `${firstMiddle} ${lastName}`;
       }
     }
@@ -706,28 +955,57 @@ export const extractPhilHealthName = (lines) => {
   return null;
 };
 
-/**
- * Driver's License name extraction (based on your sample)
- * Format: "MENDOZA, ROSS JOHN ESTACIO"
- */
 export const extractDrivingLicenseName = (lines) => {
   const isDrivingLicense = lines.some(line => 
-    line.includes('DRIVER') || line.includes('LICENSE') ||
-    line.includes('LAND TRANSPORTATION') || line.includes('LTO')
+    line.includes('DRIVER') || 
+    line.includes('LICENSE') ||
+    line.includes('LAND TRANSPORTATION') || 
+    line.includes('LTO') ||
+    line.includes('TRANSPORTATION OFFICE')
   );
   
   if (!isDrivingLicense) return null;
   
   console.log('🚗 Driver License detected');
   
+  // Pattern: "MENDOZA, ROSS JOHN ESTACIO"
   const namePattern = /^([A-Z\s]+),\s*([A-Z\s]+)$/;
   
+  // License number pattern to skip
+  const licenseNumberPattern = /^N\d{2}-\d{2}-\d{6}$/;
+  
   for (let line of lines) {
-    // Skip headers
-    if (line.includes('REPUBLIC') || line.includes('PHILIPPINES') ||
-        line.includes('DEPARTMENT') || line.includes('TRANSPORTATION') ||
-        line.includes('DRIVER') || line.includes('LICENSE') ||
-        /^\d{2}-\d{2}-\d{6}$/.test(line.replace(/\s/g, ''))) {
+    // Skip headers and known non-name lines
+    if (line.includes('REPUBLIC') || 
+        line.includes('PHILIPPINES') ||
+        line.includes('DEPARTMENT') || 
+        line.includes('TRANSPORTATION') ||
+        line.includes('DRIVER') || 
+        line.includes('LICENSE') ||
+        line.includes('OFFICE') ||
+        line.includes('BIAK') ||
+        line.includes('BATO') ||
+        line.includes('STREET') ||
+        line.includes('TONDO') ||
+        line.includes('BARANGAY') ||
+        line.includes('MANILA') ||
+        line.includes('CITY') ||
+        line.includes('NCR') ||
+        line.includes('DISTRICT') ||
+        line.includes('BLOOD') ||
+        line.includes('TYPE') ||
+        line.includes('EYES') ||
+        line.includes('COLOR') ||
+        line.includes('BLACK') ||
+        line.includes('CODES') ||
+        line.includes('CONDITIONS') ||
+        line.includes('SIGNATURE') ||
+        line.includes('LICENSEE') ||
+        line.includes('ASSISTANT') ||
+        line.includes('SECRETARY') ||
+        licenseNumberPattern.test(line) ||
+        /^\d{4}\/\d{2}\/\d{2}$/.test(line) || // Date format
+        /^\d{2}\/\d{2}\/\d{4}$/.test(line)) { // Alternative date
       continue;
     }
     
@@ -739,9 +1017,12 @@ export const extractDrivingLicenseName = (lines) => {
       const lastWords = lastName.split(/\s+/);
       const firstWords = firstMiddle.split(/\s+/);
       
+      // Validate: last name (1-2 words), first+middle (2-4 words)
       if (lastWords.length >= 1 && lastWords.length <= 2 &&
-          firstWords.length >= 1 && firstWords.length <= 4) {
+          firstWords.length >= 2 && firstWords.length <= 4 &&
+          lastName.length >= 2 && firstMiddle.length >= 4) {
         
+        // Return as "FIRST MIDDLE LAST" format
         return `${firstMiddle} ${lastName}`;
       }
     }
@@ -750,21 +1031,58 @@ export const extractDrivingLicenseName = (lines) => {
   return null;
 };
 
-/**
- * Generic name extraction fallback
- */
 export const extractGenericName = (lines) => {
+  // Pattern: "LASTNAME, FIRSTNAME MIDDLENAME"
+  const nameWithCommaPattern = /^([A-Z\s]+),\s*([A-Z\s]+)$/;
+  
   for (let line of lines) {
-    if (line.length > 8 && line.length < 60 && 
-        /^[A-Z\s,\.]+$/.test(line) && 
-        !line.includes('REPUBLIC') && !line.includes('PHILIPPINES')) {
+    // Skip obvious non-name lines
+    if (line.includes('REPUBLIC') || 
+        line.includes('PHILIPPINES') ||
+        line.includes('DEPARTMENT') ||
+        line.includes('TRANSPORTATION') ||
+        line.includes('HEALTH') ||
+        line.includes('INSURANCE') ||
+        line.includes('PHILHEALTH') ||
+        line.includes('DRIVER') ||
+        line.includes('LICENSE') ||
+        line.includes('OFFICE') ||
+        line.includes('STREET') ||
+        line.includes('BARANGAY') ||
+        line.includes('CITY') ||
+        line.includes('MANILA') ||
+        line.includes('MALE') ||
+        line.includes('FEMALE') ||
+        /^\d/.test(line)) { // Skip lines starting with numbers
+      continue;
+    }
+    
+    // Try comma-separated format first
+    const commaMatch = line.match(nameWithCommaPattern);
+    if (commaMatch) {
+      const lastName = commaMatch[1].trim();
+      const firstMiddle = commaMatch[2].trim();
       
-      const words = line.replace(',', '').split(/\s+/).filter(w => w.length > 1);
-      if (words.length >= 2 && words.length <= 5) {
+      const lastWords = lastName.split(/\s+/);
+      const firstWords = firstMiddle.split(/\s+/);
+      
+      if (lastWords.length >= 1 && lastWords.length <= 2 &&
+          firstWords.length >= 2 && firstWords.length <= 4) {
+        return `${firstMiddle} ${lastName}`;
+      }
+    }
+    
+    // Fallback: simple name validation
+    if (line.length > 10 && line.length < 60 && 
+        /^[A-Z\s,\.]+$/.test(line)) {
+      
+      const words = line.replace(/[,\.]/g, '').split(/\s+/).filter(w => w.length > 1);
+      if (words.length >= 3 && words.length <= 5) {
         return line.trim();
       }
     }
   }
+  
   return null;
 };
 
