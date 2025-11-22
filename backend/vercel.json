@@ -12,7 +12,14 @@
       "dest": "server.js"
     }
   ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  "crons": [
+    {
+      "path": "/api/cron/cleanup-expired",
+      "schedule": "0 */30 * * *"
+    },
+    {
+      "path": "/api/cron/activate-queues",
+      "schedule": "0 * * * *"
+    }
+  ]
 }

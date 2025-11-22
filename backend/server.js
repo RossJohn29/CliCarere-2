@@ -22,7 +22,7 @@ const PORT = process.env.PORT || 5000;
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this';
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -35,7 +35,7 @@ const emailConfig = {
 };
 
 const ITEXMO_CONFIG = {
-  apiKey: process.env.ITEXMO_API_KEY,
+  apiKey: process.env.ITEXMO_KEY,
   senderId: process.env.ITEXMO_SENDER_ID || 'CLICARE',
   apiUrl: 'https://www.itexmo.com/php_api/api.php'
 };
@@ -2723,8 +2723,8 @@ const activateScheduledQueues = async () => {
   }
 };
 
-setInterval(activateScheduledQueues, 60 * 60 * 1000);
-activateScheduledQueues();
+// setInterval(activateScheduledQueues, 60 * 60 * 1000);
+// activateScheduledQueues();
 
 module.exports = {
   calculateNextAvailableSlot,
@@ -3812,7 +3812,7 @@ const markInactiveStaffOffline = async () => {
     .eq('is_online', true);
 };
 
-setInterval(markInactiveStaffOffline, 2 * 60 * 1000);
+// setInterval(markInactiveStaffOffline, 2 * 60 * 1000);
 
 // Visit/Appointment booking
 app.post('/api/patient/visit', async (req, res) => {
@@ -4427,15 +4427,15 @@ console.error('Health assessment cleanup job error:', error);
   }
 };
 
-// Run cleanup every 30 minutes
-setInterval(cleanupExpiredRegistrations, 30 * 60 * 1000);
-setInterval(cleanupExpiredHealthAssessments, 30 * 60 * 1000);
-setInterval(cleanupUnusedQueueAndVisits, 30 * 60 * 1000);
+// // Run cleanup every 30 minutes
+// setInterval(cleanupExpiredRegistrations, 30 * 60 * 1000);
+// setInterval(cleanupExpiredHealthAssessments, 30 * 60 * 1000);
+// setInterval(cleanupUnusedQueueAndVisits, 30 * 60 * 1000);
 
-// Run cleanup on server start
-cleanupExpiredRegistrations();
-cleanupExpiredHealthAssessments();
-cleanupUnusedQueueAndVisits();
+// // Run cleanup on server start
+// cleanupExpiredRegistrations();
+// cleanupExpiredHealthAssessments();
+// cleanupUnusedQueueAndVisits();
 
 // Manual cleanup endpoint
 app.post('/api/admin/cleanup-expired', authenticateToken, async (req, res) => {
@@ -7090,6 +7090,57 @@ app.get('/api/queue/by-date/:departmentId/:date', async (req, res) => {
   } catch (error) {
     console.error('Queue fetch error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/cron/cleanup-expired', async (req, res) => {
+  try {
+    // Verify it's coming from Vercel Cron or authorized source
+    const authHeader = req.headers['authorization'];
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET || 'your-secret-here'}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    console.log('🧹 Running scheduled cleanup...');
+    await cleanupExpiredRegistrations();
+    await cleanupExpiredHealthAssessments();
+    await cleanupUnusedQueueAndVisits();
+    
+    res.json({ 
+      success: true, 
+      message: 'Cleanup completed successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('💥 Cron cleanup error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+app.post('/api/cron/activate-queues', async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET || 'your-secret-here'}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    console.log('⏰ Activating scheduled queues...');
+    await activateScheduledQueues();
+    
+    res.json({ 
+      success: true, 
+      message: 'Scheduled queues activated',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('💥 Queue activation error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
