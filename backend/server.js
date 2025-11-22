@@ -16,6 +16,7 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 // Configuration
@@ -545,14 +546,8 @@ const upload = multer({
 
 // Middleware
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"]
-    }
-  }
+  contentSecurityPolicy: false, // Disable CSP on Vercel
+  crossOriginEmbedderPolicy: false
 }));
 
 app.use(cors({
@@ -576,6 +571,11 @@ const generalLoginLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // ✅ Add this for Vercel:
+  skip: (req) => process.env.VERCEL === '1' && req.path === '/api/health',
+  validate: {
+    xForwardedForHeader: false // ✅ Disable validation since we trust proxy
+  }
 });
 
 const generalLimiter = rateLimit({
@@ -583,6 +583,9 @@ const generalLimiter = rateLimit({
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: {
+    xForwardedForHeader: false // ✅ Add this
+  }
 });
 
 app.use('/api/', generalLimiter);
@@ -5449,6 +5452,21 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    message: 'CliCare Backend API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      staffLogin: '/api/staff/login',
+      adminLogin: '/api/admin/login',
+      patientOTP: '/api/outpatient/send-otp',
+      docs: 'https://github.com/your-repo/docs'
+    }
+  });
+});
+
 // Patient endpoints
 app.get('/api/patient/profile', authenticateToken, async (req, res) => {
   try {
@@ -7095,9 +7113,8 @@ app.get('/api/queue/by-date/:departmentId/:date', async (req, res) => {
 
 app.post('/api/cron/cleanup-expired', async (req, res) => {
   try {
-    // Verify it's coming from Vercel Cron or authorized source
-    const authHeader = req.headers['authorization'];
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET || 'your-secret-here'}`) {
+      const authHeader = req.headers['authorization'];
+      if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 

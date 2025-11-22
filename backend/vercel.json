@@ -9,17 +9,13 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "server.js"
+      "dest": "server.js",
+      "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     }
   ],
-  "crons": [
-    {
-      "path": "/api/cron/cleanup-expired",
-      "schedule": "0 */30 * * *"
-    },
-    {
-      "path": "/api/cron/activate-queues",
-      "schedule": "0 * * * *"
+  "functions": {
+    "server.js": {
+      "maxDuration": 10
     }
-  ]
+  }
 }
