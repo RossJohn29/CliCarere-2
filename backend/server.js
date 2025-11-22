@@ -4928,7 +4928,7 @@ app.post('/api/generate-health-assessment-qr', authenticateToken, async (req, re
     }
 
     try {
-      const transporter = nodemailer.createTransporter(emailConfig);
+      const transporter = nodemailer.createTransport(emailConfig);
       await transporter.verify();
 
       const patientName = assessmentData.outPatient.name;
@@ -5256,7 +5256,7 @@ app.post('/api/generate-qr-email', async (req, res) => {
     // Step 4: Send email
     console.log('Step 4: Sending email to:', patientEmail);
     try {
-      const transporter = nodemailer.createTransporter({
+      const transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
           user: process.env.EMAIL_USER,
