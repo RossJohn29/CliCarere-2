@@ -1,0 +1,4 @@
+Metric,Formula,Target (%),Result (%),Interpretation,Target (ms),Result (ms)
+Document Upload Success Rate (DUSR),(Successfully Processed Uploads / Valid Upload Attempts) × 100,≥95,100.00,PASS,,
+File Format Compatibility Rate (FFCR),(Correctly Handled Formats / Total Upload Attempts) × 100,≥98,100.00,PASS,,
+Average Upload Processing Time,Mean upload time for all attempts,,,PASS,≤10000,512.56

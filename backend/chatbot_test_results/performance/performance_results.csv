@@ -1,31 +1,51 @@
-test_case,query,category,understood,helpful,relevant,response_quality,response_time_ms,under_5s
-1,How many patients visited today?,Basic Stats,True,True,True,Excellent,1242.5422668457031,True
-2,Show me today's appointments,Appointments,True,True,True,Excellent,1521.846055984497,True
-3,How many doctors are online?,Staff Info,True,True,True,Excellent,1420.6199645996094,True
-4,What is the busiest department?,Department,True,True,True,Excellent,1407.4373245239258,True
-5,Show current queue status,Queue,True,True,True,Excellent,1730.4089069366455,True
-6,What is today's patient count?,Basic Stats,True,True,True,Excellent,1416.8133735656738,True
-7,How many lab tests today?,Lab Stats,True,True,True,Excellent,1112.4267578125,True
-8,What is the average wait time?,Wait Time,True,True,True,Excellent,2338.3071422576904,True
-9,Show me active consultations,Consultations,True,True,True,Excellent,1216.8183326721191,True
-10,Emergency department statistics,Department,True,True,True,Excellent,2336.9791507720947,True
-11,Show me fever trends this week,Health Trends,True,True,True,Excellent,1317.6357746124268,True
-12,What are the top 5 diagnoses?,Diagnosis,True,True,True,Excellent,1418.0808067321777,True
-13,Show patient demographics,Demographics,True,True,True,Excellent,1215.6026363372803,True
-14,Which symptoms are most common?,Symptoms,True,True,False,Good,1415.5888557434082,True
-15,Monthly appointment patterns,Trends,True,True,True,Excellent,1420.9187030792236,True
-16,Show me surgical cases,Surgery,True,True,True,Excellent,1422.0213890075684,True
-17,Pediatric patient trends,Pediatrics,True,False,True,Poor,1456.108808517456,True
-18,Department utilization rates,Utilization,True,True,True,Excellent,1076.8606662750244,True
-19,Show me lab test results summary,Lab Analysis,True,True,True,Excellent,1215.3699398040771,True
-20,Maternity ward statistics,Maternity,True,True,True,Excellent,1377.0215511322021,True
-21,Compare pediatric vs adult patients,Comparison,True,True,True,Excellent,1391.6542530059814,True
-22,Analyze patient flow patterns by hour,Flow Analysis,True,True,True,Excellent,1595.400333404541,True
-23,What departments need more resources?,Resource Analysis,True,True,True,Excellent,1601.926326751709,True
-24,Compare this month to last month,Temporal Comparison,True,True,False,Good,1560.368299484253,True
-25,Identify bottlenecks in patient processing,Process Analysis,True,True,True,Excellent,2976.6221046447754,True
-26,Generate monthly performance report,Reporting,True,True,True,Excellent,1362.3344898223877,True
-27,Analyze seasonal health patterns,Seasonal Analysis,True,True,True,Excellent,1414.384126663208,True
-28,Cross-reference symptoms with age groups,Correlation,True,True,True,Excellent,1417.1693325042725,True
-29,Predict tomorrow's patient volume,Prediction,True,True,True,Excellent,1830.0166130065918,True
-30,Optimize department scheduling,Optimization,True,True,True,Excellent,1622.4615573883057,True
+test_case,query,category,understood,helpful,relevant,response_quality,response_time_ms,under_5s,timed_out
+1,How many patients visited today?,Basic Stats,True,True,True,Excellent,1606.3456535339355,True,False
+2,What is the total patient count this week?,Basic Stats,True,True,True,Excellent,2292.402982711792,True,False
+3,How many new patients registered today?,Basic Stats,True,True,True,Excellent,1513.918399810791,True,False
+4,Show me today's patient volume,Basic Stats,True,True,True,Excellent,2626.768112182617,True,False
+5,What is the current patient census?,Basic Stats,True,True,True,Excellent,1528.0685424804688,True,False
+6,How many patients are waiting right now?,Basic Stats,True,True,True,Excellent,1990.4940128326416,True,False
+7,Total consultations completed today?,Basic Stats,True,True,True,Excellent,1483.1013679504395,True,False
+8,How many follow-up visits today?,Basic Stats,True,True,True,Excellent,1604.1224002838135,True,False
+9,What is today's admission count?,Basic Stats,True,True,True,Excellent,1333.155870437622,True,False
+10,Show patient registration statistics,Basic Stats,True,True,True,Excellent,2012.803316116333,True,False
+11,Show me today's appointments,Appointments,True,True,True,Excellent,1281.1522483825684,True,False
+12,How many appointments are scheduled for tomorrow?,Appointments,True,True,True,Excellent,1758.751630783081,True,False
+13,What is the appointment completion rate?,Appointments,True,True,True,Excellent,2077.265501022339,True,False
+14,Show cancelled appointments this week,Appointments,True,True,True,Excellent,2698.54474067688,True,False
+15,How many no-show appointments today?,Appointments,True,True,True,Excellent,1701.5161514282227,True,False
+16,Average appointments per doctor?,Appointments,True,True,True,Excellent,1548.4771728515625,True,False
+17,Peak appointment hours today?,Appointments,True,True,True,Excellent,1495.471477508545,True,False
+18,Show appointment trends this month,Appointments,True,True,True,Excellent,1967.8425788879395,True,False
+19,How many doctors are online?,Staff Info,True,True,True,Excellent,1093.5735702514648,True,False
+20,List all available doctors,Staff Info,True,True,True,Excellent,1472.376823425293,True,False
+21,Which doctors are busiest today?,Staff Info,True,True,True,Excellent,2486.3221645355225,True,False
+22,Show doctor availability status,Staff Info,True,True,True,Excellent,1278.3114910125732,True,False
+23,How many staff members are on duty?,Staff Info,True,True,True,Excellent,2340.132713317871,True,False
+24,Average patients per doctor today?,Staff Info,True,True,True,Excellent,1502.7403831481934,True,False
+25,Doctor consultation statistics,Staff Info,True,True,True,Excellent,1325.9613513946533,True,False
+26,What is the busiest department?,Department,True,True,True,Excellent,1988.5542392730713,True,False
+27,Show department patient distribution,Department,True,True,True,Excellent,2190.074920654297,True,False
+28,Department utilization rates,Department,True,True,True,Excellent,2123.2595443725586,True,False
+29,Which department has longest wait?,Department,True,True,True,Excellent,2813.3773803710938,True,False
+30,Compare department performance,Department,True,True,True,Excellent,2432.4522018432617,True,False
+31,Emergency department statistics,Department,True,True,True,Excellent,2424.0524768829346,True,False
+32,Outpatient vs inpatient by department,Department,True,True,True,Excellent,2941.915273666382,True,False
+33,Show current queue status,Queue,True,True,True,Excellent,1747.3771572113037,True,False
+34,What is the average wait time?,Wait Time,True,True,True,Excellent,1251.7952919006348,True,False
+35,Longest wait time today?,Wait Time,True,True,True,Excellent,1635.7355117797852,True,False
+36,Queue length by department,Queue,True,True,True,Excellent,2070.4312324523926,True,False
+37,Wait time trends this week,Wait Time,True,True,True,Excellent,3869.419574737549,True,False
+38,How many patients in queue per hour?,Queue,True,True,True,Excellent,2614.983558654785,True,False
+39,How many lab tests today?,Lab Stats,True,True,True,Excellent,2229.7253608703613,True,False
+40,Lab test completion rate?,Lab Stats,True,True,True,Excellent,2273.2865810394287,True,False
+41,Most common lab tests ordered,Lab Stats,True,True,True,Excellent,2355.799913406372,True,False
+42,Pending lab results count,Lab Stats,True,True,True,Excellent,1958.786964416504,True,False
+43,Average lab turnaround time,Lab Stats,True,True,True,Excellent,1798.0339527130127,True,False
+44,Show me fever trends this week,Health Trends,True,True,True,Excellent,2190.1228427886963,True,False
+45,Which symptoms are most common?,Symptoms,True,True,True,Excellent,2841.51291847229,True,False
+46,What are the top 5 diagnoses?,Diagnosis,True,True,True,Excellent,1656.4645767211914,True,False
+47,Show medication prescription trends,Pharmacy,True,True,True,Excellent,2078.523635864258,True,False
+48,Compare this month to last month,Temporal Comparison,True,True,True,Excellent,2732.379913330078,True,False
+49,Analyze patient flow patterns by hour,Flow Analysis,True,True,True,Excellent,2893.6996459960938,True,False
+50,What departments need more resources?,Resource Analysis,True,True,True,Excellent,1937.0825290679932,True,False

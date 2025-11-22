@@ -1,0 +1,20 @@
+{
+  "test_date": "2025-11-22 01:26:39",
+  "test_mode": "synthetic",
+  "document_upload": {
+    "dusr": 100.0,
+    "ffcr": 100.0,
+    "successful_uploads": 50,
+    "total_attempts": 50,
+    "valid_attempts": 32,
+    "avg_upload_time": 512.56,
+    "processing_time_compliance": 100.0,
+    "status": "PASS"
+  },
+  "overall_performance": {
+    "passed_metrics": 3,
+    "total_metrics": 3,
+    "pass_rate": 100.0,
+    "status": "PASS"
+  }
+}

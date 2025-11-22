@@ -2609,4 +2609,90 @@
   }
 }
 
+.staffmain-accept-btn {
+  background: var(--staffmain-success);
+  color: var(--staffmain-white);
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--staffmain-border-radius);
+  cursor: pointer;
+  font-size: 0.75em;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  font-family: var(--staffmain-font-family);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
 
+.staffmain-accept-btn:hover {
+  background: #1e7e34;
+}
+
+.staffmain-accept-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--staffmain-gray-50);
+  color: var(--staffmain-text-light);
+}
+
+.staffmain-decline-btn {
+  background: var(--staffmain-error);
+  color: var(--staffmain-white);
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--staffmain-border-radius);
+  cursor: pointer;
+  font-size: 0.75em;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  font-family: var(--staffmain-font-family);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.staffmain-decline-btn:hover {
+  background: var(--staffmain-error-dark);
+}
+
+.staffmain-decline-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--staffmain-gray-50);
+  color: var(--staffmain-text-light);
+}
+
+.staffmain-results-status.submitted {
+  background: var(--staffmain-blue-bg);
+  color: var(--staffmain-blue-text);
+}
+
+.status-badge.submitted {
+  background: var(--staffmain-blue-bg);
+  color: var(--staffmain-blue-text);
+}
+
+.status-badge.declined,
+.staffmain-results-status.declined {
+  background: var(--staffmain-red-bg);
+  color: var(--staffmain-error);
+}
+
+.status-badge.submitted,
+.staffmain-results-status.submitted {
+  background: var(--staffmain-blue-bg);
+  color: var(--staffmain-blue-text);
+}
+
+.staffmain-patient-card-simple.completed-patient {
+  opacity: 0.85;
+  border-left: 4px solid var(--staffmain-success);
+}
+
+.status-badge.completed {
+  background: var(--staffmain-green-bg);
+  color: var(--staffmain-success);
+}

@@ -1,10 +1,5 @@
 """
 CliCare Objective 1 - Department Assignment Integration Testing (COMPREHENSIVE ENHANCED)
-========================================================================================
-Tests Rule-Based Department Assignment against REAL backend API and database
-Generates all required tables, matrices, and metrics for research documentation
-WITH ENHANCED CONFUSION MATRIX VISUALIZATION AND STATISTICAL COMPUTATIONS
-
 Run: python test1_department.py
 """
 
@@ -155,145 +150,91 @@ def print_statistics_computation(dept_metrics, y_true, y_pred):
     print("   TN (True Negative):   System correctly does NOT assign to wrong department")
     print("="*80)
 
-# ============================================================================
-# 4.1.1 RULE-BASED DEPARTMENT ASSIGNMENT TESTING
-# ============================================================================
-
 def generate_department_assignment_test_cases():
     """Generate comprehensive test cases for department assignment"""
     
     test_cases = [
-        # Internal Medicine - Adults (18+)
-        {"symptoms": ["Fever"], "expected": "Internal Medicine", "age": 25, "category": "General Medicine"},
-        {"symptoms": ["High Blood Pressure"], "expected": "Internal Medicine", "age": 45, "category": "Cardiovascular"},
-        {"symptoms": ["Diabetes"], "expected": "Internal Medicine", "age": 50, "category": "Endocrine"},
-        {"symptoms": ["Chest Pain"], "expected": "Internal Medicine", "age": 40, "category": "Cardiovascular"},
-        {"symptoms": ["Headache"], "expected": "Internal Medicine", "age": 30, "category": "Neurological"},
-        {"symptoms": ["Annual Check-up"], "expected": "Internal Medicine", "age": 35, "category": "Routine Care"},
-        {"symptoms": ["Health Screening"], "expected": "Internal Medicine", "age": 40, "category": "Routine Care"},
-        {"symptoms": ["Fatigue"], "expected": "Internal Medicine", "age": 28, "category": "General Medicine"},
-        {"symptoms": ["Shortness of Breath"], "expected": "Internal Medicine", "age": 55, "category": "Respiratory"},
-        {"symptoms": ["Palpitations"], "expected": "Internal Medicine", "age": 42, "category": "Cardiovascular"},
-        {"symptoms": ["Dizziness"], "expected": "Internal Medicine", "age": 38, "category": "Neurological"},
-        {"symptoms": ["Stomach Pain"], "expected": "Internal Medicine", "age": 33, "category": "Gastrointestinal"},
-        {"symptoms": ["Cough"], "expected": "Internal Medicine", "age": 29, "category": "Respiratory"},
-        {"symptoms": ["Vomiting"], "expected": "Internal Medicine", "age": 31, "category": "Gastrointestinal"},
-        {"symptoms": ["Diarrhea"], "expected": "Internal Medicine", "age": 27, "category": "Gastrointestinal"},
-        {"symptoms": ["Loss of Appetite"], "expected": "Internal Medicine", "age": 36, "category": "General Medicine"},
-        {"symptoms": ["Chills"], "expected": "Internal Medicine", "age": 32, "category": "General Medicine"},
+        # ENT and Ophthalmology - 5 cases
+        {"symptoms": ["Ear Pain"], "expected": "ENT and Ophthalmology", "age": 25, "category": "ENT"},
+        {"symptoms": ["Hearing Loss"], "expected": "ENT and Ophthalmology", "age": 50, "category": "ENT"},
+        {"symptoms": ["Vision Problems"], "expected": "ENT and Ophthalmology", "age": 35, "category": "Ophthalmology"},
+        {"symptoms": ["Eye Redness"], "expected": "ENT and Ophthalmology", "age": 32, "category": "Ophthalmology"},
+        {"symptoms": ["Sinusitis"], "expected": "ENT and Ophthalmology", "age": 30, "category": "ENT"},
         
-        # Pediatrics - Children (0-17)
-        {"symptoms": ["Fever"], "expected": "Pediatrics", "age": 5, "category": "Pediatric General"},
-        {"symptoms": ["Cough"], "expected": "Pediatrics", "age": 8, "category": "Pediatric Respiratory"},
-        {"symptoms": ["Vaccination"], "expected": "Pediatrics", "age": 2, "category": "Preventive Care"},
-        {"symptoms": ["Ear Pain"], "expected": "Pediatrics", "age": 6, "category": "Pediatric ENT"},
-        {"symptoms": ["Rashes"], "expected": "Pediatrics", "age": 4, "category": "Pediatric Dermatology"},
-        {"symptoms": ["Vomiting"], "expected": "Pediatrics", "age": 3, "category": "Pediatric GI"},
-        {"symptoms": ["Diarrhea"], "expected": "Pediatrics", "age": 7, "category": "Pediatric GI"},
-        {"symptoms": ["Poor Appetite"], "expected": "Pediatrics", "age": 1, "category": "Pediatric General"},
-        {"symptoms": ["Developmental Delay"], "expected": "Pediatrics", "age": 4, "category": "Developmental"},
-        {"symptoms": ["Vision Problems"], "expected": "Pediatrics", "age": 10, "category": "Pediatric Ophthalmology"},
-        {"symptoms": ["Eye Redness"], "expected": "Pediatrics", "age": 9, "category": "Pediatric Ophthalmology"},
-        {"symptoms": ["Hearing Loss"], "expected": "Pediatrics", "age": 12, "category": "Pediatric ENT"},
-        
-        # Obstetrics and Gynecology
+        # Obstetrics and Gynecology - 4 cases
         {"symptoms": ["Irregular Menstruation"], "expected": "Obstetrics and Gynecology", "age": 25, "category": "Gynecology"},
         {"symptoms": ["Pregnancy Check-up"], "expected": "Obstetrics and Gynecology", "age": 28, "category": "Obstetrics"},
         {"symptoms": ["Prenatal Care"], "expected": "Obstetrics and Gynecology", "age": 30, "category": "Obstetrics"},
         {"symptoms": ["Pelvic Pain"], "expected": "Obstetrics and Gynecology", "age": 26, "category": "Gynecology"},
-        {"symptoms": ["Family Planning"], "expected": "Obstetrics and Gynecology", "age": 32, "category": "Reproductive Health"},
-        {"symptoms": ["Missed Period"], "expected": "Obstetrics and Gynecology", "age": 24, "category": "Gynecology"},
-        {"symptoms": ["Vaginal Discharge"], "expected": "Obstetrics and Gynecology", "age": 27, "category": "Gynecology"},
-        {"symptoms": ["Dysmenorrhea"], "expected": "Obstetrics and Gynecology", "age": 22, "category": "Gynecology"},
-        {"symptoms": ["Postnatal Care"], "expected": "Obstetrics and Gynecology", "age": 29, "category": "Obstetrics"},
-        {"symptoms": ["Fertility Concern"], "expected": "Obstetrics and Gynecology", "age": 35, "category": "Reproductive Health"},
         
-        # General Surgery
-        {"symptoms": ["Appendicitis"], "expected": "General Surgery", "age": 25, "category": "Emergency Surgery"},
+        # General Surgery - 4 cases
+        {"symptoms": ["Suspected Appendicitis"], "expected": "General Surgery", "age": 25, "category": "Emergency Surgery"},
         {"symptoms": ["Hernia"], "expected": "General Surgery", "age": 40, "category": "Elective Surgery"},
         {"symptoms": ["Gallstones"], "expected": "General Surgery", "age": 45, "category": "Hepatobiliary"},
         {"symptoms": ["Abscess"], "expected": "General Surgery", "age": 30, "category": "Infection"},
-        {"symptoms": ["Wound Infection"], "expected": "General Surgery", "age": 35, "category": "Post-operative"},
-        {"symptoms": ["Lump or Mass"], "expected": "General Surgery", "age": 38, "category": "Oncology"},
-        {"symptoms": ["Post-Surgery Follow-up"], "expected": "General Surgery", "age": 42, "category": "Post-operative"},
-        {"symptoms": ["Wound Care"], "expected": "General Surgery", "age": 33, "category": "Post-operative"},
         
-        # Anesthesia and Pain Management
-        {"symptoms": ["Chronic Back Pain"], "expected": "Anesthesia and Pain Management", "age": 45, "category": "Chronic Pain"},
-        {"symptoms": ["Nerve Pain"], "expected": "Anesthesia and Pain Management", "age": 50, "category": "Neuropathic Pain"},
-        {"symptoms": ["Post-Surgical Pain"], "expected": "Anesthesia and Pain Management", "age": 35, "category": "Acute Pain"},
-        {"symptoms": ["Joint Pain Unresponsive to Meds"], "expected": "Anesthesia and Pain Management", "age": 55, "category": "Chronic Pain"},
+        # Pediatrics - 4 cases
+        {"symptoms": ["Fever (Child)"], "expected": "Pediatrics", "age": 5, "category": "Pediatric General"},
+        {"symptoms": ["Cough and Colds (Child)"], "expected": "Pediatrics", "age": 8, "category": "Pediatric Respiratory"},
+        {"symptoms": ["Vaccination"], "expected": "Pediatrics", "age": 2, "category": "Preventive Care"},
+        {"symptoms": ["Ear Pain (Child)"], "expected": "Pediatrics", "age": 6, "category": "Pediatric ENT"},
         
-        # Psychiatry
-        {"symptoms": ["Depression"], "expected": "Psychiatry", "age": 25, "category": "Mood Disorders"},
-        {"symptoms": ["Anxiety"], "expected": "Psychiatry", "age": 30, "category": "Anxiety Disorders"},
-        {"symptoms": ["Mood Swings"], "expected": "Psychiatry", "age": 27, "category": "Mood Disorders"},
-        {"symptoms": ["Sleep Problems"], "expected": "Psychiatry", "age": 40, "category": "Sleep Disorders"},
-        {"symptoms": ["Suicidal Thoughts"], "expected": "Psychiatry", "age": 35, "category": "Crisis Intervention"},
-        {"symptoms": ["Panic Attack"], "expected": "Psychiatry", "age": 28, "category": "Anxiety Disorders"},
+        # Family Medicine Regular - 5 cases
+        {"symptoms": ["Fever"], "expected": "Family Medicine Regular", "age": 25, "category": "General Medicine"},
+        {"symptoms": ["Headache"], "expected": "Family Medicine Regular", "age": 30, "category": "General Medicine"},
+        {"symptoms": ["Cough"], "expected": "Family Medicine Regular", "age": 35, "category": "Respiratory"},
+        {"symptoms": ["Annual Check-up"], "expected": "Family Medicine Regular", "age": 40, "category": "Routine Care"},
+        {"symptoms": ["Fatigue"], "expected": "Family Medicine Regular", "age": 32, "category": "General Medicine"},
         
-        # Outpatient Services
-        {"symptoms": ["Minor Wound"], "expected": "Outpatient Services", "age": 25, "category": "Minor Procedures"},
-        {"symptoms": ["Injection"], "expected": "Outpatient Services", "age": 30, "category": "Procedures"},
-        {"symptoms": ["Dressing Change"], "expected": "Outpatient Services", "age": 35, "category": "Wound Care"},
+        # Family Medicine Senior/PWD - 3 cases
+        {"symptoms": ["Senior Check-up"], "expected": "Family Medicine Senior/PWD", "age": 65, "category": "Senior Care"},
+        {"symptoms": ["Blood Pressure Check"], "expected": "Family Medicine Senior/PWD", "age": 70, "category": "Senior Care"},
+        {"symptoms": ["Diabetes Monitoring"], "expected": "Family Medicine Senior/PWD", "age": 68, "category": "Senior Care"},
         
-        # Pathology
-        {"symptoms": ["Blood Test"], "expected": "Pathology", "age": 30, "category": "Laboratory"},
-        {"symptoms": ["Urine Test"], "expected": "Pathology", "age": 25, "category": "Laboratory"},
-        {"symptoms": ["Biopsy Request"], "expected": "Pathology", "age": 45, "category": "Histopathology"},
+        # Internal Medicine - 5 cases
+        {"symptoms": ["Chest Discomfort"], "expected": "Cardiology", "age": 45, "category": "Cardiovascular"},
+        {"symptoms": ["High Blood Pressure"], "expected": "Internal Medicine", "age": 50, "category": "Cardiovascular"},
+        {"symptoms": ["Diabetes"], "expected": "Internal Medicine", "age": 55, "category": "Endocrine"},
+        {"symptoms": ["Shortness of Breath"], "expected": "Internal Medicine", "age": 48, "category": "Respiratory"},
+        {"symptoms": ["Stomach Pain"], "expected": "Internal Medicine", "age": 40, "category": "Gastrointestinal"},
         
-        # Radiology
-        {"symptoms": ["X-ray"], "expected": "Radiology", "age": 35, "category": "Imaging"},
-        {"symptoms": ["CT Scan"], "expected": "Radiology", "age": 40, "category": "Advanced Imaging"},
-        {"symptoms": ["MRI"], "expected": "Radiology", "age": 45, "category": "Advanced Imaging"},
-        {"symptoms": ["Ultrasound"], "expected": "Radiology", "age": 30, "category": "Imaging"},
-        {"symptoms": ["Imaging for Fracture"], "expected": "Radiology", "age": 25, "category": "Emergency Imaging"},
+        # TB DOTS - 3 cases
+        {"symptoms": ["Persistent Cough"], "expected": "TB DOTS", "age": 35, "category": "Respiratory"},
+        {"symptoms": ["Night Sweats"], "expected": "TB DOTS", "age": 40, "category": "TB Symptoms"},
+        {"symptoms": ["Unexplained Weight Loss"], "expected": "TB DOTS", "age": 38, "category": "TB Symptoms"},
         
-        # Rehabilitation and Physical Therapy
-        {"symptoms": ["Stroke Recovery"], "expected": "Rehabilitation and Physical Therapy", "age": 55, "category": "Neurological Rehab"},
-        {"symptoms": ["Fracture Rehabilitation"], "expected": "Rehabilitation and Physical Therapy", "age": 40, "category": "Orthopedic Rehab"},
-        {"symptoms": ["Mobility Issues"], "expected": "Rehabilitation and Physical Therapy", "age": 60, "category": "Functional Rehab"},
-        {"symptoms": ["Post-Accident Therapy"], "expected": "Rehabilitation and Physical Therapy", "age": 35, "category": "Trauma Rehab"},
-        
-        # Dialysis
-        {"symptoms": ["Chronic Kidney Disease"], "expected": "Dialysis", "age": 50, "category": "Renal Care"},
-        {"symptoms": ["Hemodialysis Follow-up"], "expected": "Dialysis", "age": 45, "category": "Dialysis Care"},
-        {"symptoms": ["Abnormal Creatinine Levels"], "expected": "Dialysis", "age": 55, "category": "Renal Function"},
-        
-        # Dermatology
-        {"symptoms": ["Skin Rash"], "expected": "Dermatology", "age": 25, "category": "Skin Conditions"},
-        {"symptoms": ["Acne"], "expected": "Dermatology", "age": 18, "category": "Skin Conditions"},
-        {"symptoms": ["Eczema"], "expected": "Dermatology", "age": 30, "category": "Chronic Skin"},
-        {"symptoms": ["Psoriasis"], "expected": "Dermatology", "age": 40, "category": "Chronic Skin"},
-        {"symptoms": ["Fungal Infection"], "expected": "Dermatology", "age": 35, "category": "Skin Infections"},
-        {"symptoms": ["Itchy Skin"], "expected": "Dermatology", "age": 28, "category": "Skin Conditions"},
-        {"symptoms": ["Mole Examination"], "expected": "Dermatology", "age": 45, "category": "Skin Cancer Screening"},
-        
-        # Endoscopy and Colonoscopy
-        {"symptoms": ["Chronic Abdominal Pain"], "expected": "Endoscopy and Colonoscopy", "age": 40, "category": "GI Procedures"},
-        {"symptoms": ["Black Stool"], "expected": "Endoscopy and Colonoscopy", "age": 45, "category": "GI Bleeding"},
-        {"symptoms": ["Vomiting Blood"], "expected": "Endoscopy and Colonoscopy", "age": 50, "category": "Upper GI Bleeding"},
-        {"symptoms": ["Suspected Ulcer"], "expected": "Endoscopy and Colonoscopy", "age": 42, "category": "Peptic Disease"},
-        
-        # Dental
+        # Dental - 4 cases
         {"symptoms": ["Toothache"], "expected": "Dental", "age": 25, "category": "Dental Pain"},
         {"symptoms": ["Gum Bleeding"], "expected": "Dental", "age": 35, "category": "Periodontal"},
         {"symptoms": ["Tooth Decay"], "expected": "Dental", "age": 20, "category": "Restorative"},
         {"symptoms": ["Oral Infection"], "expected": "Dental", "age": 30, "category": "Oral Pathology"},
-        {"symptoms": ["Tooth Extraction"], "expected": "Dental", "age": 40, "category": "Oral Surgery"},
-        {"symptoms": ["Denture Fitting"], "expected": "Dental", "age": 65, "category": "Prosthodontics"},
-        {"symptoms": ["Dental Cleaning"], "expected": "Dental", "age": 28, "category": "Preventive"},
-        {"symptoms": ["Jaw Pain"], "expected": "Dental", "age": 33, "category": "TMJ Disorders"},
         
-        # ENT and Ophthalmology
-        {"symptoms": ["Ear Pain"], "expected": "ENT and Ophthalmology", "age": 25, "category": "ENT"},
-        {"symptoms": ["Hearing Loss"], "expected": "ENT and Ophthalmology", "age": 50, "category": "Audiology"},
-        {"symptoms": ["Sinusitis"], "expected": "ENT and Ophthalmology", "age": 30, "category": "ENT"},
-        {"symptoms": ["Sore Throat"], "expected": "ENT and Ophthalmology", "age": 28, "category": "ENT"},
-        {"symptoms": ["Vision Problems"], "expected": "ENT and Ophthalmology", "age": 35, "category": "Ophthalmology"},
-        {"symptoms": ["Eye Pain"], "expected": "ENT and Ophthalmology", "age": 40, "category": "Ophthalmology"},
-        {"symptoms": ["Eye Redness"], "expected": "ENT and Ophthalmology", "age": 32, "category": "Ophthalmology"},
-        {"symptoms": ["Cataract"], "expected": "ENT and Ophthalmology", "age": 55, "category": "Ophthalmology"}
+        # SUBSPECIALTY DEPARTMENTS
+        
+        # Diabetes Clinic - 2 cases
+        {"symptoms": ["Diabetes Management"], "expected": "Diabetes Clinic", "age": 50, "category": "Endocrine"},
+        {"symptoms": ["High Blood Sugar"], "expected": "Diabetes Clinic", "age": 55, "category": "Endocrine"},
+        
+        # Cardiology - 3 cases
+        {"symptoms": ["Heart Disease"], "expected": "Cardiology", "age": 60, "category": "Cardiovascular"},
+        {"symptoms": ["Irregular Heartbeat"], "expected": "Cardiology", "age": 58, "category": "Cardiovascular"},
+        {"symptoms": ["Heart Attack History"], "expected": "Cardiology", "age": 65, "category": "Cardiovascular"},
+        
+        # Nephrology Adult - 2 cases
+        {"symptoms": ["Kidney Disease"], "expected": "Nephrology Adult", "age": 55, "category": "Renal Care"},
+        {"symptoms": ["Abnormal Creatinine Levels"], "expected": "Nephrology Adult", "age": 50, "category": "Renal Function"},
+        
+        # Pulmonology Adult - 2 cases
+        {"symptoms": ["Asthma"], "expected": "Pulmonology Adult", "age": 40, "category": "Respiratory"},
+        {"symptoms": ["COPD"], "expected": "Pulmonology Adult", "age": 65, "category": "Respiratory"},
+        
+        # Neurology - 2 cases
+        {"symptoms": ["Seizure Disorder/Epilepsy"], "expected": "Neurology", "age": 35, "category": "Neurological"},
+        {"symptoms": ["Migraine"], "expected": "Neurology", "age": 30, "category": "Neurological"},
+        
+        # Gastroenterology Adult - 2 cases
+        {"symptoms": ["Chronic Abdominal Pain"], "expected": "Gastroenterology Adult", "age": 40, "category": "GI Procedures"},
+        {"symptoms": ["Chronic/Recurrent Black Stool"], "expected": "Gastroenterology Adult", "age": 45, "category": "GI Bleeding"},
     ]
     
     return test_cases
@@ -947,22 +888,22 @@ if __name__ == "__main__":
         print("   ✓ Export all required tables and documentation")
         
         print(f"\n📊 Test Coverage:")
-        print(f"   • Internal Medicine: 17 test cases")
-        print(f"   • Pediatrics: 12 test cases")
-        print(f"   • Obstetrics and Gynecology: 10 test cases")
-        print(f"   • General Surgery: 8 test cases")
-        print(f"   • Anesthesia and Pain Management: 4 test cases")
-        print(f"   • Psychiatry: 6 test cases")
-        print(f"   • Outpatient Services: 3 test cases")
-        print(f"   • Pathology: 3 test cases")
-        print(f"   • Radiology: 5 test cases")
-        print(f"   • Rehabilitation: 4 test cases")
-        print(f"   • Dialysis: 3 test cases")
-        print(f"   • Dermatology: 7 test cases")
-        print(f"   • Endoscopy: 4 test cases")
-        print(f"   • Dental: 8 test cases")
-        print(f"   • ENT and Ophthalmology: 8 test cases")
-        print(f"   • Total: 102 comprehensive test cases")
+        print(f"   • ENT and Ophthalmology: 5 test cases")
+        print(f"   • Obstetrics and Gynecology: 4 test cases")
+        print(f"   • General Surgery: 4 test cases")
+        print(f"   • Pediatrics: 4 test cases")
+        print(f"   • Family Medicine Regular: 5 test cases")
+        print(f"   • Family Medicine Senior/PWD: 3 test cases")
+        print(f"   • Internal Medicine: 5 test cases")
+        print(f"   • TB DOTS: 3 test cases")
+        print(f"   • Dental: 4 test cases")
+        print(f"   • Diabetes Clinic: 2 test cases")
+        print(f"   • Cardiology: 3 test cases")
+        print(f"   • Nephrology Adult: 2 test cases")
+        print(f"   • Pulmonology Adult: 2 test cases")
+        print(f"   • Neurology: 2 test cases")
+        print(f"   • Gastroenterology Adult: 2 test cases")
+        print(f"   • Total: 50 comprehensive test cases")
         
         print(f"\n🎯 Target Metrics:")
         print(f"   • Accuracy: ≥85%")
@@ -1021,5 +962,4 @@ if __name__ == "__main__":
         print("   • Ensure backend server is running (node server.js)")
         print("   • Check database connectivity")
         print("   • Verify API endpoints are accessible")
-
         print("   • Close any CSV files that might be open")

@@ -1,13 +1,13 @@
 {
-  "test_date": "2025-11-08 22:36:37",
+  "test_date": "2025-11-22 00:54:09",
   "department_assignment": {
     "accuracy": 100.0,
     "precision": 100.0,
     "recall": 100.0,
     "f1_score": 100.0,
-    "total_cases": 102,
-    "valid_cases": 102,
-    "correct_predictions": 102,
+    "total_cases": 50,
+    "valid_cases": 50,
+    "correct_predictions": 50,
     "status": "PASS"
   },
   "overall_performance": {

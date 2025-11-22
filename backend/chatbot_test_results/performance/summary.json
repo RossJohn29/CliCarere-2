@@ -1,9 +1,10 @@
 {
-  "test_date": "2025-11-17 20:07:56",
-  "total_queries": 30,
-  "qra": 96.66666666666667,
+  "test_date": "2025-11-22 14:56:22",
+  "total_queries": 50,
+  "qra": 100.0,
   "nlur": 100.0,
-  "avg_response_time_ms": 1528.3915281295776,
+  "avg_response_time_ms": 2021.3693571090698,
   "time_compliance": 100.0,
+  "timeout_count": 0,
   "status": "PASS"
 }

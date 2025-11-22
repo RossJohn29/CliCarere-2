@@ -1,18 +1,15 @@
 {
-  "test_date": "2025-11-08 22:41:14",
+  "test_date": "2025-11-22 00:59:09",
   "registration_system": {
     "web_success": 100.0,
     "kiosk_success": 100.0,
     "qr_accuracy": 100.0,
     "navigation_success": 100.0,
-    "data_sync_accuracy": 99.5,
-    "avg_web_time": 0.00617956558863322,
-    "avg_kiosk_time": 0.024506836732228598,
     "status": "PASS"
   },
   "overall_performance": {
-    "passed_metrics": 8,
-    "total_metrics": 8,
+    "passed_metrics": 4,
+    "total_metrics": 4,
     "pass_rate": 100.0,
     "status": "PASS"
   }

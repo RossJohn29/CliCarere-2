@@ -397,11 +397,11 @@ const WebMain = () => {
       setDashboardData({
         todayStats: {
           myHistory: visitHistory.length || 0,
-          labRequests: labRequests.filter(req => req.status === 'pending').length || 0,
+          labRequests: labRequests.filter(req => ['pending', 'submitted', 'declined'].includes(req.status)).length || 0,
           labHistory: labHistory.length || 0
         },
         recentActivity: recentActivity,
-        pendingLabRequests: labRequests.filter(req => req.status === 'pending') || [],
+        pendingLabRequests: labRequests.filter(req => ['pending', 'submitted', 'declined'].includes(req.status)) || [],
         upcomingAppointments: [],
         visitHistory: visitHistory,
         labHistory: labHistory,
@@ -1227,8 +1227,9 @@ const WebMain = () => {
                       {highlightSearchTerm(`REQ-${request.request_id}`, labRequestsSearchTerm)}
                     </div>
                     <div className={`webmain-lab-status ${request.status}`}>
-                      {request.status === 'overdue' ? 'Overdue' : 
-                      request.status === 'pending' ? 'Pending Upload' :
+                      {request.status === 'pending' ? 'Pending Upload' :
+                      request.status === 'submitted' ? 'Awaiting Review' :
+                      request.status === 'declined' ? 'Declined - Reupload Required' :
                       request.status === 'completed' ? 'Completed' : 'Processing'}
                     </div>
                   </div>
@@ -1275,6 +1276,7 @@ const WebMain = () => {
                     </div>
                   </div>
 
+                  {/* FIXED: Show different UI based on status */}
                   {request.status === 'pending' ? (
                     <button 
                       onClick={() => handleLabUpload(request.request_id)}
@@ -1283,12 +1285,41 @@ const WebMain = () => {
                     >
                       {dataLoading ? '⏳ Uploading...' : 'Upload Result'}
                     </button>
-                  ) : request.status === 'completed' && request.labResult ? (
-                    <div className="webmain-completed-lab">
-                      <p className="upload-success">
-                        <CheckCircle size={16} /> Result uploaded: {request.labResult.file_name}
-                      </p>
-                      <small>Uploaded on {new Date(request.labResult.upload_date).toLocaleDateString()}</small>
+                  ) : request.status === 'submitted' && request.labResult ? (
+                    <div className="webmain-submitted-lab">
+                      <div className="webmain-submitted-info">
+                        <p className="upload-success">
+                          <CheckCircle size={16} /> Result submitted: {request.labResult.file_name}
+                        </p>
+                        <small>Uploaded on {new Date(request.labResult.upload_date).toLocaleDateString()}</small>
+                        <p className="awaiting-review">Awaiting doctor's review</p>
+                      </div>
+                      <button 
+                        onClick={() => handleLabUpload(request.request_id)}
+                        className="webmain-edit-btn"
+                        disabled={dataLoading}
+                      >
+                        Edit Result
+                      </button>
+                    </div>
+                  ) : request.status === 'declined' ? (
+                    <div className="webmain-declined-lab">
+                      <div className="webmain-declined-info">
+                        <p className="decline-notice">
+                          <AlertTriangle size={16} /> Result declined by doctor
+                        </p>
+                        {request.decline_reason && (
+                          <small className="decline-reason">Reason: {request.decline_reason}</small>
+                        )}
+                        <p className="reupload-required">Please upload a new result</p>
+                      </div>
+                      <button 
+                        onClick={() => handleLabUpload(request.request_id)}
+                        className="webmain-upload-btn"
+                        disabled={dataLoading}
+                      >
+                        {dataLoading ? '⏳ Uploading...' : 'Upload New Result'}
+                      </button>
                     </div>
                   ) : null}
                 </div>

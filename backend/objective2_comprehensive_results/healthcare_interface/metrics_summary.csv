@@ -1,0 +1,5 @@
+Metric,Formula,Target (%),Result (%),Interpretation,Target (ms),Result (ms)
+Lab Request Generation Success Rate (LRGSR),(Successful Lab Request Creations / Total Lab Request Attempts) × 100,≥98,100.00,PASS,,
+Patient History Retrieval Accuracy (PHRA),(Correct Patient Records Retrieved / Total Retrieval Requests) × 100,≥99,100.00,PASS,,
+Average Processing Time,Mean processing time for lab requests,,,PASS,≤3000,304.85
+Data Access Time Compliance,(Requests under 3s / Total Requests) × 100,100,100.00,PASS,,

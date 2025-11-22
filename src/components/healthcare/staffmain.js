@@ -125,6 +125,7 @@ const StaffMain = () => {
   const [dashboardTimeSeriesData, setDashboardTimeSeriesData] = useState([]);
   const [timePeriod, setTimePeriod] = useState('daily');
   const [statsLoading, setStatsLoading] = useState(false);
+  const [dataLoading, setDataLoading] = useState(false);
 
   useEffect(() => {
     const initializeDashboard = async () => {
@@ -272,9 +273,22 @@ const StaffMain = () => {
     }
   };
 
-  const updateQueueStatus = async (queueId, newStatus) => {
+  const updateQueueStatus = async (queueId, newStatus, diagnosisData = null) => {
     try {
       const token = localStorage.getItem('healthcareToken');
+      
+      const requestBody = { status: newStatus };
+      
+      // If completing consultation, add diagnosis data
+      if (newStatus === 'completed' && diagnosisData) {
+        Object.assign(requestBody, diagnosisData);
+      } else if (newStatus === 'completed') {
+        // Default diagnosis for completion without explicit diagnosis
+        requestBody.diagnosis_description = 'Consultation completed';
+        requestBody.diagnosis_code = 'Z00.00';
+        requestBody.severity = 'mild';
+        requestBody.notes = 'Routine consultation completed';
+      }
       
       const response = await fetch(`http://localhost:5000/api/healthcare/queue/${queueId}/status`, {
         method: 'PATCH',
@@ -282,7 +296,7 @@ const StaffMain = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify(requestBody)
       });
 
       if (response.ok) {
@@ -290,9 +304,18 @@ const StaffMain = () => {
         if (currentPage === 'patients') {
           await fetchMyPatients();
         }
+        
+        // Show success message for completion
+        if (newStatus === 'completed') {
+          showAlert('Success', 'Consultation completed successfully!', 'success');
+        }
+      } else {
+        const errorData = await response.json();
+        showAlert('Error', errorData.error || 'Failed to update queue status', 'error');
       }
     } catch (error) {
       console.error('Failed to update queue status:', error);
+      showAlert('Error', 'Failed to update queue status', 'error');
     }
   };
 
@@ -310,7 +333,26 @@ const StaffMain = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setMyPatients(data.patients || []);
+        // Sort patients: active patients first (by queue number), then completed patients (by completion time)
+        const sortedPatients = (data.patients || []).sort((a, b) => {
+          // If one is in queue and other is not, prioritize the one in queue
+          if (a.isInQueue && !b.isInQueue) return -1;
+          if (!a.isInQueue && b.isInQueue) return 1;
+          
+          // If both are in queue, sort by queue number
+          if (a.isInQueue && b.isInQueue) {
+            return (a.queueNumber || 0) - (b.queueNumber || 0);
+          }
+          
+          // If both are completed, sort by completion time (most recent first)
+          if (!a.isInQueue && !b.isInQueue) {
+            return new Date(b.completedAt || b.diagnosedAt) - new Date(a.completedAt || a.diagnosedAt);
+          }
+          
+          return 0;
+        });
+        
+        setMyPatients(sortedPatients);
       } else {
         setMyPatients([]);
       }
@@ -521,73 +563,77 @@ const StaffMain = () => {
     return types.filter(Boolean);
   };
 
-  const getFilteredLabData = () => {
-    let filtered = [...allLabData];
-    
-    if (labSearchTerm.trim()) {
-      const query = labSearchTerm.toLowerCase();
-      filtered = filtered.filter(item => 
-        item.patient?.name.toLowerCase().includes(query) ||
-        item.patient?.patient_id.toLowerCase().includes(query) ||
-        item.test_name.toLowerCase().includes(query) ||
-        item.test_type.toLowerCase().includes(query)
-      );
+const getFilteredLabData = () => {
+  let filtered = [...allLabData];
+  
+  if (labSearchTerm.trim()) {
+    const query = labSearchTerm.toLowerCase();
+    filtered = filtered.filter(item => 
+      item.patient?.name.toLowerCase().includes(query) ||
+      item.patient?.patient_id.toLowerCase().includes(query) ||
+      item.test_name.toLowerCase().includes(query) ||
+      item.test_type.toLowerCase().includes(query)
+    );
+  }
+  
+  if (labFilters.status !== 'all') {
+    if (labFilters.status === 'pending') {
+      filtered = filtered.filter(item => item.status === 'pending');
+    } else if (labFilters.status === 'submitted') {
+      filtered = filtered.filter(item => item.status === 'submitted');
+    } else if (labFilters.status === 'completed') {
+      filtered = filtered.filter(item => item.status === 'completed');
+    } else if (labFilters.status === 'declined') {
+      filtered = filtered.filter(item => item.status === 'declined');
     }
+  }
+  
+  if (labFilters.priority !== 'all') {
+    filtered = filtered.filter(item => item.priority === labFilters.priority);
+  }
+  
+  if (labFilters.testType !== 'all') {
+    filtered = filtered.filter(item => item.test_type === labFilters.testType);
+  }
+  
+  if (labFilters.dateRange !== 'all') {
+    const now = new Date();
+    const filterDate = new Date();
     
-    if (labFilters.status !== 'all') {
-      if (labFilters.status === 'pending') {
-        filtered = filtered.filter(item => item.status === 'pending');
-      } else if (labFilters.status === 'completed') {
-        filtered = filtered.filter(item => item.status === 'completed' && item.hasResult);
-      }
+    switch (labFilters.dateRange) {
+      case 'today':
+        filterDate.setHours(0, 0, 0, 0);
+        filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
+        break;
+      case 'week':
+        filterDate.setDate(now.getDate() - 7);
+        filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
+        break;
+      case 'month':
+        filterDate.setMonth(now.getMonth() - 1);
+        filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
+        break;
     }
-    
-    if (labFilters.priority !== 'all') {
-      filtered = filtered.filter(item => item.priority === labFilters.priority);
+  }
+  
+  filtered.sort((a, b) => {
+    switch (labSortBy) {
+      case 'recent':
+        return new Date(b.created_at) - new Date(a.created_at);
+      case 'oldest':
+        return new Date(a.created_at) - new Date(b.created_at);
+      case 'priority':
+        const priorityOrder = { 'stat': 3, 'urgent': 2, 'normal': 1 };
+        return priorityOrder[b.priority] - priorityOrder[a.priority];
+      case 'patient':
+        return a.patient?.name.localeCompare(b.patient?.name);
+      default:
+        return 0;
     }
-    
-    if (labFilters.testType !== 'all') {
-      filtered = filtered.filter(item => item.test_type === labFilters.testType);
-    }
-    
-    if (labFilters.dateRange !== 'all') {
-      const now = new Date();
-      const filterDate = new Date();
-      
-      switch (labFilters.dateRange) {
-        case 'today':
-          filterDate.setHours(0, 0, 0, 0);
-          filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
-          break;
-        case 'week':
-          filterDate.setDate(now.getDate() - 7);
-          filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
-          break;
-        case 'month':
-          filterDate.setMonth(now.getMonth() - 1);
-          filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
-          break;
-      }
-    }
-    
-    filtered.sort((a, b) => {
-      switch (labSortBy) {
-        case 'recent':
-          return new Date(b.created_at) - new Date(a.created_at);
-        case 'oldest':
-          return new Date(a.created_at) - new Date(b.created_at);
-        case 'priority':
-          const priorityOrder = { 'stat': 3, 'urgent': 2, 'normal': 1 };
-          return priorityOrder[b.priority] - priorityOrder[a.priority];
-        case 'patient':
-          return a.patient?.name.localeCompare(b.patient?.name);
-        default:
-          return 0;
-      }
-    });
-    
-    return filtered;
-  };
+  });
+  
+  return filtered;
+};
 
   const resetLabFilters = () => {
     setLabSearchTerm('');
@@ -823,6 +869,75 @@ const StaffMain = () => {
         description: 'Laboratory test requests' 
       }
     ];
+  };
+
+  const handleAcceptLabResult = async (requestId) => {
+    try {
+      setDataLoading(true);
+      const token = localStorage.getItem('healthcareToken');
+      
+      const response = await fetch('http://localhost:5000/api/healthcare/lab-result/accept', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ requestId })
+      });
+
+      if (response.ok) {
+        showAlert('Success', 'Lab result accepted successfully!', 'success');
+        setShowLabResultModal(false);
+        setSelectedLabResult(null);
+        await fetchLabRequests();
+        await fetchLabResults();
+      } else {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to accept lab result');
+      }
+    } catch (error) {
+      console.error('Accept lab result error:', error);
+      showAlert('Error', 'Failed to accept lab result: ' + error.message, 'error');
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
+  const handleDeclineLabResult = async (requestId) => {
+    try {
+      const reason = prompt('Please provide a reason for declining this lab result (optional):');
+      
+      setDataLoading(true);
+      const token = localStorage.getItem('healthcareToken');
+      
+      const response = await fetch('http://localhost:5000/api/healthcare/lab-result/decline', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          requestId,
+          reason: reason || 'No reason provided'
+        })
+      });
+
+      if (response.ok) {
+        showAlert('Success', 'Lab result declined successfully!', 'success');
+        setShowLabResultModal(false);
+        setSelectedLabResult(null);
+        await fetchLabRequests();
+        await fetchLabResults();
+      } else {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to decline lab result');
+      }
+    } catch (error) {
+      console.error('Decline lab result error:', error);
+      showAlert('Error', 'Failed to decline lab result: ' + error.message, 'error');
+    } finally {
+      setDataLoading(false);
+    }
   };
 
   const handleViewFile = (fileUrl, fileName) => {
@@ -1101,8 +1216,8 @@ const StaffMain = () => {
           ) : (
             filteredPatients.map((patient) => (
               <div 
-                key={patient.patient_id}
-                className="staffmain-patient-card-simple"
+                key={`${patient.patient_id}-${patient.queue_id}`}
+                className={`staffmain-patient-card-simple ${!patient.isInQueue ? 'completed-patient' : ''}`}
               >
                 <div className="healthcare-patient-info">
                   <div className="healthcare-patient-name">
@@ -1124,7 +1239,7 @@ const StaffMain = () => {
                       patient.queueStatus === 'waiting' ? 'Waiting' : 
                       patient.queueStatus === 'in_progress' ? 'In Progress' : 
                       patient.queueStatus
-                    ) : 'Completed'}
+                    ) : 'Complete'}
                   </div>
                 </div>
                 
@@ -1589,68 +1704,68 @@ const StaffMain = () => {
             )}
           </div>
 
-          <div className="staffmain-filter-section">
-            <div className="staffmain-filter-controls">
-              <select 
-                value={labFilters.status} 
-                onChange={(e) => setLabFilters({...labFilters, status: e.target.value})}
-                className="staffmain-filter-select"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending Upload</option>
-                <option value="completed">Completed</option>
-              </select>
+        <div className="staffmain-filter-controls">
+          <select 
+            value={labFilters.status} 
+            onChange={(e) => setLabFilters({...labFilters, status: e.target.value})}
+            className="staffmain-filter-select"
+          >
+            <option value="all">All Status</option>
+            <option value="pending">Pending Upload</option>
+            <option value="submitted">Submitted</option>
+            <option value="completed">Completed</option>
+            <option value="declined">Declined</option>
+          </select>
 
-              <select 
-                value={labFilters.priority} 
-                onChange={(e) => setLabFilters({...labFilters, priority: e.target.value})}
-                className="staffmain-filter-select"
-              >
-                <option value="all">All Priority</option>
-                <option value="normal">Normal</option>
-                <option value="urgent">Urgent</option>
-                <option value="stat">STAT</option>
-              </select>
+          <select 
+            value={labFilters.priority} 
+            onChange={(e) => setLabFilters({...labFilters, priority: e.target.value})}
+            className="staffmain-filter-select"
+          >
+            <option value="all">All Priority</option>
+            <option value="normal">Normal</option>
+            <option value="urgent">Urgent</option>
+            <option value="stat">STAT</option>
+          </select>
 
-              <select 
-                value={labFilters.testType} 
-                onChange={(e) => setLabFilters({...labFilters, testType: e.target.value})}
-                className="staffmain-filter-select"
-              >
-                <option value="all">All Test Types</option>
-                {getUniqueTestTypes().map(type => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
+          <select 
+            value={labFilters.testType} 
+            onChange={(e) => setLabFilters({...labFilters, testType: e.target.value})}
+            className="staffmain-filter-select"
+          >
+            <option value="all">All Test Types</option>
+            {getUniqueTestTypes().map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
 
-              <select 
-                value={labFilters.dateRange} 
-                onChange={(e) => setLabFilters({...labFilters, dateRange: e.target.value})}
-                className="staffmain-filter-select"
-              >
-                <option value="all">All Dates</option>
-                <option value="today">Today</option>
-                <option value="week">This Week</option>
-                <option value="month">This Month</option>
-              </select>
+          <select 
+            value={labFilters.dateRange} 
+            onChange={(e) => setLabFilters({...labFilters, dateRange: e.target.value})}
+            className="staffmain-filter-select"
+          >
+            <option value="all">All Dates</option>
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+          </select>
 
-              {activeFiltersCount > 0 && (
-                <button className="staffmain-reset-filters-btn" onClick={resetLabFilters}>
-                  <FunnelX size={15} />
-                </button>
-              )}
+          {activeFiltersCount > 0 && (
+            <button className="staffmain-reset-filters-btn" onClick={resetLabFilters}>
+              <FunnelX size={15} />
+            </button>
+          )}
 
-              <div className="staffmain-sort-controls">
-                <label>Sort by:</label>
-                <select value={labSortBy} onChange={(e) => setLabSortBy(e.target.value)} className="staffmain-sort-select">
-                  <option value="recent">Most Recent</option>
-                  <option value="oldest">Oldest First</option>
-                  <option value="priority">Priority</option>
-                  <option value="patient">Patient Name</option>
-                </select>
-              </div>
-            </div>
+          <div className="staffmain-sort-controls">
+            <label>Sort by:</label>
+            <select value={labSortBy} onChange={(e) => setLabSortBy(e.target.value)} className="staffmain-sort-select">
+              <option value="recent">Most Recent</option>
+              <option value="oldest">Oldest First</option>
+              <option value="priority">Priority</option>
+              <option value="patient">Patient Name</option>
+            </select>
           </div>
+        </div>
 
           <div className="staffmain-results-summary">
             <div className="staffmain-results-count">
@@ -1727,7 +1842,9 @@ const StaffMain = () => {
                             `Partial (${item.uploadedFileCount}/${item.expectedFileCount})` : 
                             'Pending Upload'
                           ) : 
+                          item.status === 'submitted' ? 'Submitted' :
                           item.status === 'completed' ? 'Completed' : 
+                          item.status === 'declined' ? 'Declined' :
                           item.status}
                       </span>
                     </td>
@@ -1792,8 +1909,8 @@ const StaffMain = () => {
                         <span className="staffmain-test-info-value">{selectedLabResult.test_name}</span>
                       </div>
                       <div className="staffmain-test-info-item">
-                        <span className="staffmain-test-info-label">Test Type</span>
-                        <span className="staffmain-test-info-value">{selectedLabResult.test_type}</span>
+                        <span className="staffmain-test-info-label">Test Type </span>
+                                        <span className="staffmain-test-info-value">{selectedLabResult.test_type}</span>
                       </div>
                       <div className="staffmain-test-info-item">
                         <span className="staffmain-test-info-label">Request Date</span>
@@ -1817,8 +1934,8 @@ const StaffMain = () => {
                 <div className="staffmain-results-section">
                   <div className="staffmain-results-header">
                     <h4>Test Results</h4>
-                    <span className={`staffmain-results-status ${selectedLabResult.hasResult ? 'completed' : 'pending'}`}>
-                      {selectedLabResult.hasResult ? 'Results Available' : 'Pending Upload'}
+                    <span className={`staffmain-results-status ${selectedLabResult.hasResult ? 'submitted' : 'pending'}`}>
+                      {selectedLabResult.hasResult ? 'Results Submitted' : 'Pending Upload'}
                     </span>
                   </div>
 
@@ -1864,6 +1981,12 @@ const StaffMain = () => {
                               {new Date(selectedLabResult.resultData.upload_date).toLocaleDateString()}
                             </div>
                           </div>
+                          <button 
+                            onClick={() => handleViewFile(selectedLabResult.resultData.file_url, selectedLabResult.resultData.file_name)}
+                            className="staffmain-clean-view-btn"
+                          >
+                            <Eye size={15} /> View
+                          </button>
                         </div>
                       </div>
                     )
@@ -1880,12 +2003,31 @@ const StaffMain = () => {
               </div>
 
               <div className="staffmain-clean-modal-actions">
-                <button 
-                  className="staffmain-clean-close-btn"
-                  onClick={() => setShowLabResultModal(false)}
-                >
-                  Close
-                </button>
+                {selectedLabResult.status === 'submitted' && selectedLabResult.hasResult ? (
+                  <>
+                    <button 
+                      className="staffmain-accept-btn"
+                      onClick={() => handleAcceptLabResult(selectedLabResult.request_id)}
+                      disabled={dataLoading}
+                    >
+                      {dataLoading ? 'Processing...' : 'Accept'}
+                    </button>
+                    <button 
+                      className="staffmain-decline-btn"
+                      onClick={() => handleDeclineLabResult(selectedLabResult.request_id)}
+                      disabled={dataLoading}
+                    >
+                      {dataLoading ? 'Processing...' : 'Decline'}
+                    </button>
+                  </>
+                ) : (
+                  <button 
+                    className="staffmain-clean-close-btn"
+                    onClick={() => setShowLabResultModal(false)}
+                  >
+                    Close
+                  </button>
+                )}
               </div>
             </div>
           </div>

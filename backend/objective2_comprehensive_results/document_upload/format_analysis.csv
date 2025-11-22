@@ -1,0 +1,9 @@
+file_format,upload_successful,format_compatible,end_to_end_ms,file_size_mb,total_tests,success_rate,compatibility_rate
+application/pdf,16,16,844.625,2.6125,16,100.0,100.0
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,0,0,23.666666666666668,1.0,3,0.0,0.0
+application/vnd.openxmlformats-officedocument.wordprocessingml.document,0,0,11.666666666666666,1.0,3,0.0,0.0
+audio/mpeg,0,0,26.0,1.0,3,0.0,0.0
+image/jpeg,10,10,582.3076923076923,5.230769230769231,13,76.92307692307693,76.92307692307693
+image/png,6,6,707.0,2.0,6,100.0,100.0
+text/plain,0,0,27.0,1.0,3,0.0,0.0
+video/mp4,0,0,12.333333333333334,2.0,3,0.0,0.0

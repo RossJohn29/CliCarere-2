@@ -1,0 +1,51 @@
+test_case,patient_id,test_type,priority,request_id,processing_time_ms,success,status
+1,PAT651028549,Complete Blood Count (CBC),urgent,2,300.18091201782227,True,Created successfully
+2,PAT653182233,Blood Chemistry,normal,3,291.6285991668701,True,Created successfully
+3,PAT654952248,Urinalysis,normal,4,373.37636947631836,True,Created successfully
+4,PAT656750607,Lipid Profile,urgent,5,335.2773189544678,True,Created successfully
+5,PAT658407903,Thyroid Function Test,normal,6,266.7691707611084,True,Created successfully
+6,PAT659951673,Liver Function Test,normal,7,276.91149711608887,True,Created successfully
+7,PAT662120392,Kidney Function Test,urgent,8,242.84768104553223,True,Created successfully
+8,PAT663601845,Blood Glucose Test,normal,9,311.8712902069092,True,Created successfully
+9,PAT665296342,HbA1c Test,normal,10,326.1909484863281,True,Created successfully
+10,PAT667035531,X-ray,urgent,11,326.8251419067383,True,Created successfully
+11,PAT668647700,Complete Blood Count (CBC),normal,12,385.22958755493164,True,Created successfully
+12,PAT670581787,Blood Chemistry,normal,13,251.0688304901123,True,Created successfully
+13,PAT672689584,Urinalysis,urgent,14,375.21862983703613,True,Created successfully
+14,PAT674420286,Lipid Profile,normal,15,395.3728675842285,True,Created successfully
+15,PAT676025979,Thyroid Function Test,normal,16,330.43861389160156,True,Created successfully
+16,PAT677636156,Liver Function Test,urgent,17,318.9244270324707,True,Created successfully
+17,PAT679320721,Kidney Function Test,normal,18,262.4692916870117,True,Created successfully
+18,PAT680991466,Blood Glucose Test,normal,19,251.9087791442871,True,Created successfully
+19,PAT682562886,HbA1c Test,urgent,20,251.71828269958496,True,Created successfully
+20,PAT684128150,X-ray,normal,21,282.02080726623535,True,Created successfully
+21,PAT685741902,Complete Blood Count (CBC),normal,22,272.8707790374756,True,Created successfully
+22,PAT687371249,Blood Chemistry,urgent,23,422.8711128234863,True,Created successfully
+23,PAT689145505,Urinalysis,normal,24,266.75915718078613,True,Created successfully
+24,PAT690661340,Lipid Profile,normal,25,247.87473678588867,True,Created successfully
+25,PAT692226355,Thyroid Function Test,urgent,26,352.2012233734131,True,Created successfully
+26,PAT693900655,Liver Function Test,normal,27,273.8180160522461,True,Created successfully
+27,PAT695606474,Kidney Function Test,normal,28,262.7413272857666,True,Created successfully
+28,PAT697349764,Blood Glucose Test,urgent,29,427.36291885375977,True,Created successfully
+29,PAT699166137,HbA1c Test,normal,30,363.2841110229492,True,Created successfully
+30,PAT701136057,X-ray,normal,31,271.6984748840332,True,Created successfully
+31,PAT702729135,Complete Blood Count (CBC),urgent,32,301.8536567687988,True,Created successfully
+32,PAT704386671,Blood Chemistry,normal,33,247.63798713684082,True,Created successfully
+33,PAT705909383,Urinalysis,normal,34,238.00134658813477,True,Created successfully
+34,PAT707348729,Lipid Profile,urgent,35,307.74474143981934,True,Created successfully
+35,PAT708946281,Thyroid Function Test,normal,36,335.88361740112305,True,Created successfully
+36,PAT710642883,Liver Function Test,normal,37,381.00266456604004,True,Created successfully
+37,PAT712699631,Kidney Function Test,urgent,38,317.9292678833008,True,Created successfully
+38,PAT714503578,Blood Glucose Test,normal,39,324.9518871307373,True,Created successfully
+39,PAT716498482,HbA1c Test,normal,40,363.48819732666016,True,Created successfully
+40,PAT718232677,X-ray,urgent,41,241.06431007385254,True,Created successfully
+41,PAT719724379,Complete Blood Count (CBC),normal,42,269.1235542297363,True,Created successfully
+42,PAT721395423,Blood Chemistry,normal,43,297.9154586791992,True,Created successfully
+43,PAT722969394,Urinalysis,urgent,44,276.49617195129395,True,Created successfully
+44,PAT724587379,Lipid Profile,normal,45,244.71211433410645,True,Created successfully
+45,PAT726265125,Thyroid Function Test,normal,46,406.83698654174805,True,Created successfully
+46,PAT728070787,Liver Function Test,urgent,47,239.80975151062012,True,Created successfully
+47,PAT729782592,Kidney Function Test,normal,48,372.09105491638184,True,Created successfully
+48,PAT731605497,Blood Glucose Test,normal,49,267.35949516296387,True,Created successfully
+49,PAT733264647,HbA1c Test,urgent,50,255.80549240112305,True,Created successfully
+50,PAT734997981,X-ray,normal,51,234.84349250793457,True,Created successfully

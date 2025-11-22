@@ -1,103 +1,51 @@
 test_case,symptoms,age,category,expected_department,predicted_department,correct,patient_id
-1,Fever,25,General Medicine,Internal Medicine,Internal Medicine,True,PAT358763684
-2,High Blood Pressure,45,Cardiovascular,Internal Medicine,Internal Medicine,True,PAT361014455
-3,Diabetes,50,Endocrine,Internal Medicine,Internal Medicine,True,PAT363063645
-4,Chest Pain,40,Cardiovascular,Internal Medicine,Internal Medicine,True,PAT365725934
-5,Headache,30,Neurological,Internal Medicine,Internal Medicine,True,PAT370540775
-6,Annual Check-up,35,Routine Care,Internal Medicine,Internal Medicine,True,PAT371989275
-7,Health Screening,40,Routine Care,Internal Medicine,Internal Medicine,True,PAT373917726
-8,Fatigue,28,General Medicine,Internal Medicine,Internal Medicine,True,PAT375964494
-9,Shortness of Breath,55,Respiratory,Internal Medicine,Internal Medicine,True,PAT377910258
-10,Palpitations,42,Cardiovascular,Internal Medicine,Internal Medicine,True,PAT379753671
-11,Dizziness,38,Neurological,Internal Medicine,Internal Medicine,True,PAT381698549
-12,Stomach Pain,33,Gastrointestinal,Internal Medicine,Internal Medicine,True,PAT383849697
-13,Cough,29,Respiratory,Internal Medicine,Internal Medicine,True,PAT385692712
-14,Vomiting,31,Gastrointestinal,Internal Medicine,Internal Medicine,True,PAT387843606
-15,Diarrhea,27,Gastrointestinal,Internal Medicine,Internal Medicine,True,PAT389583800
-16,Loss of Appetite,36,General Medicine,Internal Medicine,Internal Medicine,True,PAT391325949
-17,Chills,32,General Medicine,Internal Medicine,Internal Medicine,True,PAT393168418
-18,Fever,5,Pediatric General,Pediatrics,Pediatrics,True,PAT395013607
-19,Cough,8,Pediatric Respiratory,Pediatrics,Pediatrics,True,PAT396650987
-20,Vaccination,2,Preventive Care,Pediatrics,Pediatrics,True,PAT398390699
-21,Ear Pain,6,Pediatric ENT,Pediatrics,Pediatrics,True,PAT400336540
-22,Rashes,4,Pediatric Dermatology,Pediatrics,Pediatrics,True,PAT402590463
-23,Vomiting,3,Pediatric GI,Pediatrics,Pediatrics,True,PAT404330686
-24,Diarrhea,7,Pediatric GI,Pediatrics,Pediatrics,True,PAT405968952
-25,Poor Appetite,1,Pediatric General,Pediatrics,Pediatrics,True,PAT407811291
-26,Developmental Delay,4,Developmental,Pediatrics,Pediatrics,True,PAT410063256
-27,Vision Problems,10,Pediatric Ophthalmology,Pediatrics,Pediatrics,True,PAT411600922
-28,Eye Redness,9,Pediatric Ophthalmology,Pediatrics,Pediatrics,True,PAT413239146
-29,Hearing Loss,12,Pediatric ENT,Pediatrics,Pediatrics,True,PAT415195738
-30,Irregular Menstruation,25,Gynecology,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT417028271
-31,Pregnancy Check-up,28,Obstetrics,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT418871100
-32,Prenatal Care,30,Obstetrics,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT425322098
-33,Pelvic Pain,26,Gynecology,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT426858336
-34,Family Planning,32,Reproductive Health,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT428524942
-35,Missed Period,24,Gynecology,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT430545931
-36,Vaginal Discharge,27,Gynecology,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT432286921
-37,Dysmenorrhea,22,Gynecology,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT433939089
-38,Postnatal Care,29,Obstetrics,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT435991113
-39,Fertility Concern,35,Reproductive Health,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT437622140
-40,Appendicitis,25,Emergency Surgery,General Surgery,General Surgery,True,PAT440478426
-41,Hernia,40,Elective Surgery,General Surgery,General Surgery,True,PAT446519498
-42,Gallstones,45,Hepatobiliary,General Surgery,General Surgery,True,PAT448465152
-43,Abscess,30,Infection,General Surgery,General Surgery,True,PAT451129967
-44,Wound Infection,35,Post-operative,General Surgery,General Surgery,True,PAT452765890
-45,Lump or Mass,38,Oncology,General Surgery,General Surgery,True,PAT455022317
-46,Post-Surgery Follow-up,42,Post-operative,General Surgery,General Surgery,True,PAT456940530
-47,Wound Care,33,Post-operative,General Surgery,General Surgery,True,PAT459943534
-48,Chronic Back Pain,45,Chronic Pain,Anesthesia and Pain Management,Anesthesia and Pain Management,True,PAT461878863
-49,Nerve Pain,50,Neuropathic Pain,Anesthesia and Pain Management,Anesthesia and Pain Management,True,PAT463722610
-50,Post-Surgical Pain,35,Acute Pain,Anesthesia and Pain Management,Anesthesia and Pain Management,True,PAT465874788
-51,Joint Pain Unresponsive to Meds,55,Chronic Pain,Anesthesia and Pain Management,Anesthesia and Pain Management,True,PAT468125292
-52,Depression,25,Mood Disorders,Psychiatry,Psychiatry,True,PAT470174944
-53,Anxiety,30,Anxiety Disorders,Psychiatry,Psychiatry,True,PAT472222977
-54,Mood Swings,27,Mood Disorders,Psychiatry,Psychiatry,True,PAT473962217
-55,Sleep Problems,40,Sleep Disorders,Psychiatry,Psychiatry,True,PAT476011137
-56,Suicidal Thoughts,35,Crisis Intervention,Psychiatry,Psychiatry,True,PAT478365976
-57,Panic Attack,28,Anxiety Disorders,Psychiatry,Psychiatry,True,PAT480720827
-58,Minor Wound,25,Minor Procedures,Outpatient Services,Outpatient Services,True,PAT488708488
-59,Injection,30,Procedures,Outpatient Services,Outpatient Services,True,PAT490755440
-60,Dressing Change,35,Wound Care,Outpatient Services,Outpatient Services,True,PAT492599727
-61,Blood Test,30,Laboratory,Pathology,Pathology,True,PAT494751419
-62,Urine Test,25,Laboratory,Pathology,Pathology,True,PAT496797738
-63,Biopsy Request,45,Histopathology,Pathology,Pathology,True,PAT498743641
-64,X-ray,35,Imaging,Radiology,Radiology,True,PAT500996140
-65,CT Scan,40,Advanced Imaging,Radiology,Radiology,True,PAT502943731
-66,MRI,45,Advanced Imaging,Radiology,Radiology,True,PAT505196326
-67,Ultrasound,30,Imaging,Radiology,Radiology,True,PAT507142960
-68,Imaging for Fracture,25,Emergency Imaging,Radiology,Radiology,True,PAT509190300
-69,Stroke Recovery,55,Neurological Rehab,Rehabilitation and Physical Therapy,Rehabilitation and Physical Therapy,True,PAT511238318
-70,Fracture Rehabilitation,40,Orthopedic Rehab,Rehabilitation and Physical Therapy,Rehabilitation and Physical Therapy,True,PAT513490463
-71,Mobility Issues,60,Functional Rehab,Rehabilitation and Physical Therapy,Rehabilitation and Physical Therapy,True,PAT515128939
-72,Post-Accident Therapy,35,Trauma Rehab,Rehabilitation and Physical Therapy,Rehabilitation and Physical Therapy,True,PAT517177101
-73,Chronic Kidney Disease,50,Renal Care,Dialysis,Dialysis,True,PAT519327095
-74,Hemodialysis Follow-up,45,Dialysis Care,Dialysis,Dialysis,True,PAT521374660
-75,Abnormal Creatinine Levels,55,Renal Function,Dialysis,Dialysis,True,PAT523012101
-76,Skin Rash,25,Skin Conditions,Dermatology,Dermatology,True,PAT525369804
-77,Acne,18,Skin Conditions,Dermatology,Dermatology,True,PAT527109736
-78,Eczema,30,Chronic Skin,Dermatology,Dermatology,True,PAT528747451
-79,Psoriasis,40,Chronic Skin,Dermatology,Dermatology,True,PAT530489372
-80,Fungal Infection,35,Skin Infections,Dermatology,Dermatology,True,PAT532332546
-81,Itchy Skin,28,Skin Conditions,Dermatology,Dermatology,True,PAT534277899
-82,Mole Examination,45,Skin Cancer Screening,Dermatology,Dermatology,True,PAT536202042
-83,Chronic Abdominal Pain,40,GI Procedures,Endoscopy and Colonoscopy,Endoscopy and Colonoscopy,True,PAT537880696
-84,Black Stool,45,GI Bleeding,Endoscopy and Colonoscopy,Endoscopy and Colonoscopy,True,PAT540125712
-85,Vomiting Blood,50,Upper GI Bleeding,Endoscopy and Colonoscopy,Endoscopy and Colonoscopy,True,PAT546565695
-86,Suspected Ulcer,42,Peptic Disease,Endoscopy and Colonoscopy,Endoscopy and Colonoscopy,True,PAT548510378
-87,Toothache,25,Dental Pain,Dental,Dental,True,PAT550661853
-88,Gum Bleeding,35,Periodontal,Dental,Dental,True,PAT552503780
-89,Tooth Decay,20,Restorative,Dental,Dental,True,PAT554654707
-90,Oral Infection,30,Oral Pathology,Dental,Dental,True,PAT556602153
-91,Tooth Extraction,40,Oral Surgery,Dental,Dental,True,PAT568068570
-92,Denture Fitting,65,Prosthodontics,Dental,Dental,True,PAT570118454
-93,Dental Cleaning,28,Preventive,Dental,Dental,True,PAT572062304
-94,Jaw Pain,33,TMJ Disorders,Dental,Dental,True,PAT574008288
-95,Ear Pain,25,ENT,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT576013702
-96,Hearing Loss,50,Audiology,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT578002203
-97,Sinusitis,30,ENT,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT580050591
-98,Sore Throat,28,ENT,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT581904874
-99,Vision Problems,35,Ophthalmology,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT584727954
-100,Eye Pain,40,Ophthalmology,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT586603840
-101,Eye Redness,32,Ophthalmology,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT588447513
-102,Cataract,55,Ophthalmology,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT590392450
+1,Ear Pain,25,ENT,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT972345866
+2,Hearing Loss,50,ENT,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT974193374
+3,Vision Problems,35,Ophthalmology,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT975591683
+4,Eye Redness,32,Ophthalmology,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT977018822
+5,Sinusitis,30,ENT,ENT and Ophthalmology,ENT and Ophthalmology,True,PAT978471942
+6,Irregular Menstruation,25,Gynecology,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT979873848
+7,Pregnancy Check-up,28,Obstetrics,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT981354748
+8,Prenatal Care,30,Obstetrics,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT982769967
+9,Pelvic Pain,26,Gynecology,Obstetrics and Gynecology,Obstetrics and Gynecology,True,PAT984132125
+10,Suspected Appendicitis,25,Emergency Surgery,General Surgery,General Surgery,True,PAT985550615
+11,Hernia,40,Elective Surgery,General Surgery,General Surgery,True,PAT986949392
+12,Gallstones,45,Hepatobiliary,General Surgery,General Surgery,True,PAT988396732
+13,Abscess,30,Infection,General Surgery,General Surgery,True,PAT989770332
+14,Fever (Child),5,Pediatric General,Pediatrics,Pediatrics,True,PAT991121371
+15,Cough and Colds (Child),8,Pediatric Respiratory,Pediatrics,Pediatrics,True,PAT992469653
+16,Vaccination,2,Preventive Care,Pediatrics,Pediatrics,True,PAT994094284
+17,Ear Pain (Child),6,Pediatric ENT,Pediatrics,Pediatrics,True,PAT995553096
+18,Fever,25,General Medicine,Family Medicine Regular,Family Medicine Regular,True,PAT996989577
+19,Headache,30,General Medicine,Family Medicine Regular,Family Medicine Regular,True,PAT998649593
+20,Cough,35,Respiratory,Family Medicine Regular,Family Medicine Regular,True,PAT000076636
+21,Annual Check-up,40,Routine Care,Family Medicine Regular,Family Medicine Regular,True,PAT001500409
+22,Fatigue,32,General Medicine,Family Medicine Regular,Family Medicine Regular,True,PAT002850612
+23,Senior Check-up,65,Senior Care,Family Medicine Senior/PWD,Family Medicine Senior/PWD,True,PAT004238686
+24,Blood Pressure Check,70,Senior Care,Family Medicine Senior/PWD,Family Medicine Senior/PWD,True,PAT005713478
+25,Diabetes Monitoring,68,Senior Care,Family Medicine Senior/PWD,Family Medicine Senior/PWD,True,PAT007200139
+26,Chest Discomfort,45,Cardiovascular,Cardiology,Cardiology,True,PAT008654659
+27,High Blood Pressure,50,Cardiovascular,Internal Medicine,Internal Medicine,True,PAT010096948
+28,Diabetes,55,Endocrine,Internal Medicine,Internal Medicine,True,PAT011452926
+29,Shortness of Breath,48,Respiratory,Internal Medicine,Internal Medicine,True,PAT012861226
+30,Stomach Pain,40,Gastrointestinal,Internal Medicine,Internal Medicine,True,PAT014428981
+31,Persistent Cough,35,Respiratory,TB DOTS,TB DOTS,True,PAT015936817
+32,Night Sweats,40,TB Symptoms,TB DOTS,TB DOTS,True,PAT017603842
+33,Unexplained Weight Loss,38,TB Symptoms,TB DOTS,TB DOTS,True,PAT019138817
+34,Toothache,25,Dental Pain,Dental,Dental,True,PAT020446994
+35,Gum Bleeding,35,Periodontal,Dental,Dental,True,PAT022007781
+36,Tooth Decay,20,Restorative,Dental,Dental,True,PAT023413157
+37,Oral Infection,30,Oral Pathology,Dental,Dental,True,PAT024976178
+38,Diabetes Management,50,Endocrine,Diabetes Clinic,Diabetes Clinic,True,PAT026373612
+39,High Blood Sugar,55,Endocrine,Diabetes Clinic,Diabetes Clinic,True,PAT027809736
+40,Heart Disease,60,Cardiovascular,Cardiology,Cardiology,True,PAT029279480
+41,Irregular Heartbeat,58,Cardiovascular,Cardiology,Cardiology,True,PAT030812814
+42,Heart Attack History,65,Cardiovascular,Cardiology,Cardiology,True,PAT032128562
+43,Kidney Disease,55,Renal Care,Nephrology Adult,Nephrology Adult,True,PAT033587460
+44,Abnormal Creatinine Levels,50,Renal Function,Nephrology Adult,Nephrology Adult,True,PAT034960954
+45,Asthma,40,Respiratory,Pulmonology Adult,Pulmonology Adult,True,PAT036342277
+46,COPD,65,Respiratory,Pulmonology Adult,Pulmonology Adult,True,PAT037767999
+47,Seizure Disorder/Epilepsy,35,Neurological,Neurology,Neurology,True,PAT039312713
+48,Migraine,30,Neurological,Neurology,Neurology,True,PAT040710892
+49,Chronic Abdominal Pain,40,GI Procedures,Gastroenterology Adult,Gastroenterology Adult,True,PAT042170193
+50,Chronic/Recurrent Black Stool,45,GI Bleeding,Gastroenterology Adult,Gastroenterology Adult,True,PAT043614140

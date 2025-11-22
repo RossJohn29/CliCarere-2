@@ -35,15 +35,12 @@ const emailConfig = {
 };
 
 const ITEXMO_CONFIG = {
-  email: process.env.ITEXMO_EMAIL,
-  password: process.env.ITEXMO_PASSWORD,
-  apiUrl: process.env.ITEXMO_API_URL || 'https://api.itexmo.com/api/broadcast'
+  apiKey: process.env.ITEXMO_API_KEY,
+  senderId: process.env.ITEXMO_SENDER_ID || 'CLICARE',
+  apiUrl: 'https://www.itexmo.com/php_api/api.php'
 };
 
-const isSMSConfigured = ITEXMO_CONFIG.email && 
-                        ITEXMO_CONFIG.password &&
-                        ITEXMO_CONFIG.email.includes('@') &&
-                        ITEXMO_CONFIG.password.length > 5;
+const isSMSConfigured = ITEXMO_CONFIG.apiKey && ITEXMO_CONFIG.apiKey !== 'PR-SAMPL123456_ABCDE';
 
 // In-Memory Store for Rate Limiting
 const failedAttempts = new Map();
@@ -132,6 +129,210 @@ const assignDepartmentBySymptoms = async (symptoms, patientAge = null) => {
   }
 };
 
+const calculateNextAvailableDate = async (departmentId) => {
+  try {
+    const { data: department, error } = await supabase
+      .from('department')
+      .select('is_scheduled, available_days, service_type, name')
+      .eq('department_id', departmentId)
+      .single();
+
+    if (error || !department) {
+      console.error('Department not found:', departmentId);
+      return { date: null, timeSlot: null };
+    }
+
+    // If not scheduled, return today
+    if (!department.is_scheduled || !department.available_days) {
+      return { 
+        date: new Date().toISOString().split('T')[0], 
+        timeSlot: 'anytime' 
+      };
+    }
+
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const currentTime = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
+    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    
+    const schedule = department.available_days;
+    let checkDate = new Date(now);
+    const maxDaysToCheck = 14;
+    
+    // Helper to check if time slot is still open today
+    const isTimeSlotStillAvailable = (timeSlots) => {
+      for (const slot of timeSlots) {
+        if (currentTime < slot.end) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // Check today first
+    const todayName = daysOfWeek[checkDate.getDay()];
+    if (schedule[todayName]) {
+      const timeSlots = schedule[todayName];
+      if (isTimeSlotStillAvailable(timeSlots)) {
+        // Found available time slot today
+        return {
+          date: checkDate.toISOString().split('T')[0],
+          timeSlot: `${timeSlots[0].start}-${timeSlots[timeSlots.length - 1].end}`,
+          department: department.name
+        };
+      }
+    }
+
+    // Check future days
+    for (let i = 1; i <= maxDaysToCheck; i++) {
+      checkDate.setDate(checkDate.getDate() + 1);
+      const dayName = daysOfWeek[checkDate.getDay()];
+      
+      if (schedule[dayName]) {
+        const timeSlots = schedule[dayName];
+        return {
+          date: checkDate.toISOString().split('T')[0],
+          timeSlot: `${timeSlots[0].start}-${timeSlots[timeSlots.length - 1].end}`,
+          department: department.name
+        };
+      }
+    }
+
+    // Fallback
+    console.warn(`No available schedule found for ${department.name}`);
+    return { 
+      date: new Date().toISOString().split('T')[0], 
+      timeSlot: 'by appointment' 
+    };
+    
+  } catch (error) {
+    console.error('Error calculating next available date:', error);
+    return { date: null, timeSlot: null };
+  }
+};
+
+const calculateNextAvailableSlot = async (departmentId) => {
+  try {
+    const { data: department, error } = await supabase
+      .from('department')
+      .select('is_scheduled, available_days, service_type, name')
+      .eq('department_id', departmentId)
+      .single();
+
+    if (error || !department) {
+      console.error('Department not found:', departmentId);
+      return { 
+        isScheduled: false, 
+        nextAvailableDate: null, 
+        isToday: true 
+      };
+    }
+
+    // If not a scheduled subspecialty, return immediate availability
+    if (!department.is_scheduled || department.service_type !== 'subspecialty') {
+      return { 
+        isScheduled: false, 
+        nextAvailableDate: new Date().toISOString().split('T')[0], 
+        isToday: true,
+        departmentName: department.name
+      };
+    }
+
+    // Parse the available days schedule
+    const schedule = department.available_days;
+    if (!schedule || Object.keys(schedule).length === 0) {
+      console.warn('No schedule found for subspecialty department:', department.name);
+      return { 
+        isScheduled: true, 
+        nextAvailableDate: null, 
+        isToday: false,
+        departmentName: department.name 
+      };
+    }
+
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    
+    // Check if today is an available day and still within time window
+    const todayName = daysOfWeek[now.getDay()];
+    if (schedule[todayName]) {
+      const timeSlots = schedule[todayName];
+      const isStillOpen = timeSlots.some(slot => currentTime < slot.end);
+      
+      if (isStillOpen) {
+        // Check current queue count for today
+        const { count: todayQueueCount } = await supabase
+          .from('queue')
+          .select('*', { count: 'exact', head: true })
+          .eq('department_id', departmentId)
+          .eq('visit.visit_date', today);
+
+        return {
+          isScheduled: true,
+          nextAvailableDate: today,
+          isToday: true,
+          queuePosition: (todayQueueCount || 0) + 1,
+          departmentName: department.name,
+          timeSlot: `${timeSlots[0].start}-${timeSlots[timeSlots.length - 1].end}`
+        };
+      }
+    }
+
+    // Find next available date
+    let checkDate = new Date(now);
+    const maxDaysToCheck = 14; // Look ahead 2 weeks
+    
+    for (let i = 1; i <= maxDaysToCheck; i++) {
+      checkDate.setDate(checkDate.getDate() + 1);
+      const dayName = daysOfWeek[checkDate.getDay()];
+      
+      if (schedule[dayName]) {
+        const nextDate = checkDate.toISOString().split('T')[0];
+        
+        // Count existing appointments for this date
+        const { count: futureQueueCount } = await supabase
+          .from('queue')
+          .select('*', { count: 'exact', head: true })
+          .eq('department_id', departmentId)
+          .eq('scheduled_date', nextDate);
+
+        const timeSlots = schedule[dayName];
+        
+        return {
+          isScheduled: true,
+          nextAvailableDate: nextDate,
+          isToday: false,
+          queuePosition: (futureQueueCount || 0) + 1,
+          departmentName: department.name,
+          dayName: dayName,
+          timeSlot: `${timeSlots[0].start}-${timeSlots[timeSlots.length - 1].end}`
+        };
+      }
+    }
+
+    // No available date found within 2 weeks
+    return {
+      isScheduled: true,
+      nextAvailableDate: null,
+      isToday: false,
+      error: 'No available appointments within the next 2 weeks',
+      departmentName: department.name
+    };
+
+  } catch (error) {
+    console.error('Error calculating next available slot:', error);
+    return { 
+      isScheduled: false, 
+      nextAvailableDate: null, 
+      isToday: false,
+      error: error.message 
+    };
+  }
+};
+
 // Email Service
 const sendEmailOTP = async (email, otp, patientName) => {
   try {
@@ -139,25 +340,90 @@ const sendEmailOTP = async (email, otp, patientName) => {
     await transporter.verify();
   
     const mailOptions = {
-      from: emailConfig.auth.user,
+      from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
       to: email,
-      subject: 'CLICARE - Your Verification Code',
+      subject: 'CliCare - Your Verification Code',
       html: `
-        <div style="font-family: Poppins, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #2563eb;">🏥 CliCare Verification Code</h2>
-          <p>Hello ${patientName},</p>
-          <p>Your verification code is:</p>
-          <div style="background: #f3f4f6; padding: 20px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 4px; margin: 20px 0;">
-            ${otp}
-          </div>
-          <p><strong>This code will expire in 5 minutes.</strong></p>
-          <p>If you didn't request this code, please ignore this email.</p>
-          <hr>
-          <p><small>CliCare Hospital Management System</small></p>
-        </div>
-      `
-    };
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
+            
+            <!-- Logo -->
+            <div style="text-align: center; margin-bottom: 24px;">
+              <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
+            </div>
 
+            <!-- Greeting -->
+            <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
+              Hello ${patientName},
+            </p>
+            
+            <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
+              Your verification code is:
+            </p>
+
+            <!-- OTP Code - THE STAR -->
+            <div style="text-align: center; margin: 0 0 20px 0;">
+              <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 10px 20px;">
+                <div style="font-size: 24px; font-weight: 600; letter-spacing: 5px; color: #1a672a; font-family: 'Poppins', sans-serif;">
+                  ${otp}
+                </div>
+              </div>
+            </div>
+
+            <!-- Expiration Notice -->
+            <p style="color: #6b7280; font-size: 13px; font-weight: 400; text-align: center; margin: 0 0 20px 0;">
+              This code will expire in <strong style="color: #27371f;">5 minutes</strong>
+            </p>
+
+            <!-- Divider -->
+            <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
+
+            <!-- Security Tips -->
+            <p style="color: #9ca3af; font-size: 12px; font-weight: 500; line-height: 1; margin: 0 0 10px 0;">
+              Security Tips:
+            </p>
+            
+            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1; margin: 0 0 5px 0;">
+              • Never share this code with anyone
+            </p>
+            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1; margin: 0 0 5px 0;">
+              • CliCare staff will never ask for your code
+            </p>
+            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1; margin: 0 0 10px 0;">
+              • This code is valid for one-time use only
+            </p>
+
+            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
+              If you didn't request this code, please ignore this email.
+            </p>
+
+            <!-- Footer -->
+            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+              <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+                CliCare Hospital Management System<br>
+                This is an automated message. Please do not reply.
+              </p>
+            </div>
+
+          </div>
+        </body>
+        </html>
+      `,
+      attachments: [
+        {
+          filename: 'clicareLogo.png',
+          path: path.join(__dirname, '../src/clicareLogo.png'),
+          cid: 'clicareLogo'
+        }
+      ]
+    };
 
     const result = await transporter.sendMail(mailOptions);
     return result;
@@ -171,139 +437,70 @@ const sendEmailOTP = async (email, otp, patientName) => {
 const sendSMSOTP = async (phoneNumber, otp, patientName) => {
   try {
     if (!isSMSConfigured) {
-      console.error('❌ SMS not configured');
       throw new Error('SMS service not configured. Please contact administrator.');
     }
     
     let formattedPhone = phoneNumber.toString().trim();
     
-    // Remove any spaces, dashes, or parentheses
-    formattedPhone = formattedPhone.replace(/[\s\-\(\)]/g, '');
-    
-    // Convert +639 or 639 to 09
     if (formattedPhone.startsWith('+639')) {
       formattedPhone = '0' + formattedPhone.substring(3);
     } else if (formattedPhone.startsWith('639')) {
       formattedPhone = '0' + formattedPhone.substring(2);
     }
     
-    // Validate Philippine mobile number format
     if (!/^09\d{9}$/.test(formattedPhone)) {
-      console.error('❌ Invalid phone format:', formattedPhone);
-      throw new Error('Invalid Philippine mobile number format. Must be 09XXXXXXXXX');
+      throw new Error('Invalid Philippine mobile number format');
     }
     
-    const message = `Your CLICARE verification code is ${otp}. Valid for 5 minutes. Do not share this code.`;
+    const message = `CLICARE: Your verification code is ${otp}. Valid for 5 minutes. Do not share this code.`;
     
-    console.log('📱 SMS Configuration:');
-    console.log('   Phone:', formattedPhone);
-    console.log('   Email:', ITEXMO_CONFIG.email ? ITEXMO_CONFIG.email.substring(0, 10) + '...' : 'Not set');
-    console.log('   Message:', message);
-    
-    // iTexMo NEW API format (Email + Password)
     const params = {
-      'Email': ITEXMO_CONFIG.email,
-      'Password': ITEXMO_CONFIG.password,
-      'Recipients': formattedPhone,
-      'Message': message
+      '1': formattedPhone,
+      '2': message,
+      '3': ITEXMO_CONFIG.apiKey,
+      passwd: ITEXMO_CONFIG.apiKey.split('_')[1] || 'default'
     };
     
-    const formData = new URLSearchParams(params);
-    
-    console.log('📤 Sending request to iTexMo API (Email method)...');
-    console.log('   URL:', ITEXMO_CONFIG.apiUrl);
-    
-    const response = await axios.post(ITEXMO_CONFIG.apiUrl, formData, {
+    const response = await axios.post(ITEXMO_CONFIG.apiUrl, new URLSearchParams(params), {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'text/plain'
+        'Content-Type': 'application/x-www-form-urlencoded'
       },
-      timeout: 30000,
-      validateStatus: function (status) {
-        return status < 600; // Accept any status
-      }
+      timeout: 30000
     });
     
-    console.log('📨 iTexMo HTTP Status:', response.status);
-    console.log('📨 iTexMo Raw Response:', response.data);
-    console.log('📨 Response Type:', typeof response.data);
-    
-    // Handle HTTP errors
-    if (response.status >= 500) {
-      console.error('❌ iTexMo server error (500+)');
-      throw new Error('SMS service is temporarily unavailable. Please verify your email and password.');
-    }
-    
-    if (response.status >= 400) {
-      console.error('❌ iTexMo client error (400+)');
-      throw new Error('Invalid credentials. Please check your iTexMo email and password.');
-    }
-    
-    // Handle empty response
-    if (response.data === null || response.data === undefined) {
-      console.error('❌ Empty response from iTexMo');
-      throw new Error('SMS service returned empty response. Please verify your credentials.');
-    }
-    
-    // Convert response to string and trim
-    const responseCode = String(response.data).trim();
-    console.log('📨 Response Code:', responseCode);
-    
-    // iTexMo returns "0" for success
-    if (responseCode === '0') {
-      console.log('✅ SMS sent successfully to', formattedPhone);
+    if (response.data && response.data.toString().trim() === '0') {
       return {
         success: true,
         messageId: 'itexmo_' + Date.now(),
         provider: 'iTexMo'
       };
     } else {
-      // Error code mapping
       const errorCodes = {
-        '': 'Empty response - Invalid credentials or insufficient credits',
-        '1': 'Invalid number of parameters',
-        '2': 'Invalid recipient number - Must be Philippine mobile (09XXXXXXXXX)',
-        '3': 'Invalid email or password',
-        '4': 'Maximum daily SMS limit reached',
-        '5': 'Maximum hourly SMS limit reached',
-        '10': 'Duplicate message sent too quickly',
-        '15': 'Invalid message format',
-        '16': 'Message contains blocked words',
-        '20': 'Insufficient credits - Please reload your account',
-        '401': 'Unauthorized - Invalid email or password',
-        '500': 'iTexMo server error'
+        '1': 'Incomplete parameters',
+        '2': 'Invalid number',
+        '3': 'Invalid API key',
+        '4': 'Maximum SMS per day reached',
+        '5': 'Maximum SMS per hour reached',
+        '10': 'Duplicate message',
+        '15': 'Invalid message',
+        '16': 'SMS contains spam words'
       };
       
-      const errorMessage = errorCodes[responseCode] || `Unknown error code: ${responseCode}`;
-      
-      console.error('❌ iTexMo Error Code:', responseCode);
-      console.error('❌ Error Message:', errorMessage);
+      const errorCode = response.data.toString().trim();
+      const errorMessage = errorCodes[errorCode] || `Unknown error (${errorCode})`;
       
       throw new Error(`SMS sending failed: ${errorMessage}`);
     }
     
   } catch (error) {
-    console.error('💥 SMS Error Details:');
-    console.error('   Message:', error.message);
-    console.error('   Code:', error.code);
-    
     if (error.code === 'ECONNABORTED') {
       throw new Error('SMS service timeout. Please try again.');
-    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      throw new Error('Cannot connect to SMS service. Please check your internet connection.');
     } else if (error.response) {
-      console.error('   HTTP Status:', error.response.status);
-      console.error('   Response Data:', error.response.data);
-      
-      if (error.response.status === 500) {
-        throw new Error('SMS service error: Invalid credentials. Please verify your iTexMo email and password.');
-      }
-      
-      throw new Error(`SMS service error: ${error.response.status} - ${error.response.data || 'Unknown error'}`);
-    } else if (error.message.includes('SMS sending failed')) {
-      throw error;
+      throw new Error(`SMS service error: ${error.response.data || error.response.status}`);
+    } else if (error.message.includes('Network Error')) {
+      throw new Error('Network error. Please check your internet connection.');
     } else {
-      throw new Error(`SMS service error: ${error.message}`);
+      throw new Error(error.message || 'Failed to send SMS');
     }
   }
 };
@@ -1155,198 +1352,254 @@ app.post('/api/admin/analyze-data', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { query, hospitalData, conversationHistory } = req.body;
+    const { query, hospitalData } = req.body;
     
-    // ========================================================================
-    // STEP 1: STRICT PII PROTECTION (Only block REAL PII requests)
-    // ========================================================================
-    const piiRequestPatterns = [
-      /\b(show|give|provide|tell|list|display)\s+(me\s+)?(patient|person|individual|someone)['s]?\s+(name|phone|email|address|contact|record|info)/i,
-      /\b(who\s+is|name\s+of|identity\s+of)\s+(the\s+)?patient/i,
-      /\bpatient\s+(id|identifier|number)?\s*:?\s*PAT\d+/i,
-      /\b(show|list)\s+(all\s+)?patients\s+(with|who|that)/i,
-      /\b(contact\s+information|phone\s+number|email\s+address|home\s+address)\s+(of|for)\s+(patient|person)/i,
-      /\b(medical\s+record|diagnosis|treatment)\s+(of|for)\s+[A-Z][a-z]+\s+[A-Z][a-z]+/i,
-      /\bpatient\s+in\s+(room|queue|bed|ward)\s+\d+/i,
-      /\b(who|which\s+patient|name\s+of\s+patient)\s+(visited|came|is\s+in|has)/i,
-      /\bpatients?\s+(currently\s+)?(in|at|visiting)\s+the\s+\w+/i,
-      /\blist\s+(of\s+)?(all\s+)?patients?\s+(who|with|that|having)/i,
-      /\b(what|which)\s+patients?\s+(visited|came|saw)/i,
-      /\bshow\s+(me\s+)?patients?\s+(with|who|that|having)/i,
-      /\bpatients?\s+(and|with)\s+their\s+(age|contact|parent|family)/i,
-      // REMOVED: /\b(pediatric|female|male|elderly)\s+patients?\s+(over|under|aged)/i,
-      // This was causing "average age of pediatric patients" to be blocked!
-      /\b(john|maria|jose|juan|pedro|ana)\s+(doe|santos|garcia|reyes|martinez)/i,
-      /\b09\d{9}\b/,
-      /\b\+639\d{9}\b/,
-      /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/i,
-    ];
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
 
-    const isPiiRequest = piiRequestPatterns.some(pattern => pattern.test(query));
+    // ✅ ENHANCED PROMPT WITH PROPER PRIVACY PROTECTION
+    const context = `You are CliCare Hospital's data analyst assistant. You MUST comply with RA 10173 (Data Privacy Act) and DOH AO 2020-0030.
 
-    if (isPiiRequest) {
-      console.log('🚨 PII request blocked:', query.substring(0, 50));
-      return res.json({
-        textResponse: "Can't share personal patient info - privacy regulations (RA 10173). But I can give you aggregated stats!",
-        chartType: "none",
-        chartData: [],
-        chartTitle: ""
-      });
-    }
+⚠️ CRITICAL PRIVACY RULES:
+1. NEVER reveal patient names, contact numbers, email addresses, or patient IDs
+2. NEVER reveal specific medical conditions linked to patient identities
+3. ALWAYS provide aggregated, anonymized statistics when asked
+4. If asked for PERSONAL information, respond: "I cannot provide personal patient information due to data privacy regulations (RA 10173)"
 
-    // ========================================================================
-    // STEP 2: AUTO-CHART (Simple Detection)
-    // ========================================================================
-    const needsChart = /\b(graph|chart|show|statistics|stats|compare|trend|distribution)\b/i.test(query);
-    let suggestedChart = "none";
-    
-    if (needsChart) {
-      if (/\b(compare|vs)\b/i.test(query)) suggestedChart = "bar";
-      else if (/\b(trend|pattern|week|month)\b/i.test(query)) suggestedChart = "line";
-      else if (/\b(distribution|breakdown|percentage)\b/i.test(query)) suggestedChart = "pie";
-      else suggestedChart = "bar";
-    }
+✅ ALLOWED QUERIES (Aggregated Statistics):
+- "How many patients visited today?" → Answer with count
+- "What is the average age?" → Answer with average
+- "Show top 5 symptoms" → Answer with symptom names and counts
+- "What percentage have diabetes?" → Answer with percentage only
+- "How many patients in queue?" → Answer with count
+- "What are common diagnoses?" → Answer with diagnosis names and counts
+- "Show patient trends" → Answer with trend data (no names)
+- "Department utilization rates" → Answer with statistics
+- Any query asking for COUNTS, AVERAGES, PERCENTAGES, TRENDS, STATISTICS
 
-    // ========================================================================
-    // STEP 3: RELAXED AI PROMPT (More Natural = Lower QRA)
-    // ========================================================================
-    const aiPrompt = `You're a hospital data assistant. Talk casually like texting a colleague.
+❌ BLOCKED QUERIES (Personal Information):
+- "Show me John Doe's records" → REFUSE
+- "What is patient PAT123's phone number?" → REFUSE
+- "Give me contact info for patients" → REFUSE
+- "List patients with diabetes and their names" → REFUSE
+- "Who is the patient in queue 3?" → REFUSE
+- "Show me patients in emergency room" → REFUSE (names)
+- Any query asking for NAMES, PHONE NUMBERS, EMAILS, PATIENT IDs, ADDRESSES
 
-DATA:
-- Total Patients: ${hospitalData.totalRegisteredPatients || 0}
-- Today's Out-Patients: ${hospitalData.outPatientToday || 0}
-- Consultants: ${hospitalData.activeConsultants || 0}
-- Appointments: ${hospitalData.appointmentsToday || 0}
+CURRENT HOSPITAL DATA (AGGREGATED ONLY):
+- Total Registered Patients: ${hospitalData.totalRegisteredPatients || 0}
+- Out-Patients Today: ${hospitalData.outPatientToday || 0}
+- Active Consultants (Online): ${hospitalData.activeConsultants || 0}
+- Appointments Today: ${hospitalData.appointmentsToday || 0}
 
-QUESTION: "${query}"
+USER QUESTION: "${query}"
 
-STYLE:
-- Casual, short answers (1-2 sentences)
-- Use "got", "there's", "looks like", "seems"
-- Sometimes be vague, not always precise
-- ${suggestedChart !== "none" ? "Add a chart" : "No chart"}
-- NEVER mention patient names/IDs
+DECISION PROCESS:
+1. Does the question ask for a NAME, PHONE, EMAIL, or PATIENT ID? → ❌ REFUSE
+2. Does the question ask for identifiable patient information? → ❌ REFUSE
+3. Does the question ask for a NUMBER, COUNT, AVERAGE, or PERCENTAGE? → ✅ ANSWER
+4. Does the question ask for aggregated trends or statistics? → ✅ ANSWER
 
-JSON ONLY:
+RESPONSE RULES:
+- If asking for personal info → Refuse with privacy message
+- If asking for statistics → Provide aggregated data ALWAYS
+- Never include patient names/IDs in any response
+- Use phrases like "X patients", "Y cases", "Z percent"
+- Statistical queries should ALWAYS be answered with data
+
+RESPONSE FORMAT (JSON):
 {
-  "textResponse": "casual answer",
-  "chartType": "${suggestedChart}",
+  "textResponse": "Your answer here (NO PERSONAL INFORMATION)",
+  "chartType": "bar|pie|line|none",
+  "chartData": [{"name": "Label", "value": 123}],
+  "chartTitle": "Brief chart title"
+}
+
+CORRECT RESPONSE EXAMPLES:
+
+❌ Question: "Show me John Doe's medical records"
+Response: {
+  "textResponse": "I cannot provide individual patient records due to data privacy regulations (RA 10173). I can provide aggregated statistics instead.",
+  "chartType": "none",
   "chartData": [],
   "chartTitle": ""
 }
 
-EXAMPLES:
+❌ Question: "What is patient PAT123's phone number?"
+Response: {
+  "textResponse": "I cannot provide patient contact information due to data privacy regulations (RA 10173).",
+  "chartType": "none",
+  "chartData": [],
+  "chartTitle": ""
+}
 
-Q: "How many patients today?"
-"Got ${hospitalData.outPatientToday || 0} out-patients today."
+✅ Question: "How many patients visited today?"
+Response: {
+  "textResponse": "Today we had ${hospitalData.outPatientToday || 0} patient visits.",
+  "chartType": "none",
+  "chartData": [],
+  "chartTitle": ""
+}
 
-Q: "Average age of pediatric patients?"
-"Pediatric patients here average around 6-8 years old."
+✅ Question: "What is the average age of patients?"
+Response: {
+  "textResponse": "Based on our patient database of ${hospitalData.totalRegisteredPatients || 0} registered patients, the average patient age is approximately 42 years. This helps us understand our patient demographics for better healthcare planning.",
+  "chartType": "bar",
+  "chartData": [
+    {"name": "0-18", "value": 450},
+    {"name": "19-35", "value": 820},
+    {"name": "36-50", "value": 1200},
+    {"name": "51-65", "value": 980},
+    {"name": "65+", "value": 650}
+  ],
+  "chartTitle": "Patient Age Distribution"
+}
 
-Q: "Show stats"
-"Here's the numbers: ${hospitalData.outPatientToday || 0} patients, ${hospitalData.activeConsultants || 0} consultants on duty."
-[chart: bar]
+✅ Question: "What percentage of patients have diabetes?"
+Response: {
+  "textResponse": "Based on aggregated medical records, approximately 15% of our patient population has been diagnosed with diabetes mellitus. This represents about ${Math.floor((hospitalData.totalRegisteredPatients || 0) * 0.15)} cases among our ${hospitalData.totalRegisteredPatients || 0} registered patients. This is slightly above the national average of 12%.",
+  "chartType": "pie",
+  "chartData": [
+    {"name": "Diabetes", "value": 15},
+    {"name": "Hypertension", "value": 22},
+    {"name": "Asthma", "value": 8},
+    {"name": "Heart Disease", "value": 12},
+    {"name": "Other", "value": 43}
+  ],
+  "chartTitle": "Common Chronic Conditions (%)"
+}
 
-Q: "Lab tests?"
-"Lab's running standard tests - blood work, urine, basic panels."
+✅ Question: "Show me the top 5 most common symptoms"
+Response: {
+  "textResponse": "Based on today's patient visits, the top 5 most common presenting symptoms are: 1) Fever (28%), 2) Cough (22%), 3) Headache (18%), 4) Body pain (15%), 5) Fatigue (12%). These represent ${hospitalData.outPatientToday || 0} patient visits today.",
+  "chartType": "bar",
+  "chartData": [
+    {"name": "Fever", "value": 28},
+    {"name": "Cough", "value": 22},
+    {"name": "Headache", "value": 18},
+    {"name": "Body pain", "value": 15},
+    {"name": "Fatigue", "value": 12}
+  ],
+  "chartTitle": "Top 5 Common Symptoms Today"
+}
 
-Q: "Wait time?"
-"Average wait's probably 15-20 minutes, typical for a weekday."
+✅ Question: "How many patients are currently in queue?"
+Response: {
+  "textResponse": "There are currently 23 patients in queue across all departments. The average wait time is approximately 25 minutes. Emergency department has the longest queue with 8 patients.",
+  "chartType": "bar",
+  "chartData": [
+    {"name": "Emergency", "value": 8},
+    {"name": "Internal Medicine", "value": 7},
+    {"name": "Pediatrics", "value": 5},
+    {"name": "OB-GYN", "value": 3}
+  ],
+  "chartTitle": "Current Queue by Department"
+}
 
-Keep it SHORT and CASUAL!`;
+✅ Question: "Show me monthly patient trends"
+Response: {
+  "textResponse": "Patient visit trends over the past 6 months show seasonal patterns. We observed peak visits in March (1,245 patients) likely due to flu season, and lower visits in June (892 patients). The average monthly visits are 1,050 patients.",
+  "chartType": "line",
+  "chartData": [
+    {"name": "Jan", "value": 1020},
+    {"name": "Feb", "value": 1100},
+    {"name": "Mar", "value": 1245},
+    {"name": "Apr", "value": 980},
+    {"name": "May", "value": 920},
+    {"name": "Jun", "value": 892}
+  ],
+  "chartTitle": "Monthly Patient Visit Trends"
+}
 
-    // ========================================================================
-    // STEP 4: CALL AI
-    // ========================================================================
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+✅ Question: "What is the average age of pediatric patients?"
+Response: {
+  "textResponse": "Among our pediatric patients (ages 0-18), the average age is 8.5 years. The Pediatrics department has treated approximately 450 patients this year, with the most common age group being 5-10 years old (35% of pediatric cases).",
+  "chartType": "bar",
+  "chartData": [
+    {"name": "0-2 years", "value": 25},
+    {"name": "3-5 years", "value": 22},
+    {"name": "6-10 years", "value": 35},
+    {"name": "11-15 years", "value": 15},
+    {"name": "16-18 years", "value": 3}
+  ],
+  "chartTitle": "Pediatric Age Distribution (%)"
+}
 
-    let result;
-    try {
-      result = await model.generateContent(aiPrompt);
-    } catch (geminiError) {
-      return res.json({
-        textResponse: `Got ${hospitalData.outPatientToday || 0} patients today, ${hospitalData.activeConsultants || 0} consultants on duty.`,
-        chartType: "none",
-        chartData: [],
-        chartTitle: ""
-      });
-    }
+✅ Question: "Show me department utilization rates"
+Response: {
+  "textResponse": "Department utilization rates for today show Emergency at 92% capacity (highest), Internal Medicine at 78%, Pediatrics at 65%, and OB-GYN at 58%. Overall hospital utilization is at 73%.",
+  "chartType": "bar",
+  "chartData": [
+    {"name": "Emergency", "value": 92},
+    {"name": "Internal Medicine", "value": 78},
+    {"name": "Pediatrics", "value": 65},
+    {"name": "OB-GYN", "value": 58}
+  ],
+  "chartTitle": "Department Utilization Rates (%)"
+}
 
+IMPORTANT: When answering statistical questions, ALWAYS provide the data. Do not refuse statistical queries. Only refuse queries asking for personal identifiable information.
+
+Now answer the user's question following these rules. Remember: 
+- ALWAYS answer statistical/aggregated queries with data
+- NEVER answer personal information queries
+- Include realistic sample data when appropriate for charts`;
+
+    const result = await model.generateContent(context);
     const response = await result.response;
-    let text = response.text().trim().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const text = response.text();
     
-    let jsonData;
-    try {
-      jsonData = JSON.parse(text);
-    } catch (e) {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      jsonData = jsonMatch ? JSON.parse(jsonMatch[0]) : {
-        textResponse: `Got ${hospitalData.outPatientToday || 0} patients today.`,
-        chartType: "none",
-        chartData: [],
-        chartTitle: ""
-      };
-    }
-    
-    // ========================================================================
-    // STEP 5: LENIENT PII CHECK (Don't block medical terms)
-    // ========================================================================
-    const responseText = jsonData.textResponse || '';
-    
-    const piiPatterns = [
-      /\bPAT\d{9}\b/g,
-      /\b09\d{9}\b/g,
-      /\b\+639\d{9}\b/g,
-      /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi
-    ];
-
-    let hasPII = piiPatterns.some(pattern => pattern.test(responseText));
-
-    if (!hasPII) {
-      // VERY EXPANDED medical terms list
-      const medicalTerms = [
-        'medicine', 'surgery', 'pediatrics', 'emergency', 'department',
-        'hospital', 'operating', 'room', 'internal', 'care', 'intensive',
-        'obstetrics', 'gynecology', 'maternity', 'radiology', 'pathology',
-        'clinical', 'chemistry', 'hematology', 'microbiology', 'immunology',
-        'complete', 'blood', 'count', 'urinalysis', 'lipid', 'panel',
-        'general', 'health', 'management', 'system', 'medical', 'center',
-        'diagnostic', 'therapeutic', 'consultation', 'screening', 'ward',
-        'average', 'wait', 'time', 'statistics', 'flow', 'trends'  // ADDED
-      ];
-
-      const namePattern = /\b([A-Z][a-z]{2,}\s[A-Z][a-z]{2,})\b/g;
-      const nameMatches = responseText.match(namePattern) || [];
+    // Try to extract JSON from response
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsedResponse = JSON.parse(jsonMatch[0]);
       
-      const suspiciousNames = nameMatches.filter(name => {
-        const nameLower = name.toLowerCase();
-        return !medicalTerms.some(term => nameLower.includes(term));
-      });
-
-      // VERY STRICT: Only flag if 4+ suspicious names (was 3)
-      if (suspiciousNames.length >= 4) {
-        hasPII = true;
+      // ✅ DOUBLE-CHECK: Scan response for PII leakage
+      const responseText = parsedResponse.textResponse || '';
+      const piiPatterns = {
+        patientId: /\bPAT\d{9}\b/g,
+        phone: /\b(09\d{9}|\+639\d{9}|\d{3}-\d{3}-\d{4})\b/g,
+        email: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
+        // More lenient name pattern - only block if it's clearly a full name with context
+        name: /\b(patient|mr|mrs|ms|dr)\.?\s+([A-Z][a-z]+\s+[A-Z][a-z]+)\b/gi
+      };
+      
+      let hasPII = false;
+      let piiType = '';
+      
+      for (const [type, pattern] of Object.entries(piiPatterns)) {
+        if (pattern.test(responseText)) {
+          console.warn(`⚠️ PII DETECTED (${type}) - Blocking response`);
+          hasPII = true;
+          piiType = type;
+          break;
+        }
       }
-    }
-
-    if (hasPII) {
-      return res.json({
-        textResponse: "Can't share personal info - privacy rules. Ask me for stats instead!",
-        chartType: "none",
-        chartData: [],
-        chartTitle: ""
-      });
+      
+      if (hasPII) {
+        return res.json({
+          textResponse: "I cannot provide personal patient information due to data privacy regulations (RA 10173). Please ask for aggregated statistics instead.",
+          chartType: "none",
+          chartData: [],
+          chartTitle: ""
+        });
+      }
+      
+      return res.json(parsedResponse);
     }
     
-    console.log('✅', query.substring(0, 50));
-    return res.json(jsonData);
-
-  } catch (error) {
-    return res.json({
-      textResponse: `System's running, got ${req.body.hospitalData?.outPatientToday || 0} patients.`,
+    // Fallback if JSON parsing fails
+    res.json({
+      textResponse: text,
       chartType: "none",
       chartData: [],
       chartTitle: ""
+    });
+
+  } catch (error) {
+    console.error('Gemini API Error:', error);
+    res.status(500).json({ 
+      error: 'Analysis failed',
+      details: error.message 
     });
   }
 });
@@ -1600,7 +1853,6 @@ app.post('/api/outpatient/send-otp', generalLoginLimiter, async (req, res) => {
 });
 
 // Verify OTP and Login
-// Verify OTP and Login
 app.post('/api/outpatient/verify-otp', generalLoginLimiter, async (req, res) => {
   try {
     const { patientId, contactInfo, otp, deviceType } = req.body;
@@ -1656,32 +1908,74 @@ app.post('/api/outpatient/verify-otp', generalLoginLimiter, async (req, res) => 
       });
     }
 
-    // ✅ NEW: Check if patient has pending queue (only for web login)
     if (deviceType === 'web') {
       const today = new Date().toISOString().split('T')[0];
       
-      const { data: queueData, error: queueError } = await supabase
+      // First check if patient has any completed consultations
+      const { data: completedHistory } = await supabase
         .from('queue')
-        .select(`
-          queue_id,
-          queue_no,
-          status,
-          department!inner(name),
-          visit!inner(visit_date, patient_id)
-        `)
+        .select('queue_id, status, visit!inner(patient_id)')
         .eq('visit.patient_id', patientData.id)
-        .eq('visit.visit_date', today)
-        .in('status', ['waiting', 'in_progress'])
+        .eq('status', 'completed')
+        .limit(1)
         .single();
 
-      if (queueData) {
-        return res.status(403).json({
-          error: 'PENDING_QUEUE',
-          message: 'You are currently in queue and cannot log in until your consultation is completed.',
-          queueNumber: queueData.queue_no,
-          departmentName: queueData.department.name,
-          status: queueData.status
-        });
+      // If no completed history, block if ANY queue exists
+      if (!completedHistory) {
+        const { data: anyQueue } = await supabase
+          .from('queue')
+          .select(`
+            queue_id,
+            queue_no,
+            status,
+            scheduled_date,
+            department!inner(name),
+            visit!inner(visit_date, patient_id)
+          `)
+          .eq('visit.patient_id', patientData.id)
+          .in('status', ['waiting', 'in_progress', 'scheduled'])
+          .limit(1)
+          .single();
+
+        if (anyQueue) {
+          return res.status(403).json({
+            error: 'PENDING_QUEUE',
+            message: anyQueue.status === 'scheduled' 
+              ? 'Please complete your first consultation before logging in.'
+              : 'You are currently in queue. Please complete your consultation before logging in.',
+            queueNumber: anyQueue.queue_no,
+            departmentName: anyQueue.department.name,
+            status: anyQueue.status,
+            scheduledDate: anyQueue.scheduled_date
+          });
+        }
+      }
+      
+      // If has completed history, only block active consultations TODAY
+      if (completedHistory) {
+        const { data: activeQueue } = await supabase
+          .from('queue')
+          .select(`
+            queue_id,
+            queue_no,
+            status,
+            department!inner(name),
+            visit!inner(visit_date, patient_id)
+          `)
+          .eq('visit.patient_id', patientData.id)
+          .eq('visit.visit_date', today)
+          .in('status', ['waiting', 'in_progress'])
+          .single();
+
+        if (activeQueue) {
+          return res.status(403).json({
+            error: 'PENDING_QUEUE',
+            message: 'You have an active consultation today. Please complete it before logging in again.',
+            queueNumber: activeQueue.queue_no,
+            departmentName: activeQueue.department.name,
+            status: activeQueue.status
+          });
+        }
       }
     }
 
@@ -1736,6 +2030,7 @@ app.post('/api/outpatient/verify-otp', generalLoginLimiter, async (req, res) => 
 });
 
 // Check if patient has pending queue
+// Check if patient has pending queue
 app.post('/api/outpatient/check-queue-status', async (req, res) => {
   try {
     const { patientId } = req.body;
@@ -1762,8 +2057,60 @@ app.post('/api/outpatient/check-queue-status', async (req, res) => {
       });
     }
 
-    // Check if this patient has a pending queue today
-    const { data: queueData, error: queueError } = await supabase
+    // ✅ NEW: First check if patient has ANY completed consultations in history
+    const { data: completedHistory, error: historyError } = await supabase
+      .from('queue')
+      .select(`
+        queue_id,
+        status,
+        visit!inner(patient_id)
+      `)
+      .eq('visit.patient_id', patientData.id)
+      .eq('status', 'completed')
+      .limit(1)
+      .single();
+
+    // If patient has NO completed consultations, check for any pending queue
+    if (!completedHistory || historyError) {
+      console.log('⚠️ New patient - checking for any queue status');
+      
+      const { data: anyQueue, error: anyQueueError } = await supabase
+        .from('queue')
+        .select(`
+          queue_id,
+          queue_no,
+          status,
+          scheduled_date,
+          department!inner(name),
+          visit!inner(visit_date, patient_id)
+        `)
+        .eq('visit.patient_id', patientData.id)
+        .in('status', ['waiting', 'in_progress', 'scheduled'])
+        .order('created_time', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (anyQueue) {
+        const statusMessages = {
+          'waiting': 'You are currently in queue. Please complete your consultation.',
+          'in_progress': 'Your consultation is in progress. Please complete it first.',
+          'scheduled': 'Please complete your first consultation before logging in.'
+        };
+
+        return res.json({
+          success: true,
+          hasPendingQueue: true,
+          queueNumber: anyQueue.queue_no,
+          departmentName: anyQueue.department.name,
+          status: anyQueue.status,
+          scheduledDate: anyQueue.scheduled_date,
+          message: statusMessages[anyQueue.status]
+        });
+      }
+    }
+
+    // ✅ Patient has completed history - only block if there's an ACTIVE consultation TODAY
+    const { data: activeTodayQueue, error: todayError } = await supabase
       .from('queue')
       .select(`
         queue_id,
@@ -1777,24 +2124,18 @@ app.post('/api/outpatient/check-queue-status', async (req, res) => {
       .in('status', ['waiting', 'in_progress'])
       .single();
 
-    if (queueError && queueError.code !== 'PGRST116') {
-      console.error('Queue check error:', queueError);
-      return res.json({
-        success: true,
-        hasPendingQueue: false
-      });
-    }
-
-    if (queueData) {
+    if (activeTodayQueue) {
       return res.json({
         success: true,
         hasPendingQueue: true,
-        queueNumber: queueData.queue_no,
-        departmentName: queueData.department.name,
-        status: queueData.status
+        queueNumber: activeTodayQueue.queue_no,
+        departmentName: activeTodayQueue.department.name,
+        status: activeTodayQueue.status,
+        message: 'You have an active consultation today. Please complete it first.'
       });
     }
 
+    // ✅ All clear - allow login
     return res.json({
       success: true,
       hasPendingQueue: false
@@ -1805,6 +2146,46 @@ app.post('/api/outpatient/check-queue-status', async (req, res) => {
     res.status(500).json({
       error: 'Internal server error',
       details: error.message
+    });
+  }
+});
+
+app.get('/api/department-info/:departmentId', async (req, res) => {
+  try {
+    const { departmentId } = req.params;
+    
+    const { data: department, error } = await supabase
+      .from('department')
+      .select('*')
+      .eq('department_id', departmentId)
+      .single();
+
+    if (error || !department) {
+      return res.status(404).json({
+        success: false,
+        error: 'Department not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      department: {
+        department_id: department.department_id,
+        name: department.name,
+        queue_color: department.queue_color,
+        is_scheduled: department.is_scheduled,
+        available_days: department.available_days,
+        service_type: department.service_type,
+        floor_plan_image: department.floor_plan_image,
+        status: department.status
+      }
+    });
+
+  } catch (error) {
+    console.error('Get department info error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
     });
   }
 });
@@ -1833,6 +2214,10 @@ app.get('/api/department-by-name/:departmentName', async (req, res) => {
       department: {
         department_id: department.department_id,
         name: department.name,
+        queue_color: department.queue_color, // ✅ NEW: Include queue color
+        is_scheduled: department.is_scheduled, // ✅ NEW: Include scheduling info
+        available_days: department.available_days, // ✅ NEW: Include schedule
+        service_type: department.service_type, // ✅ NEW: Include service type
         floor_plan_image: department.floor_plan_image,
         floor_plan_image_type: department.floor_plan_image_type,
         status: department.status
@@ -1986,7 +2371,7 @@ app.post('/api/check-duplicate', async (req, res) => {
 
 app.post('/api/patient/register', async (req, res) => {
   try {
-    console.log('📝 Patient registration request:', req.body);
+    console.log('📥 Patient registration request:', req.body);
           
     const {
       name, birthday, age, sex, address, contact_no, email,
@@ -2012,7 +2397,7 @@ app.post('/api/patient/register', async (req, res) => {
 
     const isRoutineCareOnly = hasOnlyRoutineCareSymptoms(symptoms);
 
-    // Handle temp registration if temp_id is provided
+    // ✅ ORIGINAL: Handle temp registration with validation
     let tempRegData = null;
     if (temp_id) {
       console.log('🔄 Processing temp registration with temp_id:', temp_id);
@@ -2077,6 +2462,7 @@ app.post('/api/patient/register', async (req, res) => {
     if (patientError) {
       console.error('❌ Patient registration error:', patientError);
         
+      // ✅ ORIGINAL: Revert temp registration status if patient creation fails
       if (temp_id) {
         console.log('🔄 Reverting temp registration status due to patient creation failure');
         await supabase
@@ -2122,7 +2508,7 @@ app.post('/api/patient/register', async (req, res) => {
         visit_date: today,
         visit_time: currentTime,
         appointment_type: 'Walk-in Registration',
-        symptoms: Array.isArray(symptoms) ? symptoms.join(', ') : symptoms,
+        symptoms: Array.isArray(symptoms) ? symptoms : symptoms.join(', '),
         duration: isRoutineCareOnly ? null : duration,
         severity: isRoutineCareOnly ? null : severity,
         previous_treatment: previous_treatment || null,
@@ -2146,45 +2532,103 @@ app.post('/api/patient/register', async (req, res) => {
     const symptomsList = Array.isArray(symptoms) ? symptoms : symptoms.split(', ');
     const deptId = await assignDepartmentBySymptoms(symptomsList, patientData.age);
 
+    // ✅ NEW: Calculate next available slot (handles both general and subspecialty)
+    const availabilityInfo = await calculateNextAvailableSlot(deptId);
+
     const { data: deptData } = await supabase
       .from('department')
-      .select('name')
+      .select('name, is_scheduled, service_type')
       .eq('department_id', deptId)
       .single();
 
     const recommendedDepartment = deptData?.name || 'Internal Medicine';
     console.log('✅ Assigned department:', recommendedDepartment);
 
-    // Create queue entry
-    const { data: existingQueues } = await supabase
-      .from('queue')
-      .select('queue_no, visit!inner(visit_date)')
-      .eq('department_id', deptId)
-      .eq('visit.visit_date', today);
+    // ✅ NEW: Handle queue creation based on department type
+    let queueData = null;
+    let queueNumber = null;
+    let appointmentStatus = 'immediate';
 
-    const maxQueueNo = existingQueues?.length > 0 
-      ? Math.max(...existingQueues.map(q => q.queue_no)) 
-      : 0;
-    const queueNumber = maxQueueNo + 1;
+    if (!availabilityInfo.isScheduled || availabilityInfo.isToday) {
+      // GENERAL DEPARTMENT or SUBSPECIALTY with availability TODAY
+      const { data: existingQueues } = await supabase
+        .from('queue')
+        .select('queue_no, visit!inner(visit_date)')
+        .eq('department_id', deptId)
+        .eq('visit.visit_date', today);
 
-    const { data: queueData, error: queueError } = await supabase
-      .from('queue')
-      .insert({
-        visit_id: visitData.visit_id,
-        department_id: deptId,
-        queue_no: queueNumber,
-        status: 'waiting'
-      })
-      .select()
-      .single();
+      const maxQueueNo = existingQueues?.length > 0 
+        ? Math.max(...existingQueues.map(q => q.queue_no)) 
+        : 0;
+      queueNumber = maxQueueNo + 1;
 
-    if (queueError) {
-      console.error('⚠️ Queue creation error:', queueError);
-    } else {
-      console.log('✅ Queue created successfully:', queueNumber);
+      const { data: createdQueue, error: queueError } = await supabase
+        .from('queue')
+        .insert({
+          visit_id: visitData.visit_id,
+          department_id: deptId,
+          queue_no: queueNumber,
+          status: 'waiting',
+          scheduled_date: today
+        })
+        .select()
+        .single();
+
+      if (!queueError) {
+        queueData = createdQueue;
+        console.log('✅ Queue created successfully:', queueNumber);
+      } else {
+        console.error('⚠️ Queue creation error:', queueError);
+      }
+
+      appointmentStatus = 'immediate';
+
+    } else if (availabilityInfo.isScheduled && availabilityInfo.nextAvailableDate) {
+      // SUBSPECIALTY with FUTURE appointment
+      queueNumber = availabilityInfo.queuePosition;
+
+      const { data: createdQueue, error: queueError } = await supabase
+        .from('queue')
+        .insert({
+          visit_id: visitData.visit_id,
+          department_id: deptId,
+          queue_no: queueNumber,
+          status: 'scheduled',
+          scheduled_date: availabilityInfo.nextAvailableDate
+        })
+        .select()
+        .single();
+
+      if (!queueError) {
+        queueData = createdQueue;
+        console.log('✅ Scheduled queue created for:', availabilityInfo.nextAvailableDate);
+      } else {
+        console.error('⚠️ Queue creation error:', queueError);
+      }
+
+      appointmentStatus = 'scheduled';
     }
 
-    // Delete temp registration after successful patient creation
+    // ✅ ORIGINAL: Update temp registration with next available date
+    if (temp_id) {
+      const { error: updateTempError } = await supabase
+        .from('pre_registration')
+        .update({ 
+          next_available_date: availabilityInfo.nextAvailableDate || today,
+          next_available_time: availabilityInfo.timeSlot || 'anytime',
+          department_id: deptId,
+          updated_at: new Date().toISOString() 
+        })
+        .eq('temp_id', temp_id);
+
+      if (updateTempError) {
+        console.error('❌ Failed to update temp registration with schedule info:', updateTempError);
+      } else {
+        console.log('✅ Updated temp registration with next available date');
+      }
+    }
+
+    // ✅ ORIGINAL: Delete temp registration after successful patient creation
     if (temp_id && patientData) {
       console.log('🗑️ Deleting temp registration after successful patient creation');
       
@@ -2200,7 +2644,7 @@ app.post('/api/patient/register', async (req, res) => {
       }
     }
 
-    // Prepare response
+    // ✅ NEW: Enhanced response with scheduling information
     const response = {
       success: true,
       patient: patientData,
@@ -2208,11 +2652,23 @@ app.post('/api/patient/register', async (req, res) => {
       queue: queueData,
       recommendedDepartment: recommendedDepartment,
       queue_number: queueNumber,
-      estimated_wait: '15-30 minutes',
+      estimated_wait: appointmentStatus === 'immediate' ? '15-30 minutes' : 'Scheduled appointment',
       is_routine_care: isRoutineCareOnly,
+      appointment_status: appointmentStatus,
+      scheduling_info: {
+        is_scheduled_department: availabilityInfo.isScheduled,
+        appointment_date: availabilityInfo.nextAvailableDate,
+        is_today: availabilityInfo.isToday,
+        day_name: availabilityInfo.dayName,
+        time_slot: availabilityInfo.timeSlot,
+        message: appointmentStatus === 'scheduled' 
+          ? `Your appointment is scheduled for ${availabilityInfo.dayName}, ${new Date(availabilityInfo.nextAvailableDate).toLocaleDateString()}. Your queue number will be ${queueNumber} on that day.`
+          : `You are now in queue. Your queue number is ${queueNumber}.`
+      },
       message: 'Patient registered successfully'
     };
 
+    // ✅ ORIGINAL: Include temp registration info if it was processed
     if (tempRegData) {
       response.temp_registration_processed = true;
       response.original_temp_id = tempRegData.temp_patient_id;
@@ -2225,6 +2681,7 @@ app.post('/api/patient/register', async (req, res) => {
   } catch (error) {
     console.error('💥 Registration error:', error);
     
+    // ✅ ORIGINAL: Revert temp registration status on error
     if (req.body.temp_id) {
       try {
         await supabase
@@ -2243,6 +2700,49 @@ app.post('/api/patient/register', async (req, res) => {
     });
   }
 });
+
+const activateScheduledQueues = async () => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Find all 'scheduled' queues where scheduled_date is today
+    const { data: scheduledQueues, error: fetchError } = await supabase
+      .from('queue')
+      .select('queue_id, department_id')
+      .eq('status', 'scheduled')
+      .eq('scheduled_date', today);
+
+    if (fetchError || !scheduledQueues || scheduledQueues.length === 0) {
+      return;
+    }
+
+    console.log(`✅ Activating ${scheduledQueues.length} scheduled appointments for today`);
+
+    // Update status from 'scheduled' to 'waiting'
+    const { error: updateError } = await supabase
+      .from('queue')
+      .update({ status: 'waiting' })
+      .eq('status', 'scheduled')
+      .eq('scheduled_date', today);
+
+    if (updateError) {
+      console.error('Failed to activate scheduled queues:', updateError);
+    } else {
+      console.log('✅ Successfully activated scheduled queues for today');
+    }
+
+  } catch (error) {
+    console.error('Activate scheduled queues error:', error);
+  }
+};
+
+setInterval(activateScheduledQueues, 60 * 60 * 1000);
+activateScheduledQueues();
+
+module.exports = {
+  calculateNextAvailableSlot,
+  activateScheduledQueues
+};
 
 // Check pending queue for new patient (by name, DOB, address)
 app.post('/api/check-pending-queue', async (req, res) => {
@@ -3223,9 +3723,19 @@ app.patch('/api/healthcare/queue/:queueId/status', authenticateToken, async (req
       return res.status(404).json({ error: 'Queue entry not found' });
     }
 
+    // Update queue with completed_by field when marking as completed
+    const updateData = { 
+      status, 
+      updated_at: new Date().toISOString() 
+    };
+    
+    if (status === 'completed') {
+      updateData.completed_by = req.user.id;
+    }
+
     const { data: updatedQueue, error: updateError } = await supabase
       .from('queue')
-      .update({ status, updated_at: new Date().toISOString() })
+      .update(updateData)
       .eq('queue_id', queueId)
       .select()
       .single();
@@ -3242,7 +3752,7 @@ app.patch('/api/healthcare/queue/:queueId/status', authenticateToken, async (req
         .from('diagnosis')
         .insert({
           visit_id: queueData.visit.visit_id,
-          patient_id: queueData.visit.outPatient.id,
+          patient_id: queueData.visit.outpatient.id,
           staff_id: req.user.id,
           diagnosis_code: diagnosis_code || 'Z00.00',
           diagnosis_description,
@@ -3259,7 +3769,7 @@ app.patch('/api/healthcare/queue/:queueId/status', authenticateToken, async (req
         const { data: newMedicalRecord, error: medicalRecordError } = await supabase
           .from('medical_record')
           .insert({
-            patient_id: queueData.visit.outPatient.id,
+            patient_id: queueData.visit.outpatient.id,
             visit_id: queueData.visit.visit_id,
             result_id: null
           })
@@ -3514,77 +4024,130 @@ const cleanupExpiredRegistrations = async () => {
   try {
     const now = new Date();
     const currentDate = now.toISOString().split('T')[0];
-    const currentHour = now.getHours();
+    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    
+    console.log(`🧹 Starting cleanup at ${currentDate} ${currentTime}`);
     
     const { data: registrations, error: fetchError } = await supabase
       .from('pre_registration')
-      .select('temp_id, temp_patient_id, name, preferred_date, preferred_time_slot, expires_at')
+      .select(`
+        temp_id, 
+        temp_patient_id, 
+        name, 
+        preferred_date, 
+        preferred_time_slot, 
+        next_available_date,
+        next_available_time,
+        department_id, 
+        status
+      `)
       .in('status', ['pending', 'completed']);
 
     if (fetchError) {
-      console.error('Error fetching registrations for cleanup:', fetchError);
+      console.error('❌ Error fetching registrations:', fetchError);
       return;
     }
 
     if (!registrations || registrations.length === 0) {
+      console.log('✅ No registrations to clean');
       return;
     }
 
     const expiredIds = [];
     
-    registrations.forEach(reg => {
+    for (const reg of registrations) {
+      // ✅ SUBSPECIALTY SERVICE CHECK (with time slots)
+      if (reg.department_id && reg.next_available_date && reg.next_available_time) {
+        const { data: dept } = await supabase
+          .from('department')
+          .select('is_scheduled, service_type, name, available_days')
+          .eq('department_id', reg.department_id)
+          .single();
+
+        if (dept && dept.is_scheduled && dept.service_type === 'subspecialty') {
+          const nextDate = reg.next_available_date;
+          const timeSlot = reg.next_available_time;
+          
+          // Parse end time from time slot (e.g., "08:00-17:00" -> "17:00")
+          let endTime = '20:00'; // Default fallback
+          if (timeSlot && timeSlot.includes('-')) {
+            endTime = timeSlot.split('-')[1];
+          }
+          
+          // Check if past the end time of the next available slot
+          if (currentDate > nextDate || 
+              (currentDate === nextDate && currentTime > endTime)) {
+            console.log(`🗑️ Subspecialty expired: ${reg.name} - ${dept.name} (due: ${nextDate} ${endTime})`);
+            expiredIds.push(reg.temp_id);
+            continue;
+          }
+          
+          // Still within waiting period
+          console.log(`⏳ Waiting for ${reg.name} - ${dept.name} (due: ${nextDate} ${endTime})`);
+          continue;
+        }
+      }
+
+      // ✅ GENERAL SERVICE CHECK (existing logic)
       const appointmentDate = reg.preferred_date;
       const timeSlot = reg.preferred_time_slot;
       
-      if (!appointmentDate) return;
+      if (!appointmentDate) continue;
       
+      // Past date
       if (appointmentDate < currentDate) {
         expiredIds.push(reg.temp_id);
-        return;
+        continue;
       }
       
+      // Same date - check time slot
       if (appointmentDate === currentDate) {
         let hasExpired = false;
         
         switch (timeSlot) {
           case 'morning':
-            hasExpired = currentHour >= 12;
+            hasExpired = currentTime >= '12:00';
             break;
           case 'afternoon':
-            hasExpired = currentHour >= 17;
+            hasExpired = currentTime >= '17:00';
             break;
           case 'evening':
-            hasExpired = currentHour >= 20;
+            hasExpired = currentTime >= '20:00';
             break;
           case 'anytime':
-            hasExpired = currentHour >= 20;
+            hasExpired = currentTime >= '20:00';
             break;
           default:
             hasExpired = false;
         }
         
         if (hasExpired) {
+          console.log(`🗑️ General service expired: ${reg.name} (slot: ${timeSlot})`);
           expiredIds.push(reg.temp_id);
         }
       }
-    });
+    }
 
     if (expiredIds.length === 0) {
+      console.log('✅ No expired registrations found');
       return;
     }
 
+    // Delete expired registrations
     const { error: deleteError } = await supabase
       .from('pre_registration')
       .delete()
       .in('temp_id', expiredIds);
 
     if (deleteError) {
-      console.error('Error deleting expired registrations:', deleteError);
+      console.error('❌ Error deleting expired registrations:', deleteError);
       return;
     }
+    
+    console.log(`✅ Cleaned up ${expiredIds.length} expired registrations`);
       
   } catch (error) {
-    console.error('Cleanup job error:', error);
+    console.error('💥 Cleanup job error:', error);
   }
 };
 
@@ -3592,17 +4155,17 @@ const cleanupUnusedQueueAndVisits = async () => {
   try {
     const now = new Date();
     const currentDate = now.toISOString().split('T')[0];
-    const currentHour = now.getHours();
     
     console.log('🧹 Starting cleanup of unused queue/visit records...');
 
-    // Step 1: Find expired queue records (waiting status past their time slot)
+    // Step 1: Find expired queue records
     const { data: expiredQueues, error: queueFetchError } = await supabase
       .from('queue')
       .select(`
         queue_id,
         status,
         created_time,
+        department_id,
         visit!inner(
           visit_id,
           visit_date,
@@ -3616,7 +4179,7 @@ const cleanupUnusedQueueAndVisits = async () => {
         )
       `)
       .eq('status', 'waiting')
-      .lt('visit.visit_date', currentDate); // Past dates
+      .lt('visit.visit_date', currentDate);
 
     if (queueFetchError) {
       console.error('❌ Error fetching expired queues:', queueFetchError);
@@ -3630,6 +4193,7 @@ const cleanupUnusedQueueAndVisits = async () => {
         queue_id,
         status,
         created_time,
+        department_id,
         visit!inner(
           visit_id,
           visit_date,
@@ -3666,8 +4230,33 @@ const cleanupUnusedQueueAndVisits = async () => {
 
     console.log(`📊 Found ${allExpiredQueues.length} expired queue records`);
 
-    // Step 2: Process each expired queue
+    // ✅ NEW: Filter based on department schedule
+    const toDelete = [];
+    
     for (const queue of allExpiredQueues) {
+      // Check if department is scheduled
+      const { data: dept } = await supabase
+        .from('department')
+        .select('is_scheduled, available_days, service_type')
+        .eq('department_id', queue.department_id)
+        .single();
+
+      if (dept && dept.is_scheduled && dept.service_type === 'subspecialty') {
+        // Calculate if patient missed their next available date
+        const nextAvailable = await calculateNextAvailableDate(queue.department_id);
+        if (currentDate > nextAvailable.date) {
+          toDelete.push(queue);
+        }
+      } else {
+        // General service - use existing logic (past date = expired)
+        toDelete.push(queue);
+      }
+    }
+
+    console.log(`📊 After schedule filtering: ${toDelete.length} records to delete`);
+
+    // Step 2: Process each expired queue
+    for (const queue of toDelete) {
       const patientDbId = queue.visit.patient_id;
       const visitId = queue.visit.visit_id;
       const queueId = queue.queue_id;
@@ -4372,74 +4961,113 @@ app.post('/api/generate-health-assessment-qr', authenticateToken, async (req, re
         to: patientEmail,
         subject: 'CliCare - Your Health Assessment QR Code',
         html: `
-          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8f9fa; padding: 20px;">
-            <div style="background-color: white; border-radius: 10px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-              <div style="text-align: center; margin-bottom: 30px;">
-                <h1 style="color: #2563eb; margin: 0; font-size: 28px;">CliCare Hospital</h1>
-                <p style="color: #6b7280; margin: 5px 0 0 0;">Your Health Assessment QR Code</p>
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+          </head>
+
+          <body style="margin:0; padding:0; background:#ffffff; font-family:'Poppins', sans-serif;">
+            <div style="max-width:600px; margin:0 auto; padding:24px 24px;">
+
+              <!-- LOGO -->
+              <div style="text-align:center; margin-bottom:24px;">
+                <img src="cid:clicareLogo" alt="CliCare Hospital" style="height:28px; width:auto;">
               </div>
 
-              <div style="margin-bottom: 25px;">
-                <h2 style="color: #27371f; margin: 0 0 10px 0;">Hello ${patientName},</h2>
-                <p style="color: #4b5563; line-height: 1.6; margin: 0;">
-                  Your health assessment has been successfully submitted. Please present the QR code below when you arrive at the hospital for faster check-in.
-                </p>
-              </div>
+              <!-- TITLE -->
+              <p style="color:#27371f; font-size:16px; font-weight:600; text-align:center; margin:0 0 4px 0;">
+                Health Assessment Submitted
+              </p>
+              <p style="color:#6b7280; font-size:14px; font-weight:300; text-align:center; margin:0 0 32px 0;">
+                Your QR code is ready.
+              </p>
 
-              <div style="background-color: #f3f4f6; border-radius: 8px; padding: 20px; margin-bottom: 25px;">
-                <h3 style="color: #27371f; margin: 0 0 15px 0; font-size: 18px;">Assessment Details</h3>
-                <div style="display: grid; gap: 10px;">
-                  <div><strong>Assessment ID:</strong> ${temp_assessment_id}</div>
-                  <div><strong>Patient ID:</strong> ${assessmentData.outPatient.patient_id}</div>
-                  <div><strong>Recommended Department:</strong> ${recommendedDepartment}</div>
-                  <div><strong>Preferred Date:</strong> ${appointmentDate}</div>
-                  <div><strong>Preferred Time:</strong> ${appointmentTime}</div>
-                  <div><strong>Symptoms:</strong> ${assessmentData.symptoms || 'Not specified'}</div>
-                  <div><strong>Severity:</strong> ${assessmentData.severity || 'Not specified'}</div>
+              <!-- GREETING -->
+              <p style="color:#27371f; font-size:15px; font-weight:500; margin:0 0 6px 0;">
+                Hello ${patientName},
+              </p>
+              <p style="color:#6b7280; font-size:14px; font-weight:300; line-height:1.6; margin:0 0 24px 0;">
+                Your health assessment has been successfully submitted. Please present the QR code below when you arrive at the hospital for faster check-in.
+              </p>
+
+              <!-- QR CODE BLOCK -->
+              <div style="text-align:center; margin:0 0 24px 0;">
+                <div style="display:inline-block; background:#f9fafb; border-radius:12px; padding:20px 24px; border:1px solid #e5e7eb;">
+                  <img src="cid:healthqrcode" alt="Health Assessment QR Code" style="max-width:200px; height:auto; border-radius:6px;">
+                  <p style="color:#6b7280; font-size:13px; font-weight:400; margin:12px 0 0 0;">
+                    Present this QR code at the kiosk or reception desk
+                  </p>
                 </div>
               </div>
 
-              <div style="text-align: center; margin-bottom: 25px;">
-                <h3 style="color: #27371f; margin: 0 0 15px 0;">Your QR Code</h3>
-                <div style="background-color: #ffffff; border: 2px solid #e5e7eb; border-radius: 10px; padding: 20px; display: inline-block;">
-                  <img src="cid:healthqrcode" alt="Health Assessment QR Code" style="max-width: 200px; height: auto;" />
-                </div>
-                <p style="color: #6b7280; font-size: 14px; margin: 10px 0 0 0;">
-                  Present this QR code at the hospital kiosk or reception desk
+              <!-- DIVIDER -->
+              <div style="height:1px; background:#e5e7eb; margin:0 0 32px 0;"></div>
+
+              <!-- DETAILS HEADER -->
+              <p style="color:#27371f; font-size:14px; font-weight:500; margin:0 0 12px 0;">
+                Assessment Details:
+              </p>
+
+              <!-- DETAILS BOX -->
+              <div style="background:#f9fafb; padding:16px; border-radius:8px; margin:0 0 32px 0;">
+                <p style="color:#6b7280; margin:0; font-size:14px; line-height:1.8;">
+                  <strong style="color:#27371f;">Assessment ID:</strong> ${temp_assessment_id}<br>
+                  <strong style="color:#27371f;">Patient ID:</strong> ${assessmentData.outPatient.patient_id}<br>
+                  <strong style="color:#27371f;">Recommended Department:</strong> ${recommendedDepartment}<br>
+                  <strong style="color:#27371f;">Preferred Date:</strong> ${appointmentDate}<br>
+                  <strong style="color:#27371f;">Preferred Time:</strong> ${appointmentTime}<br>
+                  <strong style="color:#27371f;">Symptoms:</strong> ${assessmentData.symptoms || 'Not specified'}<br>
+                  <strong style="color:#27371f;">Severity:</strong> ${assessmentData.severity || 'Not specified'}
                 </p>
               </div>
 
-              <div style="background-color: #eff6ff; border-left: 4px solid #2563eb; padding: 15px; margin-bottom: 20px;">
-                <h4 style="color: #1e40af; margin: 0 0 10px 0;">Instructions</h4>
-                <ul style="color: #1e40af; margin: 0; padding-left: 20px;">
-                  <li>Present this QR code when you arrive at CliCare Hospital</li>
-                  <li>You can scan this at the kiosk or show it to the reception staff</li>
-                  <li>This QR code is valid until ${new Date(assessmentData.expires_at).toLocaleDateString()}</li>
+              <!-- NEXT STEPS HEADER -->
+              <p style="color:#27371f; font-size:14px; font-weight:500; margin:0 0 12px 0;">
+                What to do next:
+              </p>
+
+              <!-- NEXT STEPS BOX -->
+              <div style="background:#f9fafb; padding:16px; border-radius:8px; margin:0 0 32px 0;">
+                <ol style="color:#6b7280; font-size:14px; padding-left:18px; margin:0; line-height:1.7;">
+                  <li>Present this QR code when you arrive</li>
+                  <li>Scan it at the kiosk or show it to reception staff</li>
+                  <li>Valid until <strong>${new Date(assessmentData.expires_at).toLocaleDateString()}</strong></li>
                   <li>Bring a valid ID for verification</li>
-                </ul>
+                </ol>
               </div>
 
-              <div style="background-color: #fef3cd; border-left: 4px solid #f59e0b; padding: 15px; margin-bottom: 20px;">
-                <h4 style="color: #92400e; margin: 0 0 10px 0;">Important</h4>
-                <p style="color: #92400e; margin: 0; font-size: 14px;">
-                  This QR code is personalized for <strong>${patientName}</strong> (Patient ID: ${assessmentData.outPatient.patient_id}). 
-                  It cannot be used by other patients and will expire on ${new Date(assessmentData.expires_at).toLocaleDateString()}.
+              <!-- IMPORTANT -->
+              <p style="color:#dc2626; font-size:13px; font-weight:500; margin:0 0 6px 0;">
+                Important
+              </p>
+
+              <p style="color:#9ca3af; font-size:12px; line-height:1.6; margin:0 0 32px 0;">
+                This QR code is personalized for <strong style="color:#27371f;">${patientName}</strong> (Patient ID: ${assessmentData.outPatient.patient_id}).  
+                It cannot be used by other patients and will expire on  
+                <strong style="color:#27371f;">${new Date(assessmentData.expires_at).toLocaleDateString()}</strong>.
+              </p>
+
+              <!-- FOOTER -->
+              <div style="text-align:center; padding-top:20px; border-top:1px solid #e5e7eb;">
+                <p style="color:#d1d5db; font-size:11px; font-weight:300; margin:0;">
+                  CliCare Hospital Management System<br>
+                  This is an automated message. Please do not reply.
                 </p>
               </div>
 
-              <div style="text-align: center; border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
-                <p style="color: #6b7280; font-size: 14px; margin: 0;">
-                  If you have any questions, please contact CliCare Hospital<br>
-                  This is an automated message, please do not reply to this email.
-                </p>
-                <p style="color: #9ca3af; font-size: 12px; margin: 10px 0 0 0;">
-                  CliCare Hospital Management System
-                </p>
-              </div>
             </div>
-          </div>
+          </body>
+          </html>
         `,
         attachments: [
+          {
+            filename: 'clicareLogo.png',
+            path: path.join(__dirname, '../src/clicareLogo.png'),
+            cid: 'clicareLogo'
+          },
           {
             filename: 'health-assessment-qr.png',
             content: qrCodeBuffer,
@@ -4548,69 +5176,87 @@ app.post('/api/generate-qr-email', async (req, res) => {
     // Step 3: Prepare email
     console.log('Step 3: Preparing email...');
     const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f5f5f5; padding: 20px;">
-        <div style="background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-          <div style="background: linear-gradient(135deg, #4285f4 0%, #1a73e8 100%); color: white; padding: 30px; text-align: center;">
-            <h1 style="margin: 0; font-size: 28px;">🏥 CliCare Hospital</h1>
-            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Registration Confirmation</p>
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+      </head>
+
+      <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
+
+          <!-- Logo -->
+          <div style="text-align: center; margin-bottom: 24px;">
+            <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
           </div>
-          
-          <div style="padding: 30px;">
-            <h2 style="color: #333; margin-top: 0;">Hello ${patientName},</h2>
-            <p style="color: #666; line-height: 1.6; font-size: 16px;">Your registration has been completed successfully! Please present the QR code below when you arrive at the hospital.</p>
-            
-            <div style="background: #f8f9fa; padding: 30px; border-radius: 8px; text-align: center; margin: 25px 0; border: 2px dashed #dee2e6;">
-              <img src="cid:qrcode" alt="Registration QR Code" style="max-width: 200px; height: auto; border: 1px solid #ddd; border-radius: 4px;">
-              <p style="color: #666; font-size: 14px; margin: 15px 0 0 0; font-weight: 500;">Present this QR code at registration</p>
-            </div>
-            
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 25px 0;">
-              <h3 style="color: #1a73e8; margin-top: 0; font-size: 18px;">📋 Appointment Details</h3>
-              <table style="width: 100%; border-collapse: collapse;">
-                <tr style="border-bottom: 1px solid #eee;">
-                  <td style="padding: 10px 0; color: #666; font-weight: 600;">Department:</td>
-                  <td style="padding: 10px 0; color: #333;">${qrData.department || 'General Practice'}</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #eee;">
-                  <td style="padding: 10px 0; color: #666; font-weight: 600;">Date:</td>
-                  <td style="padding: 10px 0; color: #333;">${qrData.scheduledDate || 'To be confirmed'}</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #eee;">
-                  <td style="padding: 10px 0; color: #666; font-weight: 600;">Time:</td>
-                  <td style="padding: 10px 0; color: #333;">${qrData.preferredTime || 'To be confirmed'}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 0; color: #666; font-weight: 600;">Temp ID:</td>
-                  <td style="padding: 10px 0; color: #333; font-family: monospace;">${qrData.tempPatientId || 'N/A'}</td>
-                </tr>
-              </table>
-            </div>
-            
-            <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; border-left: 4px solid #2196f3;">
-              <h4 style="margin-top: 0; color: #1565c0; font-size: 16px;">📝 What to do next:</h4>
-              <ol style="color: #666; margin: 10px 0 0 0; padding-left: 20px; line-height: 1.6;">
-                <li>Arrive 15 minutes before your scheduled time</li>
-                <li>Go directly to the registration desk</li>
-                <li>Show this QR code to the staff</li>
-                <li>Wait for your queue number to be called</li>
-              </ol>
-            </div>
-            
-            <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
-              <p style="color: #999; font-size: 12px; margin: 0;">
-                This is an automated message from CliCare Hospital<br>
-                Please do not reply to this email
+
+          <!-- Greeting -->
+          <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 6px 0;">
+            Hello ${patientName},
+          </p>
+
+          <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
+            Your registration has been successfully recorded. Please present the QR code below upon arriving at the hospital.
+          </p>
+
+          <!-- QR CODE BLOCK -->
+          <div style="text-align: center; margin: 0 0 24px 0;">
+            <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 16px 20px;">
+              <img src="cid:qrcode" alt="QR Code" style="max-width: 200px; height: auto; border-radius: 6px;">
+              <p style="color: #6b7280; font-size: 13px; font-weight: 400; margin: 12px 0 0 0;">
+                Show this QR code to the registration staff
               </p>
             </div>
           </div>
+
+          <!-- Appointment Details Title -->
+          <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+            Appointment Details:
+          </p>
+
+          <!-- APPOINTMENT DETAILS LIST -->
+          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
+              <strong style="color: #27371f;">Department:</strong> ${qrData.department || 'General Practice'}<br>
+              <strong style="color: #27371f;">Date:</strong> ${qrData.scheduledDate || 'To be confirmed'}<br>
+              <strong style="color: #27371f;">Time:</strong> ${qrData.preferredTime || 'To be confirmed'}<br>
+              <strong style="color: #27371f;">Temporary Patient ID:</strong> ${qrData.tempPatientId || 'N/A'}
+            </p>
+          </div>
+
+          <!-- NEXT STEPS -->
+          <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+            What to do next:
+          </p>
+
+          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
+              <li>Arrive 15 minutes before your scheduled time</li>
+              <li>Go directly to the registration desk</li>
+              <li>Present the QR code</li>
+              <li>Wait for your queue number to be called</li>
+            </ol>
+          </div>
+
+          <!-- FOOTER -->
+          <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+            <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+              CliCare Hospital Management System<br>
+              This is an automated message. Please do not reply.
+            </p>
+          </div>
+
         </div>
-      </div>
+      </body>
+      </html>
     `;
 
     // Step 4: Send email
     console.log('Step 4: Sending email to:', patientEmail);
     try {
-      const transporter = nodemailer.createTransport({
+      const transporter = nodemailer.createTransporter({
         service: 'gmail',
         auth: {
           user: process.env.EMAIL_USER,
@@ -4628,6 +5274,11 @@ app.post('/api/generate-qr-email', async (req, res) => {
         subject: `Your CliCare Registration QR Code - ${patientName}`,
         html: emailHtml,
         attachments: [
+          {
+            filename: 'clicareLogo.png',
+            path: path.join(__dirname, '../src/clicareLogo.png'),
+            cid: 'clicareLogo'
+          },
           {
             filename: 'qr-code.png',
             content: qrCodeBuffer,
@@ -4898,154 +5549,153 @@ app.get('/api/patient/history/:patientId', authenticateToken, async (req, res) =
 
 // Lab-related endpoints
 app.get('/api/healthcare/lab-requests', authenticateToken, async (req, res) => {
-  try {
-    if (req.user.type !== 'healthcare') {
-      return res.status(403).json({ error: 'Access denied' });
-    }
+    try {
+      if (req.user.type !== 'healthcare') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
 
-    // ✅ FIX: Correct query with proper table names
-    const { data: labRequests, error: labRequestsError } = await supabase
-      .from('lab_request')  // ✅ snake_case
-      .select(`
-        *,
-        visit!inner(
-          visit_id,
-          visit_date,
-          outpatient!inner(
-            patient_id,
-            name,
-            age,
-            sex,
-            contact_no
+      // FIXED: Get ALL lab requests regardless of status
+      const { data: labRequests, error: labRequestsError } = await supabase
+        .from('lab_request')
+        .select(`
+          *,
+          visit!inner(
+            visit_id,
+            visit_date,
+            outpatient!inner(
+              id,
+              patient_id,
+              name,
+              age,
+              sex,
+              contact_no
+            )
           )
-        )
-      `)
-      .eq('staff_id', req.user.id)
-      .order('request_id', { ascending: false });
+        `)
+        .eq('staff_id', req.user.id)
+        .order('request_id', { ascending: false });
 
-    if (labRequestsError) {
-      console.error('Lab requests fetch error:', labRequestsError);
-      return res.status(500).json({ error: 'Failed to fetch lab requests' });
-    }
+      if (labRequestsError) {
+        console.error('Lab requests fetch error:', labRequestsError);
+        return res.status(500).json({ error: 'Failed to fetch lab requests' });
+      }
 
-    const requestIds = (labRequests || []).map(req => req.request_id);
-    let allResults = [];
-    
-    if (requestIds.length > 0) {
-      const { data: resultsData } = await supabase
-        .from('lab_result')
-        .select('*')
-        .in('request_id', requestIds)
-        .order('upload_date', { ascending: true });
+      const requestIds = (labRequests || []).map(req => req.request_id);
+      let allResults = [];
       
-      allResults = resultsData || [];
-    }
-
-    const resultsByRequest = allResults.reduce((acc, result) => {
-      if (!acc[result.request_id]) {
-        acc[result.request_id] = [];
+      if (requestIds.length > 0) {
+        const { data: resultsData } = await supabase
+          .from('lab_result')
+          .select('*')
+          .in('request_id', requestIds)
+          .order('upload_date', { ascending: true });
+        
+        allResults = resultsData || [];
       }
-      acc[result.request_id].push(result);
-      return acc;
-    }, {});
 
-    // ✅ FIX: Add null checks
-    const formattedRequests = (labRequests || []).map(request => {
-      const results = resultsByRequest[request.request_id] || [];
-      let resultData = null;
-      let hasMultipleTests = false;
-
-      const testTypes = request.test_type.split(', ').map(t => t.trim());
-      hasMultipleTests = testTypes.length > 1;
-
-      if (results.length > 0) {
-        if (hasMultipleTests && results.length > 1) {
-          resultData = {
-            isMultiple: true,
-            files: results.map((result, index) => {
-              let testName = 'Unknown Test';
-              let originalFileName = 'uploaded_file';
-              
-              try {
-                const parsedResults = JSON.parse(result.results);
-                testName = parsedResults.testName || testTypes[index] || `Test ${index + 1}`;
-                originalFileName = parsedResults.originalName || result.file_path?.split('/').pop() || 'uploaded_file';
-              } catch (e) {
-                testName = testTypes[index] || `Test ${index + 1}`;
-                originalFileName = result.file_path?.split('/').pop() || 'uploaded_file';
-              }
-
-              return {
-                result_id: result.result_id,
-                file_name: originalFileName,
-                file_url: result.file_path,
-                upload_date: result.upload_date,
-                testName: testName,
-                testType: testTypes[index] || 'Unknown Type'
-              };
-            }),
-            upload_date: results[0].upload_date,
-            totalFiles: results.length
-          };
-        } else {
-          const result = results[0];
-          let testName = request.test_type;
-          let originalFileName = 'uploaded_file';
-          
-          try {
-            const parsedResults = JSON.parse(result.results);
-            testName = parsedResults.testName || request.test_type;
-            originalFileName = parsedResults.originalName || result.file_path?.split('/').pop() || 'uploaded_file';
-          } catch (e) {
-            originalFileName = result.file_path?.split('/').pop() || 'uploaded_file';
-          }
-
-          resultData = {
-            isMultiple: false,
-            result_id: result.result_id,
-            file_name: originalFileName,
-            file_url: result.file_path,
-            upload_date: result.upload_date,
-            testName: testName,
-            results: result.results
-          };
+      const resultsByRequest = allResults.reduce((acc, result) => {
+        if (!acc[result.request_id]) {
+          acc[result.request_id] = [];
         }
-      }
+        acc[result.request_id].push(result);
+        return acc;
+      }, {});
 
-      // ✅ FIX: Add null checks for nested properties
-      return {
-        request_id: request.request_id,
-        test_name: request.test_type,
-        test_type: request.test_type,
-        priority: 'normal',
-        status: request.status,
-        instructions: '',
-        due_date: request.due_date,
-        created_at: request.visit?.visit_date || new Date().toISOString(),  // ✅ Added fallback
-        hasMultipleTests: hasMultipleTests,
-        expectedFileCount: testTypes.length,
-        uploadedFileCount: results.length,
-        patient: {
-          patient_id: request.visit?.outpatient?.patient_id || 'Unknown',  // ✅ Added optional chaining
-          name: request.visit?.outpatient?.name || 'Unknown',
-          age: request.visit?.outpatient?.age || 0,
-          sex: request.visit?.outpatient?.sex || 'Unknown',
-          contact_no: request.visit?.outpatient?.contact_no || 'Unknown'
-        },
-        labResult: resultData
-      };
-    });
+      const formattedRequests = (labRequests || []).map(request => {
+        const results = resultsByRequest[request.request_id] || [];
+        let resultData = null;
+        let hasMultipleTests = false;
 
-    res.status(200).json({
-      success: true,
-      labRequests: formattedRequests
-    });
+        const testTypes = request.test_type.split(', ').map(t => t.trim());
+        hasMultipleTests = testTypes.length > 1;
 
-  } catch (error) {
-    console.error('Get lab requests error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+        if (results.length > 0) {
+          if (hasMultipleTests && results.length > 1) {
+            resultData = {
+              isMultiple: true,
+              files: results.map((result, index) => {
+                let testName = 'Unknown Test';
+                let originalFileName = 'uploaded_file';
+                
+                try {
+                  const parsedResults = JSON.parse(result.results);
+                  testName = parsedResults.testName || testTypes[index] || `Test ${index + 1}`;
+                  originalFileName = parsedResults.originalName || result.file_path?.split('/').pop() || 'uploaded_file';
+                } catch (e) {
+                  testName = testTypes[index] || `Test ${index + 1}`;
+                  originalFileName = result.file_path?.split('/').pop() || 'uploaded_file';
+                }
+
+                return {
+                  result_id: result.result_id,
+                  file_name: originalFileName,
+                  file_url: result.file_path,
+                  upload_date: result.upload_date,
+                  testName: testName,
+                  testType: testTypes[index] || 'Unknown Type'
+                };
+              }),
+              upload_date: results[0].upload_date,
+              totalFiles: results.length
+            };
+          } else {
+            const result = results[0];
+            let testName = request.test_type;
+            let originalFileName = 'uploaded_file';
+            
+            try {
+              const parsedResults = JSON.parse(result.results);
+              testName = parsedResults.testName || request.test_type;
+              originalFileName = parsedResults.originalName || result.file_path?.split('/').pop() || 'uploaded_file';
+            } catch (e) {
+              originalFileName = result.file_path?.split('/').pop() || 'uploaded_file';
+            }
+
+            resultData = {
+              isMultiple: false,
+              result_id: result.result_id,
+              file_name: originalFileName,
+              file_url: result.file_path,
+              upload_date: result.upload_date,
+              testName: testName,
+              results: result.results
+            };
+          }
+        }
+
+        return {
+          request_id: request.request_id,
+          test_name: request.test_type,
+          test_type: request.test_type,
+          priority: 'normal',
+          status: request.status,
+          instructions: '',
+          due_date: request.due_date,
+          created_at: request.visit?.visit_date || new Date().toISOString(),
+          hasMultipleTests: hasMultipleTests,
+          expectedFileCount: testTypes.length,
+          uploadedFileCount: results.length,
+          patient: {
+            patient_id: request.visit?.outpatient?.patient_id || 'Unknown',
+            name: request.visit?.outpatient?.name || 'Unknown',
+            age: request.visit?.outpatient?.age || 0,
+            sex: request.visit?.outpatient?.sex || 'Unknown',
+            contact_no: request.visit?.outpatient?.contact_no || 'Unknown'
+          },
+          labResult: resultData
+        };
+      });
+
+      res.status(200).json({
+        success: true,
+        labRequests: formattedRequests
+      });
+
+    } catch (error) {
+      console.error('Get lab requests error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
 
 app.get('/api/healthcare/lab-results', authenticateToken, async (req, res) => {
   try {
@@ -5114,109 +5764,111 @@ app.get('/api/healthcare/lab-results', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/patient/lab-requests/:patientId', authenticateToken, async (req, res) => {
-  try {
-    if (req.user.type !== 'outpatient') {
-      return res.status(403).json({ error: 'Access denied' });
-    }
+  app.get('/api/patient/lab-requests/:patientId', authenticateToken, async (req, res) => {
+    try {
+      if (req.user.type !== 'outpatient') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
 
-    const { patientId } = req.params;
+      const { patientId } = req.params;
 
-    if (req.user.patientId !== patientId) {
-      return res.status(403).json({ error: 'Access denied to other patient data' });
-    }
+      if (req.user.patientId !== patientId) {
+        return res.status(403).json({ error: 'Access denied to other patient data' });
+      }
 
-    const { data: patientData } = await supabase
-      .from('outpatient')
-      .select('id, patient_id, name')
-      .eq('patient_id', patientId)
-      .single();
+      const { data: patientData } = await supabase
+        .from('outpatient')
+        .select('id, patient_id, name')
+        .eq('patient_id', patientId)
+        .single();
 
-    if (!patientData) {
-      return res.status(404).json({ error: 'Patient not found' });
-    }
+      if (!patientData) {
+        return res.status(404).json({ error: 'Patient not found' });
+      }
 
-    const { data: visits } = await supabase
-      .from('visit')
-      .select('visit_id')
-      .eq('patient_id', patientData.id);
+      const { data: visits } = await supabase
+        .from('visit')
+        .select('visit_id')
+        .eq('patient_id', patientData.id);
 
-    if (!visits || visits.length === 0) {
-      return res.status(200).json({
+      if (!visits || visits.length === 0) {
+        return res.status(200).json({
+          success: true,
+          labRequests: []
+        });
+      }
+
+      const visitIds = visits.map(v => v.visit_id);
+
+      // FIXED: Show requests that are NOT completed (pending, submitted, declined)
+      const { data: labRequests, error: labRequestsError } = await supabase
+        .from('lab_request')
+        .select(`
+          *,
+          visit!inner(visit_id, visit_date),
+          staff!lab_request_staff_id_fkey(name, specialization)
+        `)
+        .in('visit_id', visitIds)
+        .in('status', ['pending', 'submitted', 'declined'])
+        .order('request_id', { ascending: false });
+
+      if (labRequestsError) {
+        console.error('Patient lab requests fetch error:', labRequestsError);
+        return res.status(500).json({ error: 'Failed to fetch lab requests' });
+      }
+
+      const labRequestIds = labRequests.map(req => req.request_id);
+      let labResults = [];
+      
+      if (labRequestIds.length > 0) {
+        const { data: resultsData } = await supabase
+          .from('lab_result')
+          .select('*')
+          .eq('patient_id', patientData.id)
+          .in('request_id', labRequestIds);
+        
+        labResults = resultsData || [];
+      }
+
+      const formattedRequests = labRequests.map(request => {
+        const labResult = labResults.find(result => result.request_id === request.request_id);
+        
+        return {
+          request_id: request.request_id,
+          test_name: request.test_type,
+          test_type: request.test_type,
+          priority: 'normal',
+          status: request.status,
+          instructions: '',
+          due_date: request.due_date,
+          created_at: request.visit.visit_date,
+          doctor: {
+            name: request.staff.name,
+            department: request.staff.specialization
+          },
+          labResult: labResult ? {
+            result_id: labResult.result_id,
+            file_name: labResult.file_path ? labResult.file_path.split('/').pop() : 'Uploaded File',
+            file_url: labResult.file_path,
+            upload_date: labResult.upload_date,
+            results: labResult.results
+          } : null
+        };
+      });
+
+      res.status(200).json({
         success: true,
-        labRequests: []
+        labRequests: formattedRequests
+      });
+
+    } catch (error) {
+      console.error('Get patient lab requests error:', error);
+      res.status(500).json({ 
+        error: 'Internal server error',
+        details: error.message 
       });
     }
-
-    const visitIds = visits.map(v => v.visit_id);
-
-    const { data: labRequests, error: labRequestsError } = await supabase
-      .from('lab_request')
-      .select(`
-        *,
-        visit!inner(visit_id, visit_date),
-        staff(name, specialization)
-      `)
-      .in('visit_id', visitIds)
-      .order('request_id', { ascending: false });
-
-    if (labRequestsError) {
-      console.error('Patient lab requests fetch error:', labRequestsError);
-      return res.status(500).json({ error: 'Failed to fetch lab requests' });
-    }
-
-    const labRequestIds = labRequests.map(req => req.request_id);
-    let labResults = [];
-    
-    if (labRequestIds.length > 0) {
-      const { data: resultsData } = await supabase
-        .from('lab_result')
-        .select('*')
-        .eq('patient_id', patientData.id)
-        .in('request_id', labRequestIds);
-      
-      labResults = resultsData || [];
-    }
-
-    const formattedRequests = labRequests.map(request => {
-      const labResult = labResults.find(result => result.request_id === request.request_id);
-      
-      return {
-        request_id: request.request_id,
-        test_name: request.test_type,
-        test_type: request.test_type,
-        priority: 'normal',
-        status: request.status,
-        instructions: '',
-        due_date: request.due_date,
-        created_at: request.visit.visit_date,
-        doctor: {
-          name: request.staff.name,
-          department: request.staff.specialization
-        },
-        labResult: labResult ? {
-          result_id: labResult.result_id,
-          file_name: labResult.file_path ? labResult.file_path.split('/').pop() : 'Uploaded File',
-          file_url: labResult.file_path,
-          upload_date: labResult.upload_date,
-          results: labResult.results
-        } : null
-      };
-    });
-
-    res.status(200).json({
-      success: true,
-      labRequests: formattedRequests
-    });
-
-  } catch (error) {
-    console.error('Get patient lab requests error:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message 
-    });
-  }
-});
+  });
 
 app.post('/api/patient/upload-lab-result', authenticateToken, upload.single('labResultFile'), async (req, res) => {
   try {
@@ -5404,235 +6056,318 @@ app.post('/api/healthcare/patient-visit', authenticateToken, async (req, res) =>
 
 // Upload lab result by test (Patient side)
 app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.single('labResultFile'), async (req, res) => {
-  try {
-    if (req.user.type !== 'outpatient') {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const { labRequestId, patientId, testName } = req.body;
-    const file = req.file;
-
-    if (!file || !labRequestId || !patientId || !testName) {
-      return res.status(400).json({ error: 'File, lab request ID, patient ID, and test name are required' });
-    }
-
-    if (req.user.patientId !== patientId) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const { data: patientData } = await supabase
-      .from('outpatient')
-      .select('id, patient_id')
-      .eq('patient_id', patientId)
-      .single();
-
-    if (!patientData) {
-      return res.status(404).json({ error: 'Patient not found' });
-    }
-
-    const { data: labRequestData } = await supabase
-      .from('lab_request')
-      .select('request_id, visit_id, status, test_type')
-      .eq('request_id', labRequestId)
-      .single();
-
-    if (!labRequestData) {
-      return res.status(404).json({ error: 'Lab request not found' });
-    }
-
-    const filePath = `/uploads/lab-results/${file.filename}`;
-
-    // Get staff_id from the lab request
-    const { data: requestInfo } = await supabase
-      .from('lab_request')
-      .select('staff_id')
-      .eq('request_id', labRequestId)
-      .single();
-
-    const { data: labResultData, error: labResultError } = await supabase
-      .from('lab_result')
-      .insert({
-        request_id: parseInt(labRequestId),
-        patient_id: patientData.id,
-        staff_id: requestInfo?.staff_id || null,  // ✅ ADDED THIS LINE
-        file_path: filePath,
-        upload_date: new Date().toISOString().split('T')[0],
-        results: JSON.stringify({
-          originalName: file.originalname,
-          size: file.size,
-          mimeType: file.mimetype,
-          testName: testName
-        })
-      })
-      .select()
-      .single();
-
-    if (labResultError) {
-      console.error('Lab result save error:', labResultError);
-      return res.status(500).json({ error: 'Failed to save lab result' });
-    }
-
-    const testTypes = labRequestData.test_type.split(', ');
-    const { data: uploadedResults } = await supabase
-      .from('lab_result')
-      .select('results')
-      .eq('request_id', labRequestId);
-
-    const uploadedTestNames = uploadedResults?.map(result => {
-      try {
-        return JSON.parse(result.results).testName;
-      } catch {
-        return null;
+    try {
+      if (req.user.type !== 'outpatient') {
+        return res.status(403).json({ error: 'Access denied' });
       }
-    }).filter(Boolean) || [];
 
-    if (uploadedTestNames.length >= testTypes.length) {
-      await supabase
+      const { labRequestId, patientId, testName } = req.body;
+      const file = req.file;
+
+      if (!file || !labRequestId || !patientId || !testName) {
+        return res.status(400).json({ error: 'File, lab request ID, patient ID, and test name are required' });
+      }
+
+      if (req.user.patientId !== patientId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      const { data: patientData } = await supabase
+        .from('outpatient')
+        .select('id, patient_id')
+        .eq('patient_id', patientId)
+        .single();
+
+      if (!patientData) {
+        return res.status(404).json({ error: 'Patient not found' });
+      }
+
+      const { data: labRequestData } = await supabase
         .from('lab_request')
-        .update({ status: 'completed' })
-        .eq('request_id', labRequestId);
-    }
+        .select('request_id, visit_id, status, test_type')
+        .eq('request_id', labRequestId)
+        .single();
 
-    const { data: existingMedicalRecord } = await supabase
-      .from('medical_record')
-      .select('record_id')
-      .eq('patient_id', patientData.id)
-      .eq('visit_id', labRequestData.visit_id)
-      .single();
+      if (!labRequestData) {
+        return res.status(404).json({ error: 'Lab request not found' });
+      }
 
-    if (existingMedicalRecord) {
-      await supabase
-        .from('medical_record')
-        .update({ 
-          result_id: labResultData.result_id,
-          updated_at: new Date().toISOString()
-        })
-        .eq('record_id', existingMedicalRecord.record_id);
-    } else {
-      await supabase
-        .from('medical_record')
+      const filePath = `/uploads/lab-results/${file.filename}`;
+
+      // Get staff_id from the lab request
+      const { data: requestInfo } = await supabase
+        .from('lab_request')
+        .select('staff_id')
+        .eq('request_id', labRequestId)
+        .single();
+
+      const { data: labResultData, error: labResultError } = await supabase
+        .from('lab_result')
         .insert({
+          request_id: parseInt(labRequestId),
           patient_id: patientData.id,
-          visit_id: labRequestData.visit_id,
-          result_id: labResultData.result_id
-        });
+          staff_id: requestInfo?.staff_id || null,
+          file_path: filePath,
+          upload_date: new Date().toISOString().split('T')[0],
+          results: JSON.stringify({
+            originalName: file.originalname,
+            size: file.size,
+            mimeType: file.mimetype,
+            testName: testName
+          })
+        })
+        .select()
+        .single();
+
+      if (labResultError) {
+        console.error('Lab result save error:', labResultError);
+        return res.status(500).json({ error: 'Failed to save lab result' });
+      }
+
+      const testTypes = labRequestData.test_type.split(', ');
+      const { data: uploadedResults } = await supabase
+        .from('lab_result')
+        .select('results')
+        .eq('request_id', labRequestId);
+
+      const uploadedTestNames = uploadedResults?.map(result => {
+        try {
+          return JSON.parse(result.results).testName;
+        } catch {
+          return null;
+        }
+      }).filter(Boolean) || [];
+
+      // FIXED: Change status to 'submitted' instead of 'completed'
+      if (uploadedTestNames.length >= testTypes.length) {
+        await supabase
+          .from('lab_request')
+          .update({ status: 'submitted' })
+          .eq('request_id', labRequestId);
+      }
+
+      const { data: existingMedicalRecord } = await supabase
+        .from('medical_record')
+        .select('record_id')
+        .eq('patient_id', patientData.id)
+        .eq('visit_id', labRequestData.visit_id)
+        .single();
+
+      if (existingMedicalRecord) {
+        await supabase
+          .from('medical_record')
+          .update({ 
+            result_id: labResultData.result_id,
+            updated_at: new Date().toISOString()
+          })
+          .eq('record_id', existingMedicalRecord.record_id);
+      } else {
+        await supabase
+          .from('medical_record')
+          .insert({
+            patient_id: patientData.id,
+            visit_id: labRequestData.visit_id,
+            result_id: labResultData.result_id
+          });
+      }
+
+      res.status(201).json({
+        success: true,
+        labResult: {
+          result_id: labResultData.result_id,
+          file_name: file.originalname,
+          file_url: filePath,
+          upload_date: labResultData.upload_date,
+          testName: testName
+        },
+        message: `Lab result for ${testName} uploaded successfully`
+      });
+
+    } catch (error) {
+      console.error('Upload lab result by test error:', error);
+      res.status(500).json({ error: 'Internal server error during file upload' });
     }
-
-    res.status(201).json({
-      success: true,
-      labResult: {
-        result_id: labResultData.result_id,
-        file_name: file.originalname,
-        file_url: filePath,
-        upload_date: labResultData.upload_date,
-        testName: testName
-      },
-      message: `Lab result for ${testName} uploaded successfully`
-    });
-
-  } catch (error) {
-    console.error('Upload lab result by test error:', error);
-    res.status(500).json({ error: 'Internal server error during file upload' });
-  }
 });
+
+  app.post('/api/healthcare/lab-result/accept', authenticateToken, async (req, res) => {
+    try {
+      if (req.user.type !== 'healthcare') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      const { requestId } = req.body;
+
+      if (!requestId) {
+        return res.status(400).json({ error: 'Request ID is required' });
+      }
+
+      // FIXED: Update lab request status to completed (this removes it from patient view only)
+      const { error: updateError } = await supabase
+        .from('lab_request')
+        .update({ 
+          status: 'completed',
+          reviewed_by: req.user.id,
+          reviewed_at: new Date().toISOString()
+        })
+        .eq('request_id', requestId)
+        .eq('staff_id', req.user.id);
+
+      if (updateError) {
+        console.error('Error accepting lab result:', updateError);
+        return res.status(500).json({ error: 'Failed to accept lab result' });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Lab result accepted successfully'
+      });
+
+    } catch (error) {
+      console.error('Accept lab result error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Doctor declines lab result
+  app.post('/api/healthcare/lab-result/decline', authenticateToken, async (req, res) => {
+    try {
+      if (req.user.type !== 'healthcare') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      const { requestId, reason } = req.body;
+
+      if (!requestId) {
+        return res.status(400).json({ error: 'Request ID is required' });
+      }
+
+      // FIXED: Update lab request status to declined (keeps it visible to patient for re-upload)
+      const { error: updateError } = await supabase
+        .from('lab_request')
+        .update({ 
+          status: 'declined',
+          decline_reason: reason || 'No reason provided',
+          reviewed_by: req.user.id,
+          reviewed_at: new Date().toISOString()
+        })
+        .eq('request_id', requestId)
+        .eq('staff_id', req.user.id);
+
+      if (updateError) {
+        console.error('Error declining lab result:', updateError);
+        return res.status(500).json({ error: 'Failed to decline lab result' });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Lab result declined successfully'
+      });
+
+    } catch (error) {
+      console.error('Decline lab result error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
 
 // Get patient lab history
 app.get('/api/patient/lab-history/:patientId', authenticateToken, async (req, res) => {
-  try {
-    if (req.user.type !== 'outpatient') {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const { patientId } = req.params;
-    
-    if (req.user.patientId !== patientId) {
-      return res.status(403).json({ error: 'Access denied to other patient data' });
-    }
-
-    const { data: patientData } = await supabase
-      .from('outpatient')  // ✅ lowercase
-      .select('id, patient_id, name')
-      .eq('patient_id', patientId)
-      .single();
-
-    if (!patientData) {
-      return res.status(404).json({ error: 'Patient not found' });
-    }
-
-    // ✅ FIX: Correct query with proper table names
-    const { data: labHistory, error: labHistoryError } = await supabase
-      .from('lab_request')  // ✅ snake_case
-      .select(`
-        request_id,
-        test_type,
-        created_at,
-        status,
-        visit!inner(
-          visit_date,
-          outpatient!inner(patient_id)
-        ),
-        staff(
-          name,
-          specialization,
-          department_id,
-          department(
-            name
-          )
-        ),
-        lab_result(count)
-      `)
-      .eq('visit.outpatient.patient_id', patientId)
-      .eq('status', 'completed')
-      .order('created_at', { ascending: false });
-
-    if (labHistoryError) {
-      console.error('Lab history fetch error:', labHistoryError);
-      return res.status(500).json({ error: 'Failed to fetch lab history' });
-    }
-
-    const requestIds = (labHistory || []).map(req => req.request_id);
-    let uploadDates = {};
-    
-    if (requestIds.length > 0) {
-      const { data: uploadData } = await supabase
-        .from('lab_result')
-        .select('request_id, upload_date')
-        .in('request_id', requestIds)
-        .order('upload_date', { ascending: true });
-
-      (uploadData || []).forEach(item => {
-        if (!uploadDates[item.request_id]) {
-          uploadDates[item.request_id] = item.upload_date;
-        }
-      });
-    }
-
-    // ✅ FIX: Add null checks
-    const formattedHistory = (labHistory || []).map(request => ({
-      request_id: request.request_id,
-      test_name: request.test_type,
-      test_type: request.test_type,
-      request_date: request.created_at,
-      completion_date: uploadDates[request.request_id] || null,
-      status: 'completed',
-      file_count: request.lab_result?.[0]?.count || 0,  // ✅ Added optional chaining
-      doctor: {
-        name: request.staff?.name || 'Unknown',  // ✅ Added fallback
-        specialization: request.staff?.specialization || 'Unknown',
-        department: request.staff?.department?.name || 'Unknown'
+    try {
+      if (req.user.type !== 'outpatient') {
+        return res.status(403).json({ error: 'Access denied' });
       }
-    }));
 
-    res.status(200).json({
-      success: true,
-      labHistory: formattedHistory
-    });
+      const { patientId } = req.params;
+      
+      if (req.user.patientId !== patientId) {
+        return res.status(403).json({ error: 'Access denied to other patient data' });
+      }
 
-  } catch (error) {
-    console.error('Get patient lab history error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+      const { data: patientData } = await supabase
+        .from('outpatient')
+        .select('id, patient_id, name')
+        .eq('patient_id', patientId)
+        .single();
+
+      if (!patientData) {
+        return res.status(404).json({ error: 'Patient not found' });
+      }
+
+      // FIXED: Use specific relationship for staff
+      const { data: labHistory, error: labHistoryError } = await supabase
+        .from('lab_request')
+        .select(`
+          request_id,
+          test_type,
+          created_at,
+          status,
+          decline_reason,
+          visit!inner(
+            visit_date,
+            outpatient!inner(patient_id)
+          ),
+          staff!lab_request_staff_id_fkey(
+            name,
+            specialization,
+            department_id,
+            department(
+              name
+            )
+          ),
+          lab_result(count)
+        `)
+        .eq('visit.outpatient.patient_id', patientId)
+        .in('status', ['completed', 'declined'])
+        .order('created_at', { ascending: false });
+
+      if (labHistoryError) {
+        console.error('Lab history fetch error:', labHistoryError);
+        return res.status(500).json({ error: 'Failed to fetch lab history' });
+      }
+
+      const requestIds = (labHistory || []).map(req => req.request_id);
+      let uploadDates = {};
+      
+      if (requestIds.length > 0) {
+        const { data: uploadData } = await supabase
+          .from('lab_result')
+          .select('request_id, upload_date')
+          .in('request_id', requestIds)
+          .order('upload_date', { ascending: true });
+
+        (uploadData || []).forEach(item => {
+          if (!uploadDates[item.request_id]) {
+            uploadDates[item.request_id] = item.upload_date;
+          }
+        });
+      }
+
+      const formattedHistory = (labHistory || []).map(request => ({
+        request_id: request.request_id,
+        test_name: request.test_type,
+        test_type: request.test_type,
+        request_date: request.created_at,
+        completion_date: uploadDates[request.request_id] || null,
+        status: request.status,
+        decline_reason: request.decline_reason || null,
+        file_count: request.lab_result?.[0]?.count || 0,
+        doctor: {
+          name: request.staff?.name || 'Unknown',
+          specialization: request.staff?.specialization || 'Unknown',
+          department: request.staff?.department?.name || 'Unknown'
+        }
+      }));
+
+      res.status(200).json({
+        success: true,
+        labHistory: formattedHistory
+      });
+
+    } catch (error) {
+      console.error('Get patient lab history error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
 });
+
 // Get lab history files for a specific request
 app.get('/api/patient/lab-history-files/:requestId', authenticateToken, async (req, res) => {
   try {
@@ -5763,71 +6498,18 @@ app.get('/api/healthcare/my-patients-queue', authenticateToken, async (req, res)
     }
 
     let allTodayPatients = [];
+    const processedQueueIds = new Set(); // Track processed queue IDs to avoid duplicates
 
-    // Get completed diagnoses by this doctor
-    const { data: completedPatients, error: completedError } = await supabase
-      .from('diagnosis')
-      .select(`
-        created_at,
-        visit!inner(
-          visit_id,
-          visit_date,
-          visit_time,
-          symptoms,
-          appointment_type,
-          outpatient!inner(
-            id,
-            patient_id,
-            name,
-            age,
-            sex,
-            contact_no,
-            email
-          ),
-          queue!inner(
-            queue_id,
-            queue_no,
-            status,
-            department_id
-          )
-        )
-      `)
-      .eq('staff_id', req.user.id)
-      .eq('visit.visit_date', filterDate)
-      .eq('visit.queue.department_id', staffData.department_id)
-      .order('created_at', { ascending: false });
-
-    if (completedPatients && !completedError) {
-      completedPatients.forEach(item => {
-        allTodayPatients.push({
-          patient_id: item.visit.outpatient.patient_id,
-          name: item.visit.outpatient.name,
-          age: item.visit.outpatient.age,
-          sex: item.visit.outpatient.sex,
-          contact_no: item.visit.outpatient.contact_no,
-          email: item.visit.outpatient.email,
-          lastVisit: item.visit.visit_date,
-          lastSymptoms: item.visit.symptoms,
-          queueStatus: 'completed',
-          queueNumber: item.visit.queue?.[0]?.queue_no,
-          visitTime: item.visit.visit_time,
-          isInQueue: false,
-          completedAt: item.created_at,
-          visit_id: item.visit.visit_id,
-          queue_id: item.visit.queue?.[0]?.queue_id,
-          diagnosedByMe: true
-        });
-      });
-    }
-
-    // Get patients in queue (waiting and in_progress)
-    const { data: queuePatients, error: queueError } = await supabase
+    // Get ALL queue entries for this department and date
+    const { data: allQueueEntries, error: queueError } = await supabase
       .from('queue')
       .select(`
         queue_id,
         queue_no,
         status,
         created_time,
+        updated_at,
+        completed_by,
         visit!inner(
           visit_id,
           visit_date,
@@ -5846,45 +6528,47 @@ app.get('/api/healthcare/my-patients-queue', authenticateToken, async (req, res)
         )
       `)
       .eq('department_id', staffData.department_id)
-      .in('status', ['waiting', 'in_progress'])
       .eq('visit.visit_date', filterDate)
       .order('queue_no', { ascending: true });
 
-    if (queuePatients && !queueError) {
-      queuePatients.forEach(item => {
-        const existingPatient = allTodayPatients.find(p => p.patient_id === item.visit.outpatient.patient_id);
-        if (!existingPatient) {
-          allTodayPatients.push({
-            patient_id: item.visit.outpatient.patient_id,
-            name: item.visit.outpatient.name,
-            age: item.visit.outpatient.age,
-            sex: item.visit.outpatient.sex,
-            contact_no: item.visit.outpatient.contact_no,
-            email: item.visit.outpatient.email,
-            lastVisit: item.visit.visit_date,
-            lastSymptoms: item.visit.symptoms,
-            queueStatus: item.status,
-            queueNumber: item.queue_no,
-            visitTime: item.visit.visit_time,
-            isInQueue: true,
-            visit_id: item.visit.visit_id,
-            queue_id: item.queue_id,
-            diagnosedByMe: false
-          });
-        }
-      });
+    if (queueError) {
+      console.error('Queue fetch error:', queueError);
+      return res.status(500).json({ error: 'Failed to fetch queue data' });
     }
 
-    // Sort: Active patients first (by queue number), then completed patients (by completion time)
-    allTodayPatients.sort((a, b) => {
-      if (a.isInQueue && !b.isInQueue) return -1;
-      if (!a.isInQueue && b.isInQueue) return 1;
-      
-      if (a.isInQueue && b.isInQueue) {
-        return (a.queueNumber || 0) - (b.queueNumber || 0);
+    // Process all queue entries
+    (allQueueEntries || []).forEach(item => {
+      // Skip if we've already processed this queue entry
+      if (processedQueueIds.has(item.queue_id)) {
+        return;
       }
-      
-      return new Date(b.completedAt) - new Date(a.completedAt);
+
+      const isActive = ['waiting', 'in_progress'].includes(item.status);
+      const isCompletedByMe = item.status === 'completed' && item.completed_by === req.user.id;
+
+      // Include if: 1) Currently active in queue, OR 2) Completed by me
+      if (isActive || isCompletedByMe) {
+        processedQueueIds.add(item.queue_id);
+        
+        allTodayPatients.push({
+          patient_id: item.visit.outpatient.patient_id,
+          name: item.visit.outpatient.name,
+          age: item.visit.outpatient.age,
+          sex: item.visit.outpatient.sex,
+          contact_no: item.visit.outpatient.contact_no,
+          email: item.visit.outpatient.email,
+          lastVisit: item.visit.visit_date,
+          lastSymptoms: item.visit.symptoms,
+          queueStatus: item.status,
+          queueNumber: item.queue_no,
+          visitTime: item.visit.visit_time,
+          isInQueue: isActive,
+          completedAt: isCompletedByMe ? item.updated_at : null,
+          visit_id: item.visit.visit_id,
+          queue_id: item.queue_id,
+          diagnosedByMe: isCompletedByMe
+        });
+      }
     });
 
     res.status(200).json({
@@ -5907,7 +6591,6 @@ app.get('/api/healthcare/my-patients-queue', authenticateToken, async (req, res)
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
 
 app.get('/api/healthcare/dashboard-stats', authenticateToken, async (req, res) => {
   try {
@@ -6379,6 +7062,46 @@ app.get('/api/queue/display/:departmentId', async (req, res) => {
       success: false, 
       error: 'Internal server error' 
     });
+  }
+});
+
+app.get('/api/queue/by-date/:departmentId/:date', async (req, res) => {
+  try {
+    const { departmentId, date } = req.params;
+
+    const { data: queueData, error } = await supabase
+      .from('queue')
+      .select(`
+        queue_id,
+        queue_no,
+        status,
+        scheduled_date,
+        visit!inner(
+          visit_id,
+          visit_date,
+          outpatient!inner(
+            patient_id,
+            name
+          )
+        )
+      `)
+      .eq('department_id', departmentId)
+      .eq('scheduled_date', date)
+      .order('queue_no', { ascending: true });
+
+    if (error) {
+      return res.status(500).json({ error: 'Failed to fetch queue data' });
+    }
+
+    res.json({
+      success: true,
+      queue: queueData || [],
+      totalInQueue: queueData?.length || 0
+    });
+
+  } catch (error) {
+    console.error('Queue fetch error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
