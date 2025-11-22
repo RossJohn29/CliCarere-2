@@ -525,17 +525,7 @@ const hasOnlyRoutineCareSymptoms = (symptoms) => {
 };
 
 // Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, 'uploads', 'lab-results');
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const timestamp = Date.now();
-    const originalName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `${timestamp}_${originalName}`);
-  }
-});
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -553,11 +543,6 @@ const upload = multer({
   }
 });
 
-const uploadDir = path.join(__dirname, 'uploads', 'lab-results');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
 // Middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -572,9 +557,11 @@ app.use(helmet({
 
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? ['https://your-frontend-domain.com']
+    ? process.env.FRONTEND_URL || 'https://*.vercel.app'
     : ['http://localhost:3000', 'http://127.0.0.1:3000', 'file://', '*'],
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -5907,9 +5894,10 @@ app.post('/api/patient/upload-lab-result', authenticateToken, upload.single('lab
       return res.status(404).json({ error: 'Lab request not found' });
     }
 
-    const filePath = `/uploads/lab-results/${file.filename}`;
+    // Store as base64 instead of file system
+    const fileBase64 = file.buffer.toString('base64');
+    const filePath = `data:${file.mimetype};base64,${fileBase64}`;
 
-    // Get staff_id from the lab request
     const { data: requestInfo } = await supabase
       .from('lab_request')
       .select('staff_id')
@@ -6092,9 +6080,10 @@ app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.sin
         return res.status(404).json({ error: 'Lab request not found' });
       }
 
-      const filePath = `/uploads/lab-results/${file.filename}`;
+      // Store as base64
+      const fileBase64 = file.buffer.toString('base64');
+      const filePath = `data:${file.mimetype};base64,${fileBase64}`;
 
-      // Get staff_id from the lab request
       const { data: requestInfo } = await supabase
         .from('lab_request')
         .select('staff_id')
@@ -6138,7 +6127,6 @@ app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.sin
         }
       }).filter(Boolean) || [];
 
-      // FIXED: Change status to 'submitted' instead of 'completed'
       if (uploadedTestNames.length >= testTypes.length) {
         await supabase
           .from('lab_request')
@@ -6825,14 +6813,14 @@ app.post('/api/healthcare/lab-requests', authenticateToken, async (req, res) => 
 });
 
 // Static file serving
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-app.use('/uploads', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  next();
-});
+// app.use('/uploads', (req, res, next) => {
+//   res.header('Access-Control-Allow-Origin', '*');
+//   res.header('Access-Control-Allow-Methods', 'GET');
+//   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+//   next();
+// });
 
 // Error handling
 app.use((error, req, res, next) => {
@@ -7106,11 +7094,15 @@ app.get('/api/queue/by-date/:departmentId/:date', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Email OTP: ${emailConfig.auth.user ? 'Configured' : 'Not configured'}`);
-  console.log(`SMS OTP: ${isSMSConfigured ? 'iTexMo configured' : 'Not configured'}`);
-  console.log(`Database: ${SUPABASE_URL ? 'Connected' : 'Not connected'}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Email OTP: ${emailConfig.auth.user ? 'Configured' : 'Not configured'}`);
+    console.log(`SMS OTP: ${isSMSConfigured ? 'iTexMo configured' : 'Not configured'}`);
+    console.log(`Database: ${SUPABASE_URL ? 'Connected' : 'Not connected'}`);
+  });
+} else {
+  console.log('Running in Vercel serverless mode');
+}
 
 module.exports = app;
