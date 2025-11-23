@@ -16,14 +16,13 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
-app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 // Configuration
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this';
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -36,7 +35,7 @@ const emailConfig = {
 };
 
 const ITEXMO_CONFIG = {
-  apiKey: process.env.ITEXMO_KEY,
+  apiKey: process.env.ITEXMO_API_KEY,
   senderId: process.env.ITEXMO_SENDER_ID || 'CLICARE',
   apiUrl: 'https://www.itexmo.com/php_api/api.php'
 };
@@ -526,7 +525,17 @@ const hasOnlyRoutineCareSymptoms = (symptoms) => {
 };
 
 // Configure multer for file uploads
-const storage = multer.memoryStorage();
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, 'uploads', 'lab-results');
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const originalName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    cb(null, `${timestamp}_${originalName}`);
+  }
+});
 
 const upload = multer({
   storage,
@@ -544,19 +553,28 @@ const upload = multer({
   }
 });
 
+const uploadDir = path.join(__dirname, 'uploads', 'lab-results');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 // Middleware
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable CSP on Vercel
-  crossOriginEmbedderPolicy: false
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"]
+    }
+  }
 }));
 
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? process.env.FRONTEND_URL || 'https://*.vercel.app'
+    ? ['https://your-frontend-domain.com']
     : ['http://localhost:3000', 'http://127.0.0.1:3000', 'file://', '*'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  credentials: true
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -571,11 +589,6 @@ const generalLoginLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // ✅ Add this for Vercel:
-  skip: (req) => process.env.VERCEL === '1' && req.path === '/api/health',
-  validate: {
-    xForwardedForHeader: false // ✅ Disable validation since we trust proxy
-  }
 });
 
 const generalLimiter = rateLimit({
@@ -583,9 +596,6 @@ const generalLimiter = rateLimit({
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: {
-    xForwardedForHeader: false // ✅ Add this
-  }
 });
 
 app.use('/api/', generalLimiter);
@@ -2726,8 +2736,8 @@ const activateScheduledQueues = async () => {
   }
 };
 
-// setInterval(activateScheduledQueues, 60 * 60 * 1000);
-// activateScheduledQueues();
+setInterval(activateScheduledQueues, 60 * 60 * 1000);
+activateScheduledQueues();
 
 module.exports = {
   calculateNextAvailableSlot,
@@ -3815,7 +3825,7 @@ const markInactiveStaffOffline = async () => {
     .eq('is_online', true);
 };
 
-// setInterval(markInactiveStaffOffline, 2 * 60 * 1000);
+setInterval(markInactiveStaffOffline, 2 * 60 * 1000);
 
 // Visit/Appointment booking
 app.post('/api/patient/visit', async (req, res) => {
@@ -4430,15 +4440,15 @@ console.error('Health assessment cleanup job error:', error);
   }
 };
 
-// // Run cleanup every 30 minutes
-// setInterval(cleanupExpiredRegistrations, 30 * 60 * 1000);
-// setInterval(cleanupExpiredHealthAssessments, 30 * 60 * 1000);
-// setInterval(cleanupUnusedQueueAndVisits, 30 * 60 * 1000);
+// Run cleanup every 30 minutes
+setInterval(cleanupExpiredRegistrations, 30 * 60 * 1000);
+setInterval(cleanupExpiredHealthAssessments, 30 * 60 * 1000);
+setInterval(cleanupUnusedQueueAndVisits, 30 * 60 * 1000);
 
-// // Run cleanup on server start
-// cleanupExpiredRegistrations();
-// cleanupExpiredHealthAssessments();
-// cleanupUnusedQueueAndVisits();
+// Run cleanup on server start
+cleanupExpiredRegistrations();
+cleanupExpiredHealthAssessments();
+cleanupUnusedQueueAndVisits();
 
 // Manual cleanup endpoint
 app.post('/api/admin/cleanup-expired', authenticateToken, async (req, res) => {
@@ -5452,21 +5462,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.get('/', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    message: 'CliCare Backend API',
-    version: '1.0.0',
-    endpoints: {
-      health: '/api/health',
-      staffLogin: '/api/staff/login',
-      adminLogin: '/api/admin/login',
-      patientOTP: '/api/outpatient/send-otp',
-      docs: 'https://github.com/your-repo/docs'
-    }
-  });
-});
-
 // Patient endpoints
 app.get('/api/patient/profile', authenticateToken, async (req, res) => {
   try {
@@ -5912,10 +5907,9 @@ app.post('/api/patient/upload-lab-result', authenticateToken, upload.single('lab
       return res.status(404).json({ error: 'Lab request not found' });
     }
 
-    // Store as base64 instead of file system
-    const fileBase64 = file.buffer.toString('base64');
-    const filePath = `data:${file.mimetype};base64,${fileBase64}`;
+    const filePath = `/uploads/lab-results/${file.filename}`;
 
+    // Get staff_id from the lab request
     const { data: requestInfo } = await supabase
       .from('lab_request')
       .select('staff_id')
@@ -6098,10 +6092,9 @@ app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.sin
         return res.status(404).json({ error: 'Lab request not found' });
       }
 
-      // Store as base64
-      const fileBase64 = file.buffer.toString('base64');
-      const filePath = `data:${file.mimetype};base64,${fileBase64}`;
+      const filePath = `/uploads/lab-results/${file.filename}`;
 
+      // Get staff_id from the lab request
       const { data: requestInfo } = await supabase
         .from('lab_request')
         .select('staff_id')
@@ -6145,6 +6138,7 @@ app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.sin
         }
       }).filter(Boolean) || [];
 
+      // FIXED: Change status to 'submitted' instead of 'completed'
       if (uploadedTestNames.length >= testTypes.length) {
         await supabase
           .from('lab_request')
@@ -6831,14 +6825,14 @@ app.post('/api/healthcare/lab-requests', authenticateToken, async (req, res) => 
 });
 
 // Static file serving
-// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// app.use('/uploads', (req, res, next) => {
-//   res.header('Access-Control-Allow-Origin', '*');
-//   res.header('Access-Control-Allow-Methods', 'GET');
-//   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-//   next();
-// });
+app.use('/uploads', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+});
 
 // Error handling
 app.use((error, req, res, next) => {
@@ -7111,66 +7105,12 @@ app.get('/api/queue/by-date/:departmentId/:date', async (req, res) => {
   }
 });
 
-app.post('/api/cron/cleanup-expired', async (req, res) => {
-  try {
-      const authHeader = req.headers['authorization'];
-      if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    console.log('🧹 Running scheduled cleanup...');
-    await cleanupExpiredRegistrations();
-    await cleanupExpiredHealthAssessments();
-    await cleanupUnusedQueueAndVisits();
-    
-    res.json({ 
-      success: true, 
-      message: 'Cleanup completed successfully',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('💥 Cron cleanup error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
-});
-
-app.post('/api/cron/activate-queues', async (req, res) => {
-  try {
-    const authHeader = req.headers['authorization'];
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET || 'your-secret-here'}`) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    console.log('⏰ Activating scheduled queues...');
-    await activateScheduledQueues();
-    
-    res.json({ 
-      success: true, 
-      message: 'Scheduled queues activated',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('💥 Queue activation error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
-});
-
 // Start server
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Email OTP: ${emailConfig.auth.user ? 'Configured' : 'Not configured'}`);
-    console.log(`SMS OTP: ${isSMSConfigured ? 'iTexMo configured' : 'Not configured'}`);
-    console.log(`Database: ${SUPABASE_URL ? 'Connected' : 'Not connected'}`);
-  });
-} else {
-  console.log('Running in Vercel serverless mode');
-}
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Email OTP: ${emailConfig.auth.user ? 'Configured' : 'Not configured'}`);
+  console.log(`SMS OTP: ${isSMSConfigured ? 'iTexMo configured' : 'Not configured'}`);
+  console.log(`Database: ${SUPABASE_URL ? 'Connected' : 'Not connected'}`);
+});
 
 module.exports = app;
