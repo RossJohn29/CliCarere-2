@@ -5464,6 +5464,21 @@ app.delete('/api/temp-registration/:tempId', async (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.json({
+    message: 'CliCare Backend API',
+    status: 'running',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      symptoms: '/api/symptoms',
+      staff_login: '/api/staff/login',
+      admin_login: '/api/admin/login',
+      patient_register: '/api/patient/register'
+    }
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.status(200).json({

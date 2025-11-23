@@ -184,10 +184,10 @@ const KioskRegistration = () => {
     const fetchFormData = async () => {
       try {
         const [timeSlotsRes, relationshipsRes, severityRes, durationRes] = await Promise.all([
-          fetch('http://localhost:5000/api/time-slots'),
-          fetch('http://localhost:5000/api/relationships'),
-          fetch('http://localhost:5000/api/severity-levels'),
-          fetch('http://localhost:5000/api/duration-options')
+          fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/time-slots`),
+          fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/relationships`),
+          fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/severity-levels`),
+          fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/duration-options`)
         ]);
 
         const [timeSlotsData, relationshipsData, severityData, durationData] = await Promise.all([
@@ -284,7 +284,7 @@ const KioskRegistration = () => {
   const fetchSymptoms = async () => {
     try {
       setSymptomsLoading(true);
-      const response = await fetch('http://localhost:5000/api/symptoms');
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/symptoms`);
       
       if (response.ok) {
         const result = await response.json();
@@ -346,7 +346,7 @@ const KioskRegistration = () => {
     
     console.log('📤 Sending registration request:', requestBody);
 
-    const response = await fetch('http://localhost:5000/api/patient/register', {
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -379,7 +379,7 @@ const KioskRegistration = () => {
   };
 
   const bookAppointmentForReturningPatient = async (data) => {
-    const response = await fetch('http://localhost:5000/api/patient/visit', {
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/visit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -786,7 +786,7 @@ const KioskRegistration = () => {
         }
       }
 
-      const response = await fetch(`http://localhost:5000/api/health-assessment/${qrData.tempAssessmentId}`);
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/health-assessment/${qrData.tempAssessmentId}`);
       const result = await response.json();
       
       if (!response.ok || !result.success) {
@@ -826,7 +826,7 @@ const KioskRegistration = () => {
     try {
       console.log('🔍 Processing registration QR:', qrData.tempPatientId);
       
-      const response = await fetch(`http://localhost:5000/api/temp-registration/${qrData.tempPatientId}`);
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration/${qrData.tempPatientId}`);
       const result = await response.json();
       console.log('🔍 Temp registration response:', result);
       
@@ -1151,17 +1151,17 @@ const KioskRegistration = () => {
     try {
       setDuplicateChecking(true);
       
-      const response = await fetch('http://localhost:5000/api/check-duplicate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          email: email ? email.toLowerCase() : undefined,
-          contact_no: contactNumber ? cleanPhoneNumber(contactNumber) : undefined
-        })
-      });
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/check-duplicate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        email: email ? email.toLowerCase() : undefined,
+        contact_no: contactNumber ? cleanPhoneNumber(contactNumber) : undefined
+      })
+    });
 
       const result = await response.json();
       
@@ -1530,7 +1530,7 @@ const KioskRegistration = () => {
 
   const generateDepartmentRecommendation = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/symptom-department-mapping');
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/symptom-department-mapping`);
       const result = await response.json();
       
       if (!result.success) throw new Error('Failed to fetch mappings');
