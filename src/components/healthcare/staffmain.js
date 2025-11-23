@@ -32,7 +32,7 @@ const validateHealthcareToken = async () => {
   if (!token) return false;
   
   try {
-    const response = await fetch('http://localhost:5000/api/healthcare/profile', {
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/profile`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -196,7 +196,7 @@ const StaffMain = () => {
       setStatsLoading(true);
       const token = localStorage.getItem('healthcareToken');
       
-      const response = await fetch(`http://localhost:5000/api/healthcare/time-series-stats?period=${period}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -227,7 +227,7 @@ const StaffMain = () => {
       setQueueLoading(true);
       const token = localStorage.getItem('healthcareToken');
       
-      const response = await fetch('http://localhost:5000/api/healthcare/patient-queue', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/patient-queue`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -239,7 +239,7 @@ const StaffMain = () => {
         setPatientQueue(data.queue || []);
         
         const today = new Date().toISOString().split('T')[0];
-        const statsResponse = await fetch(`http://localhost:5000/api/healthcare/dashboard-stats?date=${today}`, {
+        const statsResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/dashboard-stats?date=${today}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -290,7 +290,7 @@ const StaffMain = () => {
         requestBody.notes = 'Routine consultation completed';
       }
       
-      const response = await fetch(`http://localhost:5000/api/healthcare/queue/${queueId}/status`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/queue/${queueId}/status`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -324,7 +324,7 @@ const StaffMain = () => {
       const token = localStorage.getItem('healthcareToken');
       const today = new Date().toISOString().split('T')[0];
       
-      const response = await fetch(`http://localhost:5000/api/healthcare/my-patients-queue?date=${today}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/my-patients-queue?date=${today}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -376,7 +376,7 @@ const StaffMain = () => {
       setOverallLoading(true);
       const token = localStorage.getItem('healthcareToken');
       
-      const response = await fetch('http://localhost:5000/api/healthcare/all-patients', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/all-patients`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -422,7 +422,7 @@ const StaffMain = () => {
       setDetailsHistoryLoading(true);
       const token = localStorage.getItem('healthcareToken');
       
-      const response = await fetch(`http://localhost:5000/api/healthcare/patient-history-by-db-id/${patientDbId}?page=${page}&limit=10`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/patient-history-by-db-id/${patientDbId}?page=${page}&limit=10`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -471,7 +471,7 @@ const StaffMain = () => {
     try {
       const token = localStorage.getItem('healthcareToken');
       
-      const response = await fetch('http://localhost:5000/api/healthcare/lab-requests', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/lab-requests`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -491,7 +491,7 @@ const StaffMain = () => {
     try {
       const token = localStorage.getItem('healthcareToken');
       
-      const response = await fetch('http://localhost:5000/api/healthcare/lab-results', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/lab-results`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -709,7 +709,7 @@ const getFilteredLabData = () => {
         group_name: `Multiple Tests - ${new Date().toLocaleDateString()}`
       };
 
-      const response = await fetch('http://localhost:5000/api/healthcare/lab-requests-grouped', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/lab-requests-grouped`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -785,7 +785,7 @@ const getFilteredLabData = () => {
         notes: diagnosisForm.notes.trim() || null
       };
 
-      const response = await fetch('http://localhost:5000/api/healthcare/diagnosis', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/diagnosis`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -876,7 +876,7 @@ const getFilteredLabData = () => {
       setDataLoading(true);
       const token = localStorage.getItem('healthcareToken');
       
-      const response = await fetch('http://localhost:5000/api/healthcare/lab-result/accept', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/lab-result/accept`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -910,7 +910,7 @@ const getFilteredLabData = () => {
       setDataLoading(true);
       const token = localStorage.getItem('healthcareToken');
       
-      const response = await fetch('http://localhost:5000/api/healthcare/lab-result/decline', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/lab-result/decline`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -942,7 +942,7 @@ const getFilteredLabData = () => {
 
   const handleViewFile = (fileUrl, fileName) => {
     if (fileUrl) {
-      const fullUrl = fileUrl.startsWith('http') ? fileUrl : `http://localhost:5000${fileUrl}`;
+      const fullUrl = fileUrl.startsWith('http') ? fileUrl : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${fileUrl}`;
       window.open(fullUrl, '_blank');
     } else {
       showAlert('Error', 'File not available', 'error');

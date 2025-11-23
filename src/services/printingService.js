@@ -4,7 +4,7 @@ export class PrintingService {
   
   static async fetchFloorPlanImageFromDatabase(department) {
     try {
-      const deptResponse = await fetch(`http://localhost:5000/api/department-by-name/${encodeURIComponent(department)}`);
+      const deptResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/department-by-name/${encodeURIComponent(department)}`);
       
       if (!deptResponse.ok) {
         console.warn(`⚠️ Could not find department "${department}" in database`);
@@ -37,7 +37,7 @@ export class PrintingService {
 
   static async generateNavigationSteps(department) {
     try {
-      const response = await fetch(`http://localhost:5000/api/navigation-steps-by-name/${encodeURIComponent(department)}`);
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/navigation-steps-by-name/${encodeURIComponent(department)}`);
       const result = await response.json();
       
       if (!result.success || !result.steps || result.steps.length === 0) {

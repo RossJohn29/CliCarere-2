@@ -80,7 +80,7 @@ const WebLogin = () => {
     try {
       console.log('🔍 Checking queue status for:', patientId);
       
-      const response = await fetch('http://localhost:5000/api/outpatient/check-queue-status', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/outpatient/check-queue-status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -165,7 +165,7 @@ const WebLogin = () => {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:5000/api/outpatient/send-otp', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/outpatient/send-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -242,7 +242,7 @@ const WebLogin = () => {
 
       console.log('📤 Sending login request:', requestBody);
 
-      const response = await fetch('http://localhost:5000/api/outpatient/verify-otp', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/outpatient/verify-otp`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json'

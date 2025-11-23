@@ -101,10 +101,10 @@ const WebRegistration = () => {
     const fetchFormData = async () => {
       try {
         const [timeSlotsRes, relationshipsRes, severityRes, durationRes] = await Promise.all([
-          fetch('http://localhost:5000/api/time-slots'),
-          fetch('http://localhost:5000/api/relationships'),
-          fetch('http://localhost:5000/api/severity-levels'),
-          fetch('http://localhost:5000/api/duration-options')
+          fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/time-slots`),
+          fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/relationships`),
+          fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/severity-levels`),
+          fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/duration-options`)
         ]);
 
         const [timeSlotsData, relationshipsData, severityData, durationData] = await Promise.all([
@@ -182,7 +182,7 @@ const WebRegistration = () => {
   const fetchSymptoms = async () => {
     try {
       setSymptomsLoading(true);
-      const response = await fetch('http://localhost:5000/api/symptoms');
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/symptoms`);
       if (response.ok) {
         const result = await response.json();
         if (result.success && result.symptoms?.length > 0) {
@@ -441,7 +441,7 @@ const WebRegistration = () => {
     try {
       setDuplicateChecking(true);
       
-      const response = await fetch('http://localhost:5000/api/check-duplicate', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/check-duplicate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1109,7 +1109,7 @@ const WebRegistration = () => {
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
       };
 
-      const response = await fetch('http://localhost:5000/api/temp-registration', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1178,7 +1178,7 @@ const WebRegistration = () => {
       });
 
       try {
-        const qrResponse = await fetch('http://localhost:5000/api/generate-qr-email', {
+        const qrResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/generate-qr-email`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

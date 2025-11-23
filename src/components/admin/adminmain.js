@@ -123,7 +123,7 @@ const AdminMain = () => {
         try {
           setStatsLoading(true);
           const [statsResponse, timeSeriesData] = await Promise.all([
-            fetch('http://localhost:5000/api/admin/dashboard-stats', {
+            fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/dashboard-stats`, {
               headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
             }),
             fetchTimeSeriesData(timePeriod)
@@ -169,7 +169,7 @@ const AdminMain = () => {
   const fetchStaffData = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:5000/api/admin/staff?search=${searchQuery}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/staff?search=${searchQuery}`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
       });
      
@@ -188,7 +188,7 @@ const AdminMain = () => {
   const fetchPatientData = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:5000/api/admin/patients?search=${searchQuery}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/patients?search=${searchQuery}`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
       });
      
@@ -206,9 +206,9 @@ const AdminMain = () => {
 
   const fetchTimeSeriesData = async (period) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/admin/time-series-stats?period=${period}`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
-      });
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/time-series-stats?period=${period}`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
+    });
       
       if (response.ok) {
         const data = await response.json();
@@ -271,7 +271,7 @@ const AdminMain = () => {
         }))
       };
 
-      const response = await fetch('http://localhost:5000/api/admin/analyze-data', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/analyze-data`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

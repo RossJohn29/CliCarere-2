@@ -137,7 +137,7 @@ const WebMain = () => {
   const fetchPatientData = async () => {
     try {
       const token = localStorage.getItem('patientToken');
-      const response = await fetch('http://localhost:5000/api/patient/profile', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/profile`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -165,7 +165,7 @@ const WebMain = () => {
       const token = localStorage.getItem('patientToken');
       const patientId = localStorage.getItem('patientId');
       
-      const response = await fetch(`http://localhost:5000/api/patient/history/${patientId}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/history/${patientId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -189,7 +189,7 @@ const WebMain = () => {
       const token = localStorage.getItem('patientToken');
       const patientId = localStorage.getItem('patientId');
       
-      const response = await fetch(`http://localhost:5000/api/patient/lab-requests/${patientId}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/lab-requests/${patientId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -215,7 +215,7 @@ const WebMain = () => {
       const token = localStorage.getItem('patientToken');
       const patientId = localStorage.getItem('patientId');
       
-      const response = await fetch(`http://localhost:5000/api/patient/lab-history/${patientId}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/lab-history/${patientId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -241,7 +241,7 @@ const WebMain = () => {
       const token = localStorage.getItem('patientToken');
       const patientId = localStorage.getItem('patientId');
       
-      const response = await fetch(`http://localhost:5000/api/patient/history/${patientId}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/history/${patientId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -286,7 +286,7 @@ const WebMain = () => {
       const patientId = localStorage.getItem('patientId');
       
       // Fetch visit history
-      const historyResponse = await fetch(`http://localhost:5000/api/patient/history/${patientId}`, {
+      const historyResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/history/${patientId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -296,7 +296,7 @@ const WebMain = () => {
       });
 
       // Fetch lab requests
-      const labResponse = await fetch(`http://localhost:5000/api/patient/lab-requests/${patientId}`, {
+      const labResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/lab-requests/${patientId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -523,7 +523,7 @@ const WebMain = () => {
 
         const token = localStorage.getItem('patientToken');
         
-        const response = await fetch('http://localhost:5000/api/patient/upload-lab-result-by-test', {
+        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/upload-lab-result-by-test`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -579,7 +579,7 @@ const WebMain = () => {
 
         const token = localStorage.getItem('patientToken');
         
-        const response = await fetch('http://localhost:5000/api/patient/upload-lab-result', {
+        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/upload-lab-result`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -640,7 +640,7 @@ const WebMain = () => {
       const patientId = localStorage.getItem('patientId');
       
       // Get patient database ID first
-      const { data: patientData } = await fetch(`http://localhost:5000/api/patient/by-id/${patientId}`, {
+      const { data: patientData } = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/by-id/${patientId}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -650,7 +650,7 @@ const WebMain = () => {
       if (!patientData) return [];
 
       // Fetch diagnosis history using the patient's database ID
-      const response = await fetch(`http://localhost:5000/api/healthcare/patient-history-by-db-id/${patientData.id}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/patient-history-by-db-id/${patientData.id}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -750,7 +750,7 @@ const WebMain = () => {
     
     try {
       const token = localStorage.getItem('patientToken');
-      const response = await fetch(`http://localhost:5000/api/patient/lab-history-files/${labItem.request_id}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/lab-history-files/${labItem.request_id}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
