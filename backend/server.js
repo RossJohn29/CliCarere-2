@@ -570,10 +570,23 @@ app.use(helmet({
   }
 }));
 
+const allowedOrigins = [
+  'https://admin-clicare.vercel.app',
+  'https://web-clicare.vercel.app',
+  'https://queue-clicare.vercel.app',
+  'https://staff-clicare.vercel.app',
+  'https://kiosk-clicare.vercel.app',
+  'http://localhost:3000' // for local development
+];
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://your-frontend-domain.com']
-    : ['http://localhost:3000', 'http://127.0.0.1:3000', 'file://', '*'],
+  origin: function(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 
