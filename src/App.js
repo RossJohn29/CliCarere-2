@@ -20,7 +20,7 @@ import StaffMain from './components/healthcare/staffmain';
 import KioskLogin from './components/kiosk/kiosklogin';
 import KioskRegistration from './components/kiosk/kioskregistration';
 
-// Queue Display Component (NEW)
+// Queue Display Component
 import QueueDisplay from './components/queue/QueueDisplay';
 
 import { supabase } from './supabase';
@@ -30,6 +30,9 @@ const App = () => {
     window.location.pathname || '/'
   );
 
+  // Get module from environment variable
+  const module = process.env.REACT_APP_MODULE;
+
   React.useEffect(() => {
     const handlePopState = () => {
       setCurrentRoute(window.location.pathname);
@@ -38,6 +41,32 @@ const App = () => {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Module-based redirect on root path
+  React.useEffect(() => {
+    if (currentRoute === '/') {
+      switch (module) {
+        case 'admin':
+          navigate('/admin-login');
+          break;
+        case 'web':
+          navigate('/web-login');
+          break;
+        case 'queue':
+          navigate('/queue-display/1'); // Default to department 1, adjust as needed
+          break;
+        case 'staff':
+          navigate('/staff-login');
+          break;
+        case 'kiosk':
+          navigate('/kiosk-login');
+          break;
+        default:
+          // If no module specified, stay on root (for local development)
+          break;
+      }
+    }
+  }, [currentRoute, module]);
 
   const navigate = (path) => {
     window.history.pushState({}, '', path);
@@ -71,6 +100,7 @@ const App = () => {
   };
 
   const LandingPage = () => {
+    // This will only show in local development when no module is specified
     return (
       <div className="landing-page">
         <div className="landing-container">

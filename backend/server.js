@@ -570,14 +570,9 @@ app.use(helmet({
   }
 }));
 
-const allowedOrigins = [
-  'https://admin-clicare.vercel.app',
-  'https://web-clicare.vercel.app',
-  'https://queue-clicare.vercel.app',
-  'https://staff-clicare.vercel.app',
-  'https://kiosk-clicare.vercel.app',
-  'http://localhost:3000' // for local development
-];
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',') 
+  : ['http://localhost:3000'];
 
 app.use(cors({
   origin: function(origin, callback) {

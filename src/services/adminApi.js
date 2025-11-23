@@ -1,5 +1,7 @@
 // adminApi.js
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+// Use environment variable for API URL, fallback to localhost for development
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 const getAuthToken = () => {
   return localStorage.getItem('adminToken');
@@ -70,6 +72,11 @@ const apiCall = async (endpoint, options = {}) => {
    
     throw error;
   }
+};
+
+export const fetchAdminData = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/admin/data`);
+  return response.json();
 };
 
 export const adminApi = {
