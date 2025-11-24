@@ -31,15 +31,19 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const emailConfig = {
   service: 'gmail',
   host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // Use TLS
+  port: 587, // Change from 465 to 587
+  secure: false, // Change to false for port 587
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
   },
   tls: {
-    rejectUnauthorized: true // Allow self-signed certificates in production
-  }
+    rejectUnauthorized: true,
+    ciphers: 'SSLv3'
+  },
+  connectionTimeout: 10000, // Add timeout
+  greetingTimeout: 10000,
+  socketTimeout: 10000
 };
 
 app.post('/api/test-email', async (req, res) => {
