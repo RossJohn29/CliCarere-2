@@ -31,7 +31,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const emailConfig = {
   service: 'gmail',
   host: 'smtp.gmail.com',
-  port: 587,
+  port: 465,
   secure: false, // Use TLS
   auth: {
     user: process.env.EMAIL_USER,
@@ -394,7 +394,7 @@ const sendEmailOTP = async (email, otp, patientName) => {
             
             <!-- Logo -->
             <div style="text-align: center; margin-bottom: 24px;">
-              // <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
+              <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
             </div>
 
             <!-- Greeting -->
