@@ -30,9 +30,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const emailConfig = {
   service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false, // Use TLS
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
+  },
+  tls: {
+    rejectUnauthorized: false // Allow self-signed certificates in production
   }
 };
 
@@ -357,8 +363,19 @@ const calculateNextAvailableSlot = async (departmentId) => {
 // Email Service
 const sendEmailOTP = async (email, otp, patientName) => {
   try {
+    console.log('📧 Attempting to send email to:', email);
+    console.log('📧 Using email account:', process.env.EMAIL_USER);
+    
     const transporter = nodemailer.createTransport(emailConfig);
-    await transporter.verify();
+    
+    // Test connection before sending
+    try {
+      await transporter.verify();
+      console.log('✅ Email server connection verified');
+    } catch (verifyError) {
+      console.error('❌ Email server verification failed:', verifyError);
+      throw new Error(`Email server connection failed: ${verifyError.message}`);
+    }
   
     const mailOptions = {
       from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
@@ -377,7 +394,7 @@ const sendEmailOTP = async (email, otp, patientName) => {
             
             <!-- Logo -->
             <div style="text-align: center; margin-bottom: 24px;">
-              <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
+              // <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
             </div>
 
             <!-- Greeting -->
@@ -437,13 +454,13 @@ const sendEmailOTP = async (email, otp, patientName) => {
         </body>
         </html>
       `,
-      attachments: [
-        {
-          filename: 'clicareLogo.png',
-          path: path.join(__dirname, '../src/clicareLogo.png'),
-          cid: 'clicareLogo'
-        }
-      ]
+      // attachments: [
+      //   {
+      //     filename: 'clicareLogo.png',
+      //     path: path.join(__dirname, '../src/clicareLogo.png'),
+      //     cid: 'clicareLogo'
+      //   }
+      // ]
     };
 
     const result = await transporter.sendMail(mailOptions);
