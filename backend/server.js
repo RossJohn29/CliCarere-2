@@ -32,15 +32,31 @@ const emailConfig = {
   service: 'gmail',
   host: 'smtp.gmail.com',
   port: 465,
-  secure: false, // Use TLS
+  secure: true, // Use TLS
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
   },
   tls: {
-    rejectUnauthorized: false // Allow self-signed certificates in production
+    rejectUnauthorized: true // Allow self-signed certificates in production
   }
 };
+
+app.post('/api/test-email', async (req, res) => {
+  try {
+    const transporter = nodemailer.createTransport(emailConfig);
+    await transporter.verify();
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: 'rossjohnmendoza114@gmail.com',
+      subject: 'CliCare Test',
+      text: 'Success!'
+    });
+    res.json({ success: true, messageId: info.messageId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 const ITEXMO_CONFIG = {
   apiKey: process.env.ITEXMO_API_KEY,
