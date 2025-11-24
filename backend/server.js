@@ -96,6 +96,25 @@ const verifyPassword = async (password, hashedPassword) => {
   return await bcrypt.compare(password, hashedPassword);
 };
 
+const hasOnlyRoutineCareSymptoms = (symptoms) => {
+  const routineCareSymptoms = [
+    'Annual Check-up',
+    'Health Screening', 
+    'Vaccination',
+    'Physical Exam',
+    'Blood Pressure Check',
+    'Cholesterol Screening',
+    'Diabetes Screening',
+    'Cancer Screening'
+  ];
+  
+  if (!symptoms || symptoms.length === 0) return false;
+  
+  const symptomsList = Array.isArray(symptoms) ? symptoms : symptoms.split(', ');
+  
+  return symptomsList.every(symptom => routineCareSymptoms.includes(symptom.trim()));
+};
+
 const assignDepartmentBySymptoms = async (symptoms, patientAge = null) => {
   try {
     const { data: mappings, error } = await supabase
@@ -503,25 +522,6 @@ const sendSMSOTP = async (phoneNumber, otp, patientName) => {
       throw new Error(error.message || 'Failed to send SMS');
     }
   }
-};
-
-const hasOnlyRoutineCareSymptoms = (symptoms) => {
-  const routineCareSymptoms = [
-    'Annual Check-up',
-    'Health Screening', 
-    'Vaccination',
-    'Physical Exam',
-    'Blood Pressure Check',
-    'Cholesterol Screening',
-    'Diabetes Screening',
-    'Cancer Screening'
-  ];
-  
-  if (!symptoms || symptoms.length === 0) return false;
-  
-  const symptomsList = Array.isArray(symptoms) ? symptoms : symptoms.split(', ');
-  
-  return symptomsList.every(symptom => routineCareSymptoms.includes(symptom.trim()));
 };
 
 // Configure multer for file uploads
