@@ -44,6 +44,8 @@ let printServer;
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+app.set('trust proxy', 1);
+
 // Configuration
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -358,7 +360,9 @@ const calculateNextAvailableSlot = async (departmentId) => {
 const sendEmailOTP = async (email, otp, patientName) => {
   try {
     const transporter = nodemailer.createTransport(emailConfig);
+    console.log('📧 Verifying email transport...');
     await transporter.verify();
+    console.log('✅ Email transport verified');
   
     const mailOptions = {
       from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
@@ -446,10 +450,13 @@ const sendEmailOTP = async (email, otp, patientName) => {
       ]
     };
 
+    console.log('📧 Sending email to:', email);
     const result = await transporter.sendMail(mailOptions);
+    console.log('✅ Email sent successfully:', result.messageId);
     return result;
   
   } catch (error) {
+    console.error('❌ Email sending failed:', error);
     throw new Error(`Failed to send email: ${error.message}`);
   }
 };
@@ -2453,14 +2460,26 @@ app.post('/api/outpatient/send-otp', generalLoginLimiter, async (req, res) => {
 
     try {
       if (contactType === 'email') {
+        console.log('📧 Attempting to send email OTP to:', contactInfo);
+        console.log('📧 Email config check:', {
+          user: emailConfig.auth.user ? '✓ Set' : '✗ Missing',
+          pass: emailConfig.auth.pass ? '✓ Set' : '✗ Missing',
+          service: emailConfig.service
+        });
+        
         await sendEmailOTP(contactInfo, otp, patientData.name);
+        
+        console.log('✅ Email OTP sent successfully');
         res.status(200).json({
           success: true,
           message: 'Verification code sent to your email',
           expiresIn: 300
         });
       } else if (contactType === 'phone') {
+        console.log('📱 Attempting to send SMS OTP to:', contactInfo);
         await sendSMSOTP(contactInfo, otp, patientData.name);
+        
+        console.log('✅ SMS OTP sent successfully');
         res.status(200).json({
           success: true,
           message: 'Verification code sent to your phone',
@@ -2469,17 +2488,23 @@ app.post('/api/outpatient/send-otp', generalLoginLimiter, async (req, res) => {
         });
       }
     } catch (sendError) {
+      console.error('❌ OTP send error:', sendError);
+      console.error('❌ Error details:', {
+        message: sendError.message,
+        code: sendError.code,
+        stack: sendError.stack
+      });
+      
       await supabase
         .from('otp_verification')
         .delete()
         .eq('id', otpRecord.id);
 
-
       return res.status(500).json({
         error: `Failed to send verification code via ${contactType}. Please try again.`,
         details: sendError.message
       });
-    }
+    } 
 
   } catch (error) {
     console.error('Send OTP error:', error);
