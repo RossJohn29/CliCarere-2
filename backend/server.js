@@ -931,22 +931,6 @@ const sendSMSOTP = async (phoneNumber, otp, patientName) => {
   }
 };
 
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, 'uploads', 'lab-results');
-    // Ensure directory exists
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Create unique filename with timestamp
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
 const hasOnlyRoutineCareSymptoms = (symptoms) => {
   const routineCareSymptoms = [
     'Annual Check-up',
@@ -966,9 +950,11 @@ const hasOnlyRoutineCareSymptoms = (symptoms) => {
   return symptomsList.every(symptom => routineCareSymptoms.includes(symptom.trim()));
 };
 
+const memoryStorage = multer.memoryStorage();
+
 const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  storage: memoryStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
@@ -981,6 +967,33 @@ const upload = multer({
     }
   }
 });
+
+const uploadToSupabaseStorage = async (fileBuffer, fileName, bucketName = 'lab-results') => {
+  try {
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .upload(fileName, fileBuffer, {
+        contentType: 'auto',
+        upsert: false
+      });
+
+    if (error) throw error;
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(fileName);
+
+    return {
+      success: true,
+      path: data.path,
+      publicUrl: urlData.publicUrl
+    };
+  } catch (error) {
+    console.error('Supabase upload error:', error);
+    throw error;
+  }
+};
 
 const uploadDir = path.join(__dirname, 'uploads', 'lab-results');
 if (!fs.existsSync(uploadDir)) {
@@ -6604,7 +6617,12 @@ app.post('/api/patient/upload-lab-result', authenticateToken, upload.single('lab
       return res.status(404).json({ error: 'Lab request not found' });
     }
 
-    const filePath = `/uploads/lab-results/${file.filename}`;
+    // Upload to Supabase Storage
+    const timestamp = Date.now();
+    const fileExt = path.extname(file.originalname);
+    const fileName = `${patientId}_${labRequestId}_${timestamp}${fileExt}`;
+
+    const uploadResult = await uploadToSupabaseStorage(file.buffer, fileName, 'lab-results');
 
     // Get staff_id from the lab request
     const { data: requestInfo } = await supabase
@@ -6619,12 +6637,13 @@ app.post('/api/patient/upload-lab-result', authenticateToken, upload.single('lab
         request_id: parseInt(labRequestId),
         patient_id: patientData.id,
         staff_id: requestInfo?.staff_id,
-        file_path: filePath,
+        file_path: uploadResult.publicUrl, // Store public URL
         upload_date: new Date().toISOString().split('T')[0],
         results: JSON.stringify({
           originalName: file.originalname,
           size: file.size,
-          mimeType: file.mimetype
+          mimeType: file.mimetype,
+          storagePath: uploadResult.path
         })
       })
       .select()
@@ -6637,7 +6656,7 @@ app.post('/api/patient/upload-lab-result', authenticateToken, upload.single('lab
 
     await supabase
       .from('lab_request')
-      .update({ status: 'completed' })
+      .update({ status: 'submitted' })
       .eq('request_id', labRequestId);
 
     const { data: existingMedicalRecord } = await supabase
@@ -6670,7 +6689,7 @@ app.post('/api/patient/upload-lab-result', authenticateToken, upload.single('lab
       labResult: {
         result_id: labResultData.result_id,
         file_name: file.originalname,
-        file_url: filePath,
+        file_url: uploadResult.publicUrl, // Return public URL
         upload_date: labResultData.upload_date
       },
       message: 'Lab result uploaded and medical record updated successfully'
@@ -6789,7 +6808,13 @@ app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.sin
         return res.status(404).json({ error: 'Lab request not found' });
       }
 
-      const filePath = `/uploads/lab-results/${file.filename}`;
+      // Upload to Supabase Storage
+      const timestamp = Date.now();
+      const fileExt = path.extname(file.originalname);
+      const sanitizedTestName = testName.replace(/[^a-zA-Z0-9]/g, '_');
+      const fileName = `${patientId}_${labRequestId}_${sanitizedTestName}_${timestamp}${fileExt}`;
+
+      const uploadResult = await uploadToSupabaseStorage(file.buffer, fileName, 'lab-results');
 
       // Get staff_id from the lab request
       const { data: requestInfo } = await supabase
@@ -6804,13 +6829,14 @@ app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.sin
           request_id: parseInt(labRequestId),
           patient_id: patientData.id,
           staff_id: requestInfo?.staff_id || null,
-          file_path: filePath,
+          file_path: uploadResult.publicUrl, // Store public URL
           upload_date: new Date().toISOString().split('T')[0],
           results: JSON.stringify({
             originalName: file.originalname,
             size: file.size,
             mimeType: file.mimetype,
-            testName: testName
+            testName: testName,
+            storagePath: uploadResult.path
           })
         })
         .select()
@@ -6835,7 +6861,6 @@ app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.sin
         }
       }).filter(Boolean) || [];
 
-      // FIXED: Change status to 'submitted' instead of 'completed'
       if (uploadedTestNames.length >= testTypes.length) {
         await supabase
           .from('lab_request')
@@ -6873,7 +6898,7 @@ app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.sin
         labResult: {
           result_id: labResultData.result_id,
           file_name: file.originalname,
-          file_url: filePath,
+          file_url: uploadResult.publicUrl, // Return public URL
           upload_date: labResultData.upload_date,
           testName: testName
         },
@@ -7194,7 +7219,7 @@ app.get('/api/patient/lab-history-files/:requestId', authenticateToken, async (r
         result_id: file.result_id,
         test_name: testName,
         file_name: fileName,
-        file_path: file.file_path ? `http://localhost:5000${file.file_path}` : null,
+        file_path: file.file_path, // This is already the public URL
         upload_date: file.upload_date
       };
     });
@@ -7610,14 +7635,14 @@ app.post('/api/healthcare/lab-requests', authenticateToken, async (req, res) => 
 });
 
 // Static file serving
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-app.use('/uploads', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  next();
-});
+// app.use('/uploads', (req, res, next) => {
+//   res.header('Access-Control-Allow-Origin', '*');
+//   res.header('Access-Control-Allow-Methods', 'GET');
+//   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+//   next();
+// });
 
 // Error handling
 app.use((error, req, res, next) => {
