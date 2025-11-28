@@ -54,21 +54,32 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// ✅ Brevo SMTP Configuration
 const emailConfig = {
   host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-  port: parseInt(process.env.SMTP_PORT) || 587,
+  port: parseInt(process.env.SMTP_PORT || '587'),
   secure: false, // Use STARTTLS for port 587
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   },
   tls: {
-    rejectUnauthorized: false
+    rejectUnauthorized: false,
+    minVersion: 'TLSv1.2'
   },
   connectionTimeout: 10000,
   greetingTimeout: 10000,
   socketTimeout: 10000
 };
+
+// ✅ Log configuration on startup (masked for security)
+console.log('📧 Email Configuration:', {
+  host: emailConfig.host,
+  port: emailConfig.port,
+  secure: emailConfig.secure,
+  user: emailConfig.auth.user ? '✓ Set' : '✗ Missing',
+  pass: emailConfig.auth.pass ? '✓ Set' : '✗ Missing'
+});
 
 const TEXTBEE_CONFIG = {
   apiKey: process.env.TEXTBEE_API_KEY,
@@ -6125,10 +6136,12 @@ app.get('/api/health', (req, res) => {
     message: 'CliCare Admin Backend is running',
     timestamp: new Date().toISOString(),
     env: {
-      emailConfigured: !!process.env.EMAIL_USER,
+      emailConfigured: !!(process.env.SMTP_USER && process.env.SMTP_PASS),
+      emailHost: process.env.SMTP_HOST,
+      emailPort: process.env.SMTP_PORT,
       smsConfigured: isSMSConfigured,
       supabaseConfigured: !!SUPABASE_URL,
-      smsProvider: 'iTexMo'
+      smsProvider: 'TextBee'
     }
   });
 });
