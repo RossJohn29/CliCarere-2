@@ -5960,6 +5960,12 @@ app.post('/api/generate-qr-email', async (req, res) => {
         throw new Error('Brevo API not configured - missing API key');
       }
       
+      // Upload QR code to Supabase Storage first
+      const qrFileName = `qr_${qrData.tempPatientId}_${Date.now()}.png`;
+      const uploadResult = await uploadToSupabaseStorage(qrCodeBuffer, qrFileName, 'lab-results');
+      const qrImageUrl = uploadResult.publicUrl;
+      console.log('✅ QR code uploaded to storage:', qrImageUrl);
+      
       const sendSmtpEmail = new brevo.SendSmtpEmail();
       
       sendSmtpEmail.sender = {
@@ -5969,7 +5975,9 @@ app.post('/api/generate-qr-email', async (req, res) => {
       
       sendSmtpEmail.to = [{ email: patientEmail, name: patientName }];
       sendSmtpEmail.subject = `Your CliCare Registration QR Code - ${patientName}`;
-      sendSmtpEmail.htmlContent = emailHtml;
+      
+      // Use your existing emailHtml but replace the QR image source
+      sendSmtpEmail.htmlContent = emailHtml.replace('cid:qrcode', qrImageUrl);
 
       const result = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
       console.log('✅ Email sent successfully via Brevo API');
