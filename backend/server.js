@@ -55,22 +55,33 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ✅ Brevo SMTP Configuration
+// ✅ Brevo API Configuration (replaces SMTP)
+const brevo = require('@getbrevo/brevo');
+
+let brevoApiInstance = null;
+if (process.env.BREVO_API_KEY) {
+  brevoApiInstance = new brevo.TransactionalEmailsApi();
+  brevoApiInstance.setApiKey(
+    brevo.TransactionalEmailsApiApiKeys.apiKey,
+    process.env.BREVO_API_KEY
+  );
+  console.log('✅ Brevo API initialized');
+} else {
+  console.warn('⚠️ BREVO_API_KEY not set - emails will not work');
+}
+
 const emailConfig = {
-  host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false, // Use STARTTLS for port 587
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  },
-  tls: {
-    rejectUnauthorized: false,
-    minVersion: 'TLSv1.2'
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 10000
+  from: {
+    email: process.env.EMAIL_FROM || 'input.raw2x@gmail.com',
+    name: 'CliCare Hospital'
+  }
 };
+
+console.log('📧 Email Configuration:', {
+  provider: 'Brevo API',
+  from: emailConfig.from.email,
+  apiConfigured: !!process.env.BREVO_API_KEY
+});
 
 // ✅ Log configuration on startup (masked for security)
 console.log('📧 Email Configuration:', {
@@ -378,104 +389,104 @@ const calculateNextAvailableSlot = async (departmentId) => {
 // Email Service
 const sendEmailOTP = async (email, otp, patientName) => {
   try {
-    const transporter = nodemailer.createTransport(emailConfig);
-    console.log('📧 Verifying email transport...');
-    await transporter.verify();
-    console.log('✅ Email transport verified');
-  
-    const mailOptions = {
-      from: `"CliCare Hospital" <${process.env.EMAIL_FROM || emailConfig.auth.user}>`,
-      to: email,
-      subject: 'CliCare - Your Verification Code',
-      html: `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-        </head>
-        <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
-          <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
-            
-            <!-- Logo -->
-            <div style="text-align: center; margin-bottom: 24px;">
-              <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
-            </div>
+    console.log('📧 Attempting to send email via Brevo API to:', email);
+    
+    if (!brevoApiInstance) {
+      throw new Error('Brevo API not configured - missing API key');
+    }
+    
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    
+    sendSmtpEmail.sender = {
+      name: emailConfig.from.name,
+      email: emailConfig.from.email
+    };
+    
+    sendSmtpEmail.to = [{ email: email, name: patientName }];
+    sendSmtpEmail.subject = 'CliCare - Your Verification Code';
+    
+    sendSmtpEmail.htmlContent = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
+          
+          <!-- Greeting -->
+          <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
+            Hello ${patientName},
+          </p>
+          
+          <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
+            Your verification code is:
+          </p>
 
-            <!-- Greeting -->
-            <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
-              Hello ${patientName},
-            </p>
-            
-            <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
-              Your verification code is:
-            </p>
-
-            <!-- OTP Code - THE STAR -->
-            <div style="text-align: center; margin: 0 0 20px 0;">
-              <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 10px 20px;">
-                <div style="font-size: 24px; font-weight: 600; letter-spacing: 5px; color: #1a672a; font-family: 'Poppins', sans-serif;">
-                  ${otp}
-                </div>
+          <!-- OTP Code -->
+          <div style="text-align: center; margin: 0 0 20px 0;">
+            <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 10px 20px;">
+              <div style="font-size: 24px; font-weight: 600; letter-spacing: 5px; color: #1a672a; font-family: 'Poppins', sans-serif;">
+                ${otp}
               </div>
             </div>
-
-            <!-- Expiration Notice -->
-            <p style="color: #6b7280; font-size: 13px; font-weight: 400; text-align: center; margin: 0 0 20px 0;">
-              This code will expire in <strong style="color: #27371f;">5 minutes</strong>
-            </p>
-
-            <!-- Divider -->
-            <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
-
-            <!-- Security Tips -->
-            <p style="color: #9ca3af; font-size: 12px; font-weight: 500; line-height: 1; margin: 0 0 10px 0;">
-              Security Tips:
-            </p>
-            
-            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1; margin: 0 0 5px 0;">
-              • Never share this code with anyone
-            </p>
-            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1; margin: 0 0 5px 0;">
-              • CliCare staff will never ask for your code
-            </p>
-            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1; margin: 0 0 10px 0;">
-              • This code is valid for one-time use only
-            </p>
-
-            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
-              If you didn't request this code, please ignore this email.
-            </p>
-
-            <!-- Footer -->
-            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
-              <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
-                CliCare Hospital Management System<br>
-                This is an automated message. Please do not reply.
-              </p>
-            </div>
-
           </div>
-        </body>
-        </html>
-      `,
-      attachments: [
-        {
-          filename: 'clicareLogo.png',
-          path: path.join(__dirname, '../src/clicareLogo.png'),
-          cid: 'clicareLogo'
-        }
-      ]
-    };
 
-    console.log('📧 Sending email to:', email);
-    const result = await transporter.sendMail(mailOptions);
-    console.log('✅ Email sent successfully:', result.messageId);
-    return result;
+          <!-- Expiration Notice -->
+          <p style="color: #6b7280; font-size: 13px; font-weight: 400; text-align: center; margin: 0 0 20px 0;">
+            This code will expire in <strong style="color: #27371f;">5 minutes</strong>
+          </p>
+
+          <!-- Divider -->
+          <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
+
+          <!-- Security Tips -->
+          <p style="color: #9ca3af; font-size: 12px; font-weight: 500; line-height: 1; margin: 0 0 10px 0;">
+            Security Tips:
+          </p>
+          
+          <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1; margin: 0 0 5px 0;">
+            • Never share this code with anyone
+          </p>
+          <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1; margin: 0 0 5px 0;">
+            • CliCare staff will never ask for your code
+          </p>
+          <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1; margin: 0 0 10px 0;">
+            • This code is valid for one-time use only
+          </p>
+
+          <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
+            If you didn't request this code, please ignore this email.
+          </p>
+
+          <!-- Footer -->
+          <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+            <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+              CliCare Hospital Management System<br>
+              This is an automated message. Please do not reply.
+            </p>
+          </div>
+
+        </div>
+      </body>
+      </html>
+    `;
+
+    const result = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
+    
+    console.log('✅ Email sent successfully via Brevo API:', result.response?.body?.messageId || result.messageId);
+    return { 
+      success: true, 
+      messageId: result.response?.body?.messageId || result.messageId 
+    };
   
   } catch (error) {
-    console.error('❌ Email sending failed:', error);
+    console.error('❌ Brevo API email failed:', error);
+    if (error.response?.body) {
+      console.error('📧 Brevo error details:', error.response.body);
+    }
     throw new Error(`Failed to send email: ${error.message}`);
   }
 };
@@ -483,117 +494,112 @@ const sendEmailOTP = async (email, otp, patientName) => {
 // Lab Request Email
 const sendLabRequestEmail = async (email, patientName, labRequestData) => {
   try {
-    const transporter = nodemailer.createTransport(emailConfig);
-    await transporter.verify();
-  
+    console.log('📧 Attempting to send lab request email via Brevo API to:', email);
+    
+    if (!brevoApiInstance) {
+      throw new Error('Brevo API not configured - missing API key');
+    }
+    
     const testsList = labRequestData.test_requests.map((test, index) => 
       `<li style="margin: 5px 0;">${index + 1}. ${test.test_name} (${test.test_type})</li>`
     ).join('');
+    
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    
+    sendSmtpEmail.sender = {
+      name: emailConfig.from.name,
+      email: emailConfig.from.email
+    };
+    
+    sendSmtpEmail.to = [{ email: email, name: patientName }];
+    sendSmtpEmail.subject = 'CliCare - Lab Test Request';
+    
+    sendSmtpEmail.htmlContent = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
 
-    const mailOptions = {
-      from: `"CliCare Hospital" <${process.env.EMAIL_FROM || emailConfig.auth.user}>`,
-      to: email,
-      subject: 'CliCare - Lab Test Request',
-      html: `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-        </head>
-        <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
-          <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
-            
-            <!-- Logo -->
-            <div style="text-align: center; margin-bottom: 24px;">
-              <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
-            </div>
+          <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
+            Hello ${patientName},
+          </p>
+          
+          <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
+            Your doctor has requested the following laboratory test(s):
+          </p>
 
-            <!-- Greeting -->
-            <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
-              Hello ${patientName},
-            </p>
-            
-            <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
-              Your doctor has requested the following laboratory test(s):
-            </p>
-
-            <!-- Lab Request Details -->
-            <div style="text-align: center; margin: 0 0 20px 0;">
-              <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 20px 24px; width: 100%; box-sizing: border-box;">
-                <div style="text-align: left;">
-                  <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
-                    Requested Tests:
-                  </p>
-                  <ul style="color: #6b7280; font-size: 14px; font-weight: 400; line-height: 1.7; margin: 0; padding-left: 20px;">
-                    ${testsList}
-                  </ul>
-                </div>
+          <div style="text-align: center; margin: 0 0 20px 0;">
+            <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 20px 24px; width: 100%; box-sizing: border-box;">
+              <div style="text-align: left;">
+                <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+                  Requested Tests:
+                </p>
+                <ul style="color: #6b7280; font-size: 14px; font-weight: 400; line-height: 1.7; margin: 0; padding-left: 20px;">
+                  ${testsList}
+                </ul>
               </div>
             </div>
-
-            <!-- Request Details -->
-            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
-              <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
-                <strong style="color: #27371f;">Request ID:</strong> #${labRequestData.request_id}<br>
-                <strong style="color: #27371f;">Priority:</strong> ${labRequestData.priority === 'stat' ? 'STAT (Urgent)' : labRequestData.priority.charAt(0).toUpperCase() + labRequestData.priority.slice(1)}<br>
-                <strong style="color: #27371f;">Due Date:</strong> ${new Date(labRequestData.due_date).toLocaleDateString()}<br>
-                ${labRequestData.instructions ? `<strong style="color: #27371f;">Instructions:</strong> ${labRequestData.instructions}` : ''}
-              </p>
-            </div>
-
-            <!-- Next Steps -->
-            <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
-              What to do next:
-            </p>
-            
-            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
-              <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
-                <li>Complete the requested laboratory test(s)</li>
-                <li>Log in to your patient portal</li>
-                <li>Upload your test results before the due date</li>
-                <li>Wait for your doctor to review the results</li>
-              </ol>
-            </div>
-
-            <!-- Important Notice -->
-            <p style="color: #dc2626; font-size: 13px; font-weight: 500; margin: 0 0 6px 0;">
-              Important
-            </p>
-
-            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
-              Please complete and upload your test results by <strong style="color: #27371f;">${new Date(labRequestData.due_date).toLocaleDateString()}</strong>. Late submissions may delay your treatment.
-            </p>
-
-            <!-- Divider -->
-            <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
-
-            <!-- Footer -->
-            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
-              <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
-                CliCare Hospital Management System<br>
-                This is an automated message. Please do not reply.
-              </p>
-            </div>
-
           </div>
-        </body>
-        </html>
-      `,
-      attachments: [
-        {
-          filename: 'clicareLogo.png',
-          path: path.join(__dirname, '../src/clicareLogo.png'),
-          cid: 'clicareLogo'
-        }
-      ]
-    };
 
-    const result = await transporter.sendMail(mailOptions);
-    return result;
+          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
+              <strong style="color: #27371f;">Request ID:</strong> #${labRequestData.request_id}<br>
+              <strong style="color: #27371f;">Priority:</strong> ${labRequestData.priority === 'stat' ? 'STAT (Urgent)' : labRequestData.priority.charAt(0).toUpperCase() + labRequestData.priority.slice(1)}<br>
+              <strong style="color: #27371f;">Due Date:</strong> ${new Date(labRequestData.due_date).toLocaleDateString()}<br>
+              ${labRequestData.instructions ? `<strong style="color: #27371f;">Instructions:</strong> ${labRequestData.instructions}` : ''}
+            </p>
+          </div>
+
+          <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+            What to do next:
+          </p>
+          
+          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
+              <li>Complete the requested laboratory test(s)</li>
+              <li>Log in to your patient portal</li>
+              <li>Upload your test results before the due date</li>
+              <li>Wait for your doctor to review the results</li>
+            </ol>
+          </div>
+
+          <p style="color: #dc2626; font-size: 13px; font-weight: 500; margin: 0 0 6px 0;">
+            Important
+          </p>
+
+          <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
+            Please complete and upload your test results by <strong style="color: #27371f;">${new Date(labRequestData.due_date).toLocaleDateString()}</strong>. Late submissions may delay your treatment.
+          </p>
+
+          <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
+
+          <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+            <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+              CliCare Hospital Management System<br>
+              This is an automated message. Please do not reply.
+            </p>
+          </div>
+
+        </div>
+      </body>
+      </html>
+    `;
+
+    const result = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
+    
+    console.log('✅ Lab request email sent successfully via Brevo API');
+    return { success: true };
   
   } catch (error) {
+    console.error('❌ Lab request email failed:', error);
+    if (error.response?.body) {
+      console.error('📧 Brevo error details:', error.response.body);
+    }
     throw new Error(`Failed to send email: ${error.message}`);
   }
 };
@@ -601,99 +607,95 @@ const sendLabRequestEmail = async (email, patientName, labRequestData) => {
 // Lab Result Accepted Email
 const sendLabAcceptedEmail = async (email, patientName, labRequestData) => {
   try {
-    const transporter = nodemailer.createTransport(emailConfig);
-    await transporter.verify();
-  
-    const mailOptions = {
-      from: `"CliCare Hospital" <${process.env.EMAIL_FROM || emailConfig.auth.user}>`,
-      to: email,
-      subject: 'CliCare - Lab Results Accepted',
-      html: `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-        </head>
-        <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
-          <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
-            
-            <!-- Logo -->
-            <div style="text-align: center; margin-bottom: 24px;">
-              <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
-            </div>
-
-            <!-- Greeting -->
-            <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
-              Hello ${patientName},
-            </p>
-            
-            <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
-              Good news! Your doctor has reviewed and accepted your laboratory test results.
-            </p>
-
-            <!-- Lab Result Details -->
-            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
-              <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
-                <strong style="color: #27371f;">Request ID:</strong> #${labRequestData.request_id}<br>
-                <strong style="color: #27371f;">Test Type:</strong> ${labRequestData.test_type}<br>
-                <strong style="color: #27371f;">Status:</strong> <span style="color: #059669; font-weight: 500;">Accepted</span><br>
-                <strong style="color: #27371f;">Reviewed Date:</strong> ${new Date().toLocaleDateString()}
-              </p>
-            </div>
-
-            <!-- Next Steps -->
-            <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
-              What happens next:
-            </p>
-            
-            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
-              <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
-                <li>Your test results have been added to your medical records</li>
-                <li>Your doctor will discuss the results during your next consultation</li>
-                <li>Follow any treatment recommendations provided by your doctor</li>
-                <li>Schedule a follow-up appointment if needed</li>
-              </ol>
-            </div>
-
-            <!-- Important Notice -->
-            <p style="color: #059669; font-size: 13px; font-weight: 500; margin: 0 0 6px 0;">
-              Results Accepted
-            </p>
-
-            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
-              Your laboratory results have been reviewed and accepted by your healthcare provider. You can view your complete medical records in the patient portal.
-            </p>
-
-            <!-- Divider -->
-            <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
-
-            <!-- Footer -->
-            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
-              <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
-                CliCare Hospital Management System<br>
-                This is an automated message. Please do not reply.
-              </p>
-            </div>
-
-          </div>
-        </body>
-        </html>
-      `,
-      attachments: [
-        {
-          filename: 'clicareLogo.png',
-          path: path.join(__dirname, '../src/clicareLogo.png'),
-          cid: 'clicareLogo'
-        }
-      ]
+    console.log('📧 Attempting to send lab accepted email via Brevo API to:', email);
+    
+    if (!brevoApiInstance) {
+      throw new Error('Brevo API not configured - missing API key');
+    }
+    
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    
+    sendSmtpEmail.sender = {
+      name: emailConfig.from.name,
+      email: emailConfig.from.email
     };
+    
+    sendSmtpEmail.to = [{ email: email, name: patientName }];
+    sendSmtpEmail.subject = 'CliCare - Lab Results Accepted';
+    
+    sendSmtpEmail.htmlContent = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
 
-    const result = await transporter.sendMail(mailOptions);
-    return result;
+          <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
+            Hello ${patientName},
+          </p>
+          
+          <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
+            Good news! Your doctor has reviewed and accepted your laboratory test results.
+          </p>
+
+          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
+              <strong style="color: #27371f;">Request ID:</strong> #${labRequestData.request_id}<br>
+              <strong style="color: #27371f;">Test Type:</strong> ${labRequestData.test_type}<br>
+              <strong style="color: #27371f;">Status:</strong> <span style="color: #059669; font-weight: 500;">Accepted</span><br>
+              <strong style="color: #27371f;">Reviewed Date:</strong> ${new Date().toLocaleDateString()}
+            </p>
+          </div>
+
+          <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+            What happens next:
+          </p>
+          
+          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
+              <li>Your test results have been added to your medical records</li>
+              <li>Your doctor will discuss the results during your next consultation</li>
+              <li>Follow any treatment recommendations provided by your doctor</li>
+              <li>Schedule a follow-up appointment if needed</li>
+            </ol>
+          </div>
+
+          <p style="color: #059669; font-size: 13px; font-weight: 500; margin: 0 0 6px 0;">
+            Results Accepted
+          </p>
+
+          <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
+            Your laboratory results have been reviewed and accepted by your healthcare provider. You can view your complete medical records in the patient portal.
+          </p>
+
+          <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
+
+          <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+            <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+              CliCare Hospital Management System<br>
+              This is an automated message. Please do not reply.
+            </p>
+          </div>
+
+        </div>
+      </body>
+      </html>
+    `;
+
+    const result = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
+    
+    console.log('✅ Lab accepted email sent successfully via Brevo API');
+    return { success: true };
   
   } catch (error) {
+    console.error('❌ Lab accepted email failed:', error);
+    if (error.response?.body) {
+      console.error('📧 Brevo error details:', error.response.body);
+    }
     throw new Error(`Failed to send email: ${error.message}`);
   }
 };
@@ -701,110 +703,105 @@ const sendLabAcceptedEmail = async (email, patientName, labRequestData) => {
 // Lab Result Declined Email
 const sendLabDeclinedEmail = async (email, patientName, labRequestData, declineReason) => {
   try {
-    const transporter = nodemailer.createTransport(emailConfig);
-    await transporter.verify();
-  
-    const mailOptions = {
-      from: `"CliCare Hospital" <${process.env.EMAIL_FROM || emailConfig.auth.user}>`,
-      to: email,
-      subject: 'CliCare - Lab Results Need Resubmission',
-      html: `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-        </head>
-        <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
-          <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
-            
-            <!-- Logo -->
-            <div style="text-align: center; margin-bottom: 24px;">
-              <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
-            </div>
-
-            <!-- Greeting -->
-            <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
-              Hello ${patientName},
-            </p>
-            
-            <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
-              Your doctor has reviewed your laboratory test results and is requesting a resubmission.
-            </p>
-
-            <!-- Lab Result Details -->
-            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
-              <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
-                <strong style="color: #27371f;">Request ID:</strong> #${labRequestData.request_id}<br>
-                <strong style="color: #27371f;">Test Type:</strong> ${labRequestData.test_type}<br>
-                <strong style="color: #27371f;">Status:</strong> <span style="color: #dc2626; font-weight: 500;">Declined</span><br>
-                <strong style="color: #27371f;">Reviewed Date:</strong> ${new Date().toLocaleDateString()}
-              </p>
-            </div>
-
-            <!-- Decline Reason -->
-            <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
-              <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 8px 0;">
-                Reason for Decline:
-              </p>
-              <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.5;">
-                ${declineReason || 'The submitted results require clarification or resubmission. Please contact your healthcare provider for details.'}
-              </p>
-            </div>
-
-            <!-- Next Steps -->
-            <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
-              What to do next:
-            </p>
-            
-            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
-              <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
-                <li>Review the decline reason above carefully</li>
-                <li>Obtain corrected or clearer test results if needed</li>
-                <li>Log in to your patient portal</li>
-                <li>Resubmit the laboratory test results</li>
-                <li>Contact the hospital if you have questions</li>
-              </ol>
-            </div>
-
-            <!-- Important Notice -->
-            <p style="color: #dc2626; font-size: 13px; font-weight: 500; margin: 0 0 6px 0;">
-              Action Required
-            </p>
-
-            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
-              Please resubmit your test results as soon as possible to avoid delays in your treatment. If you need assistance, please contact our patient support team.
-            </p>
-
-            <!-- Divider -->
-            <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
-
-            <!-- Footer -->
-            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
-              <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
-                CliCare Hospital Management System<br>
-                This is an automated message. Please do not reply.
-              </p>
-            </div>
-
-          </div>
-        </body>
-        </html>
-      `,
-      attachments: [
-        {
-          filename: 'clicareLogo.png',
-          path: path.join(__dirname, '../src/clicareLogo.png'),
-          cid: 'clicareLogo'
-        }
-      ]
+    console.log('📧 Attempting to send lab declined email via Brevo API to:', email);
+    
+    if (!brevoApiInstance) {
+      throw new Error('Brevo API not configured - missing API key');
+    }
+    
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    
+    sendSmtpEmail.sender = {
+      name: emailConfig.from.name,
+      email: emailConfig.from.email
     };
+    
+    sendSmtpEmail.to = [{ email: email, name: patientName }];
+    sendSmtpEmail.subject = 'CliCare - Lab Results Need Resubmission';
+    
+    sendSmtpEmail.htmlContent = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
 
-    const result = await transporter.sendMail(mailOptions);
-    return result;
+          <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
+            Hello ${patientName},
+          </p>
+          
+          <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
+            Your doctor has reviewed your laboratory test results and is requesting a resubmission.
+          </p>
+
+          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
+              <strong style="color: #27371f;">Request ID:</strong> #${labRequestData.request_id}<br>
+              <strong style="color: #27371f;">Test Type:</strong> ${labRequestData.test_type}<br>
+              <strong style="color: #27371f;">Status:</strong> <span style="color: #dc2626; font-weight: 500;">Declined</span><br>
+              <strong style="color: #27371f;">Reviewed Date:</strong> ${new Date().toLocaleDateString()}
+            </p>
+          </div>
+
+          <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 8px 0;">
+              Reason for Decline:
+            </p>
+            <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.5;">
+              ${declineReason || 'The submitted results require clarification or resubmission. Please contact your healthcare provider for details.'}
+            </p>
+          </div>
+
+          <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+            What to do next:
+          </p>
+          
+          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
+              <li>Review the decline reason above carefully</li>
+              <li>Obtain corrected or clearer test results if needed</li>
+              <li>Log in to your patient portal</li>
+              <li>Resubmit the laboratory test results</li>
+              <li>Contact the hospital if you have questions</li>
+            </ol>
+          </div>
+
+          <p style="color: #dc2626; font-size: 13px; font-weight: 500; margin: 0 0 6px 0;">
+            Action Required
+          </p>
+
+          <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
+            Please resubmit your test results as soon as possible to avoid delays in your treatment. If you need assistance, please contact our patient support team.
+          </p>
+
+          <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
+
+          <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+            <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+              CliCare Hospital Management System<br>
+              This is an automated message. Please do not reply.
+            </p>
+          </div>
+
+        </div>
+      </body>
+      </html>
+    `;
+
+    const result = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
+    
+    console.log('✅ Lab declined email sent successfully via Brevo API');
+    return { success: true };
   
   } catch (error) {
+    console.error('❌ Lab declined email failed:', error);
+    if (error.response?.body) {
+      console.error('📧 Brevo error details:', error.response.body);
+    }
     throw new Error(`Failed to send email: ${error.message}`);
   }
 };
