@@ -13,18 +13,34 @@ const QRCode = require('qrcode');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-const printServer = require('./printServer');
 require('dotenv').config();
 
 (async () => {
-  try {
-    await printServer.initialize();
-    console.log('✅ Print server initialized successfully');
-  } catch (error) {
-    console.error('⚠️ Print server initialization failed:', error);
-    console.log('ℹ️ Printing features will be limited');
+  if (printServer && process.env.NODE_ENV !== 'production') {
+    try {
+      await printServer.initialize();
+      console.log('✅ Print server initialized successfully');
+    } catch (error) {
+      console.error('⚠️ Print server initialization failed:', error);
+      console.log('ℹ️ Printing features will be limited');
+    }
+  } else {
+    console.log('ℹ️ Print server disabled (cloud deployment)');
   }
 })();
+
+let printServer = null;
+try {
+  printServer = require('./printServer');
+} catch (err) {
+  console.log('ℹ️ Print server not available (not needed for cloud deployment)');
+  printServer = {
+    initialize: async () => { console.log('Print server skipped'); },
+    getAvailablePrinters: async () => [],
+    printPatientGuidance: async () => ({ success: false, error: 'Printing not available in cloud' }),
+    cleanup: async () => {}
+  };
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
