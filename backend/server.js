@@ -134,7 +134,7 @@ const clearFailedAttempts = (identifier) => {
 
 // Utility Functions
 const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return String(Math.floor(100000 + Math.random() * 900000));
 };
 
 const verifyPassword = async (password, hashedPassword) => {
@@ -2530,6 +2530,14 @@ app.post('/api/outpatient/verify-otp', generalLoginLimiter, async (req, res) => 
       });
     }
 
+    // ✅ ADD THIS LOGGING
+    console.log('🔐 OTP Verification attempt:', {
+      patientId: patientId.toUpperCase(),
+      contactInfo: contactInfo,
+      receivedOTP: otp,
+      otpLength: otp.length
+    });
+
     const { data: otpData, error: otpError } = await supabase
       .from('otp_verification')
       .select('*')
@@ -2541,11 +2549,30 @@ app.post('/api/outpatient/verify-otp', generalLoginLimiter, async (req, res) => 
       .limit(1)
       .single();
 
+    // ✅ ADD THIS LOGGING
     if (otpError || !otpData) {
+      console.log('❌ No valid OTP found in database:', {
+        error: otpError?.message,
+        patientId: patientId.toUpperCase(),
+        contactInfo: contactInfo
+      });
+      
       return res.status(400).json({
         error: 'Invalid or expired verification code'
       });
     }
+
+    // ✅ ADD THIS DETAILED LOGGING
+    console.log('✅ OTP found in database:', {
+      storedOTP: otpData.otp_code,
+      receivedOTP: otp,
+      match: otpData.otp_code === otp,
+      exactMatch: otpData.otp_code === String(otp),
+      storedType: typeof otpData.otp_code,
+      receivedType: typeof otp,
+      storedLength: otpData.otp_code?.length,
+      receivedLength: otp?.length
+    });
 
     if (otpData.otp_code !== otp) {
       await supabase
@@ -2553,6 +2580,7 @@ app.post('/api/outpatient/verify-otp', generalLoginLimiter, async (req, res) => 
         .update({ attempts: otpData.attempts + 1 })
         .eq('id', otpData.id);
 
+      console.log('❌ OTP mismatch - verification failed');
       return res.status(400).json({
         error: 'Invalid verification code'
       });
