@@ -55,12 +55,12 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const emailConfig = {
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // Use STARTTLS
+  host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
+  port: parseInt(process.env.SMTP_PORT) || 587,
+  secure: false, // Use STARTTLS for port 587
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
   },
   tls: {
     rejectUnauthorized: false
@@ -373,7 +373,7 @@ const sendEmailOTP = async (email, otp, patientName) => {
     console.log('✅ Email transport verified');
   
     const mailOptions = {
-      from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
+      from: `"CliCare Hospital" <${process.env.EMAIL_FROM || emailConfig.auth.user}>`,
       to: email,
       subject: 'CliCare - Your Verification Code',
       html: `
@@ -480,7 +480,7 @@ const sendLabRequestEmail = async (email, patientName, labRequestData) => {
     ).join('');
 
     const mailOptions = {
-      from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
+      from: `"CliCare Hospital" <${process.env.EMAIL_FROM || emailConfig.auth.user}>`,
       to: email,
       subject: 'CliCare - Lab Test Request',
       html: `
@@ -594,7 +594,7 @@ const sendLabAcceptedEmail = async (email, patientName, labRequestData) => {
     await transporter.verify();
   
     const mailOptions = {
-      from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
+      from: `"CliCare Hospital" <${process.env.EMAIL_FROM || emailConfig.auth.user}>`,
       to: email,
       subject: 'CliCare - Lab Results Accepted',
       html: `
@@ -694,7 +694,7 @@ const sendLabDeclinedEmail = async (email, patientName, labRequestData, declineR
     await transporter.verify();
   
     const mailOptions = {
-      from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
+      from: `"CliCare Hospital" <${process.env.EMAIL_FROM || emailConfig.auth.user}>`,
       to: email,
       subject: 'CliCare - Lab Results Need Resubmission',
       html: `
