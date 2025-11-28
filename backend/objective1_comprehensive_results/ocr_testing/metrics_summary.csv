@@ -1,0 +1,4 @@
+Metric,Formula,Target (%),Result (%),Interpretation
+OCR Accuracy,(Correct Extractions / Total Samples) × 100,≥92,36.00,FAIL
+Character Recognition Rate (CRR),(Correct Characters / Total Characters) × 100,≥90,82.23,FAIL
+Field Extraction Success Rate (FESR),(Successful Fields / Total Fields) × 100,≥88,100.00,PASS

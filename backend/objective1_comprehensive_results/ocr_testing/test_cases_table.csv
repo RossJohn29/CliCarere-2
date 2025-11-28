@@ -1,0 +1,9 @@
+Test Case No.,ID Type,Condition,Expected Output,Actual Output
+1,PhilSys ID,Clear lighting,Accurate extraction,Accurate
+2,Driver's License,Faded text,Slightly incorrect,Slightly incorrect
+3,PhilSys ID,Tilted angle,Accurate extraction,Accurate
+4,Driver's License,Damaged edge,Missing characters,Missing characters
+5,UMID,Clear lighting,Accurate extraction,Accurate
+6,Postal ID,Faded print,Character errors,Character errors
+7,SSS ID,Lamination damage,Missing characters,Missing characters
+8,TIN ID,Poor quality print,Character confusion,Character confusion

@@ -1,0 +1,5 @@
+Metric,Value,Description
+True Positives (TP),9,Correctly extracted names
+False Negatives (FN),16,Failed to extract names correctly
+False Positives (FP),0,Incorrectly identified as extracted
+True Negatives (TN),0,Not applicable for name extraction

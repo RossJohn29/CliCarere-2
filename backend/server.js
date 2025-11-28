@@ -2469,11 +2469,7 @@ app.post('/api/outpatient/send-otp', generalLoginLimiter, async (req, res) => {
     try {
       if (contactType === 'email') {
         console.log('📧 Attempting to send email OTP to:', contactInfo);
-        console.log('📧 Email config check:', {
-          user: emailConfig.auth.user ? '✓ Set' : '✗ Missing',
-          pass: emailConfig.auth.pass ? '✓ Set' : '✗ Missing',
-          service: emailConfig.service
-        });
+        console.log('📧 Email service:', brevoApiInstance ? 'Brevo API ready' : 'Not configured');
         
         await sendEmailOTP(contactInfo, otp, patientData.name);
         
@@ -7937,8 +7933,8 @@ app.get('/api/queue/by-date/:departmentId/:date', async (req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Email OTP: ${emailConfig.auth.user ? 'Configured' : 'Not configured'}`);
-  console.log(`SMS OTP: ${isSMSConfigured ? 'iTexMo configured' : 'Not configured'}`);
+  console.log(`Email: ${brevoApiInstance ? 'Brevo API configured' : 'Not configured'}`);
+  console.log(`SMS: ${isSMSConfigured ? 'TextBee configured' : 'Not configured'}`);
   console.log(`Database: ${SUPABASE_URL ? 'Connected' : 'Not connected'}`);
 });
 

@@ -1,0 +1,26 @@
+test_case,id_type,condition,test_scenario,expected_output,actual_output,correct_extraction,character_accuracy,field_extracted
+1,PhilSys ID,Clear lighting,Optimal conditions,JUAN DELA CRUZ,JUAN DELA CRUZ,True,100.0,True
+2,PhilSys ID,Tilted angle (15°),Slight angle,MARIA SANTOS,MARIA SANTOS,True,100.0,True
+3,PhilSys ID,Poor lighting,Low light conditions,PEDRO GARCIA,PEDR0 GARCIA,False,90.9090909090909,True
+4,PhilSys ID,Reflective surface,Glare handling,ANA REYES,ANA REYES,True,100.0,True
+5,PhilSys ID,Worn edges,Physical damage,JOSE MARTINEZ,J0SE MARTINEZ,False,91.66666666666666,True
+6,Driver's License,Clear lighting,Optimal conditions,CARMEN LOPEZ,CARMEN LOPEZ,True,100.0,True
+7,Driver's License,Faded text,Text degradation,RICARDO TORRES,RICARD0 T0RRES,False,84.61538461538461,True
+8,Driver's License,Damaged edge,Partial text loss,ELENA FERNANDEZ,ELENA FERNAN,False,78.57142857142857,True
+9,Driver's License,Worn out,General wear,MIGUEL RIVERA,MIGUE RIVERA,False,41.66666666666667,True
+10,Driver's License,Blurred image,Motion blur,SOFIA MORALES,S0FIA M0RALES,False,83.33333333333334,True
+11,UMID,Clear lighting,Optimal conditions,CARLOS MENDOZA,CARLOS MENDOZA,True,100.0,True
+12,UMID,Scratched surface,Surface damage,LUCIA VALDEZ,LUC1A VALDEZ,False,90.9090909090909,True
+13,UMID,Tilted angle (30°),Severe angle,ANTONIO CRUZ,ANT0NI0 CRUZ,False,81.81818181818183,True
+14,Postal ID,Clear lighting,Optimal conditions,ROSARIO SANTOS,ROSARIO SANTOS,True,100.0,True
+15,Postal ID,Faded print,Print quality issues,BENJAMIN GARCIA,BENJAM1N GARC1A,False,85.71428571428571,True
+16,SSS ID,Clear lighting,Optimal conditions,TERESA RAMOS,TERESA RAMOS,True,100.0,True
+17,SSS ID,Lamination damage,Lamination issues,FERNANDO LOPEZ,FERNAN LOPEZ,False,53.84615384615385,True
+18,TIN ID,Clear lighting,Optimal conditions,GLORIA MARTINEZ,GLORIA MARTINEZ,True,100.0,True
+19,TIN ID,Poor quality print,Print quality issues,ROBERTO DELA ROSA,R0BERT0 DELA R0SA,False,80.0,True
+20,Voter's ID,Clear lighting,Optimal conditions,PATRICIA TORRES,PATRICIA TORRES,True,100.0,True
+21,Voter's ID,Water damage,Water damage,EDUARDO MORALES,EDUAR MORALES,False,42.857142857142854,True
+22,PhilSys ID,Very poor lighting,Extreme conditions,ANGELICA REYES,ANGEL1CA REYE5,False,84.61538461538461,True
+23,Driver's License,Severe damage,Severe damage,FRANCISCO VALDEZ,FRANC1SC VALD,False,46.666666666666664,True
+24,UMID,Extreme angle (45°),Extreme angle,VICTORIA SANTOS,V1CT0R1A 5ANT05,False,57.14285714285714,True
+25,Postal ID,Multiple damages,Multiple issues,ALEJANDRO CRUZ,ALEJANDR CRUZ,False,61.53846153846154,True

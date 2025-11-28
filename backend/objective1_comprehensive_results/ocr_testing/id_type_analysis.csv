@@ -1,0 +1,8 @@
+id_type,correct_extraction,character_accuracy,field_extracted,total_tests,accuracy_rate,field_success_rate
+Driver's License,1,72.47557997557998,6,6,16.666666666666664,100.0
+PhilSys ID,3,94.53185703185703,6,6,50.0,100.0
+Postal ID,1,82.41758241758241,3,3,33.33333333333333,100.0
+SSS ID,1,76.92307692307692,2,2,50.0,100.0
+TIN ID,1,90.0,2,2,50.0,100.0
+UMID,1,82.46753246753246,4,4,25.0,100.0
+Voter's ID,1,71.42857142857143,2,2,50.0,100.0
