@@ -1,4 +1,4 @@
-// server.js new
+// server.js localhost
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -13,12 +13,21 @@ const QRCode = require('qrcode');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const printServer = require('./printServer');
 require('dotenv').config();
+
+(async () => {
+  try {
+    await printServer.initialize();
+    console.log('✅ Print server initialized successfully');
+  } catch (error) {
+    console.error('⚠️ Print server initialization failed:', error);
+    console.log('ℹ️ Printing features will be limited');
+  }
+})();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-app.set('trust proxy', 1);
 
 // Configuration
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
@@ -30,45 +39,19 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const emailConfig = {
   service: 'gmail',
-  host: 'smtp.gmail.com',
-  port: 587, // Change from 465 to 587
-  secure: false, // Change to false for port 587
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
-  },
-  tls: {
-    rejectUnauthorized: true,
-    ciphers: 'SSLv3'
-  },
-  connectionTimeout: 10000, // Add timeout
-  greetingTimeout: 10000,
-  socketTimeout: 10000
-};
-
-app.post('/api/test-email', async (req, res) => {
-  try {
-    const transporter = nodemailer.createTransport(emailConfig);
-    await transporter.verify();
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: 'rossjohnmendoza114@gmail.com',
-      subject: 'CliCare Test',
-      text: 'Success!'
-    });
-    res.json({ success: true, messageId: info.messageId });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
-});
-
-const ITEXMO_CONFIG = {
-  apiKey: process.env.ITEXMO_API_KEY,
-  senderId: process.env.ITEXMO_SENDER_ID || 'CLICARE',
-  apiUrl: 'https://www.itexmo.com/php_api/api.php'
 };
 
-const isSMSConfigured = ITEXMO_CONFIG.apiKey && ITEXMO_CONFIG.apiKey !== 'PR-SAMPL123456_ABCDE';
+const TEXTBEE_CONFIG = {
+  apiKey: process.env.TEXTBEE_API_KEY,
+  deviceId: process.env.TEXTBEE_DEVICE_ID,
+  apiUrl: 'https://api.textbee.dev/api/v1'
+};
+
+const isSMSConfigured = TEXTBEE_CONFIG.apiKey && TEXTBEE_CONFIG.apiKey !== 'PR-SAMPL123456_ABCDE';
 
 // In-Memory Store for Rate Limiting
 const failedAttempts = new Map();
@@ -115,32 +98,8 @@ const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-const hashPassword = async (password) => {
-  const saltRounds = 12;
-  return await bcrypt.hash(password, saltRounds);
-};
-
 const verifyPassword = async (password, hashedPassword) => {
   return await bcrypt.compare(password, hashedPassword);
-};
-
-const hasOnlyRoutineCareSymptoms = (symptoms) => {
-  const routineCareSymptoms = [
-    'Annual Check-up',
-    'Health Screening', 
-    'Vaccination',
-    'Physical Exam',
-    'Blood Pressure Check',
-    'Cholesterol Screening',
-    'Diabetes Screening',
-    'Cancer Screening'
-  ];
-  
-  if (!symptoms || symptoms.length === 0) return false;
-  
-  const symptomsList = Array.isArray(symptoms) ? symptoms : symptoms.split(', ');
-  
-  return symptomsList.every(symptom => routineCareSymptoms.includes(symptom.trim()));
 };
 
 const assignDepartmentBySymptoms = async (symptoms, patientAge = null) => {
@@ -383,19 +342,8 @@ const calculateNextAvailableSlot = async (departmentId) => {
 // Email Service
 const sendEmailOTP = async (email, otp, patientName) => {
   try {
-    console.log('📧 Attempting to send email to:', email);
-    console.log('📧 Using email account:', process.env.EMAIL_USER);
-    
     const transporter = nodemailer.createTransport(emailConfig);
-    
-    // Test connection before sending
-    try {
-      await transporter.verify();
-      console.log('✅ Email server connection verified');
-    } catch (verifyError) {
-      console.error('❌ Email server verification failed:', verifyError);
-      throw new Error(`Email server connection failed: ${verifyError.message}`);
-    }
+    await transporter.verify();
   
     const mailOptions = {
       from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
@@ -474,13 +422,342 @@ const sendEmailOTP = async (email, otp, patientName) => {
         </body>
         </html>
       `,
-      // attachments: [
-      //   {
-      //     filename: 'clicareLogo.png',
-      //     path: path.join(__dirname, '../src/clicareLogo.png'),
-      //     cid: 'clicareLogo'
-      //   }
-      // ]
+      attachments: [
+        {
+          filename: 'clicareLogo.png',
+          path: path.join(__dirname, '../src/clicareLogo.png'),
+          cid: 'clicareLogo'
+        }
+      ]
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    return result;
+  
+  } catch (error) {
+    throw new Error(`Failed to send email: ${error.message}`);
+  }
+};
+
+// Lab Request Email
+const sendLabRequestEmail = async (email, patientName, labRequestData) => {
+  try {
+    const transporter = nodemailer.createTransport(emailConfig);
+    await transporter.verify();
+  
+    const testsList = labRequestData.test_requests.map((test, index) => 
+      `<li style="margin: 5px 0;">${index + 1}. ${test.test_name} (${test.test_type})</li>`
+    ).join('');
+
+    const mailOptions = {
+      from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
+      to: email,
+      subject: 'CliCare - Lab Test Request',
+      html: `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
+            
+            <!-- Logo -->
+            <div style="text-align: center; margin-bottom: 24px;">
+              <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
+            </div>
+
+            <!-- Greeting -->
+            <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
+              Hello ${patientName},
+            </p>
+            
+            <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
+              Your doctor has requested the following laboratory test(s):
+            </p>
+
+            <!-- Lab Request Details -->
+            <div style="text-align: center; margin: 0 0 20px 0;">
+              <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 20px 24px; width: 100%; box-sizing: border-box;">
+                <div style="text-align: left;">
+                  <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+                    Requested Tests:
+                  </p>
+                  <ul style="color: #6b7280; font-size: 14px; font-weight: 400; line-height: 1.7; margin: 0; padding-left: 20px;">
+                    ${testsList}
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- Request Details -->
+            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+              <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
+                <strong style="color: #27371f;">Request ID:</strong> #${labRequestData.request_id}<br>
+                <strong style="color: #27371f;">Priority:</strong> ${labRequestData.priority === 'stat' ? 'STAT (Urgent)' : labRequestData.priority.charAt(0).toUpperCase() + labRequestData.priority.slice(1)}<br>
+                <strong style="color: #27371f;">Due Date:</strong> ${new Date(labRequestData.due_date).toLocaleDateString()}<br>
+                ${labRequestData.instructions ? `<strong style="color: #27371f;">Instructions:</strong> ${labRequestData.instructions}` : ''}
+              </p>
+            </div>
+
+            <!-- Next Steps -->
+            <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+              What to do next:
+            </p>
+            
+            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+              <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
+                <li>Complete the requested laboratory test(s)</li>
+                <li>Log in to your patient portal</li>
+                <li>Upload your test results before the due date</li>
+                <li>Wait for your doctor to review the results</li>
+              </ol>
+            </div>
+
+            <!-- Important Notice -->
+            <p style="color: #dc2626; font-size: 13px; font-weight: 500; margin: 0 0 6px 0;">
+              Important
+            </p>
+
+            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
+              Please complete and upload your test results by <strong style="color: #27371f;">${new Date(labRequestData.due_date).toLocaleDateString()}</strong>. Late submissions may delay your treatment.
+            </p>
+
+            <!-- Divider -->
+            <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
+
+            <!-- Footer -->
+            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+              <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+                CliCare Hospital Management System<br>
+                This is an automated message. Please do not reply.
+              </p>
+            </div>
+
+          </div>
+        </body>
+        </html>
+      `,
+      attachments: [
+        {
+          filename: 'clicareLogo.png',
+          path: path.join(__dirname, '../src/clicareLogo.png'),
+          cid: 'clicareLogo'
+        }
+      ]
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    return result;
+  
+  } catch (error) {
+    throw new Error(`Failed to send email: ${error.message}`);
+  }
+};
+
+// Lab Result Accepted Email
+const sendLabAcceptedEmail = async (email, patientName, labRequestData) => {
+  try {
+    const transporter = nodemailer.createTransport(emailConfig);
+    await transporter.verify();
+  
+    const mailOptions = {
+      from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
+      to: email,
+      subject: 'CliCare - Lab Results Accepted',
+      html: `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
+            
+            <!-- Logo -->
+            <div style="text-align: center; margin-bottom: 24px;">
+              <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
+            </div>
+
+            <!-- Greeting -->
+            <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
+              Hello ${patientName},
+            </p>
+            
+            <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
+              Good news! Your doctor has reviewed and accepted your laboratory test results.
+            </p>
+
+            <!-- Lab Result Details -->
+            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+              <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
+                <strong style="color: #27371f;">Request ID:</strong> #${labRequestData.request_id}<br>
+                <strong style="color: #27371f;">Test Type:</strong> ${labRequestData.test_type}<br>
+                <strong style="color: #27371f;">Status:</strong> <span style="color: #059669; font-weight: 500;">Accepted</span><br>
+                <strong style="color: #27371f;">Reviewed Date:</strong> ${new Date().toLocaleDateString()}
+              </p>
+            </div>
+
+            <!-- Next Steps -->
+            <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+              What happens next:
+            </p>
+            
+            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+              <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
+                <li>Your test results have been added to your medical records</li>
+                <li>Your doctor will discuss the results during your next consultation</li>
+                <li>Follow any treatment recommendations provided by your doctor</li>
+                <li>Schedule a follow-up appointment if needed</li>
+              </ol>
+            </div>
+
+            <!-- Important Notice -->
+            <p style="color: #059669; font-size: 13px; font-weight: 500; margin: 0 0 6px 0;">
+              Results Accepted
+            </p>
+
+            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
+              Your laboratory results have been reviewed and accepted by your healthcare provider. You can view your complete medical records in the patient portal.
+            </p>
+
+            <!-- Divider -->
+            <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
+
+            <!-- Footer -->
+            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+              <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+                CliCare Hospital Management System<br>
+                This is an automated message. Please do not reply.
+              </p>
+            </div>
+
+          </div>
+        </body>
+        </html>
+      `,
+      attachments: [
+        {
+          filename: 'clicareLogo.png',
+          path: path.join(__dirname, '../src/clicareLogo.png'),
+          cid: 'clicareLogo'
+        }
+      ]
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    return result;
+  
+  } catch (error) {
+    throw new Error(`Failed to send email: ${error.message}`);
+  }
+};
+
+// Lab Result Declined Email
+const sendLabDeclinedEmail = async (email, patientName, labRequestData, declineReason) => {
+  try {
+    const transporter = nodemailer.createTransport(emailConfig);
+    await transporter.verify();
+  
+    const mailOptions = {
+      from: `"CliCare Hospital" <${emailConfig.auth.user}>`,
+      to: email,
+      subject: 'CliCare - Lab Results Need Resubmission',
+      html: `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
+            
+            <!-- Logo -->
+            <div style="text-align: center; margin-bottom: 24px;">
+              <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
+            </div>
+
+            <!-- Greeting -->
+            <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
+              Hello ${patientName},
+            </p>
+            
+            <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
+              Your doctor has reviewed your laboratory test results and is requesting a resubmission.
+            </p>
+
+            <!-- Lab Result Details -->
+            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+              <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
+                <strong style="color: #27371f;">Request ID:</strong> #${labRequestData.request_id}<br>
+                <strong style="color: #27371f;">Test Type:</strong> ${labRequestData.test_type}<br>
+                <strong style="color: #27371f;">Status:</strong> <span style="color: #dc2626; font-weight: 500;">Declined</span><br>
+                <strong style="color: #27371f;">Reviewed Date:</strong> ${new Date().toLocaleDateString()}
+              </p>
+            </div>
+
+            <!-- Decline Reason -->
+            <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+              <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 8px 0;">
+                Reason for Decline:
+              </p>
+              <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.5;">
+                ${declineReason || 'The submitted results require clarification or resubmission. Please contact your healthcare provider for details.'}
+              </p>
+            </div>
+
+            <!-- Next Steps -->
+            <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+              What to do next:
+            </p>
+            
+            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+              <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
+                <li>Review the decline reason above carefully</li>
+                <li>Obtain corrected or clearer test results if needed</li>
+                <li>Log in to your patient portal</li>
+                <li>Resubmit the laboratory test results</li>
+                <li>Contact the hospital if you have questions</li>
+              </ol>
+            </div>
+
+            <!-- Important Notice -->
+            <p style="color: #dc2626; font-size: 13px; font-weight: 500; margin: 0 0 6px 0;">
+              Action Required
+            </p>
+
+            <p style="color: #9ca3af; font-size: 12px; font-weight: 300; line-height: 1.5; margin: 0 0 20px 0;">
+              Please resubmit your test results as soon as possible to avoid delays in your treatment. If you need assistance, please contact our patient support team.
+            </p>
+
+            <!-- Divider -->
+            <div style="height: 1px; background: #e5e7eb; margin: 0 0 20px 0;"></div>
+
+            <!-- Footer -->
+            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+              <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+                CliCare Hospital Management System<br>
+                This is an automated message. Please do not reply.
+              </p>
+            </div>
+
+          </div>
+        </body>
+        </html>
+      `,
+      attachments: [
+        {
+          filename: 'clicareLogo.png',
+          path: path.join(__dirname, '../src/clicareLogo.png'),
+          cid: 'clicareLogo'
+        }
+      ]
     };
 
     const result = await transporter.sendMail(mailOptions);
@@ -498,63 +775,124 @@ const sendSMSOTP = async (phoneNumber, otp, patientName) => {
       throw new Error('SMS service not configured. Please contact administrator.');
     }
     
+    console.log('📱 Starting SMS send process...');
+    console.log('   Original phone number:', phoneNumber);
+    
     let formattedPhone = phoneNumber.toString().trim();
     
-    if (formattedPhone.startsWith('+639')) {
-      formattedPhone = '0' + formattedPhone.substring(3);
+    // Convert Philippine numbers to international format (+639XXXXXXXXX)
+    // Your database stores numbers as: 09123456789
+    // TextBee needs: +639123456789
+    if (formattedPhone.startsWith('09')) {
+      // 09123456789 -> +639123456789
+      formattedPhone = '+63' + formattedPhone.substring(1);
     } else if (formattedPhone.startsWith('639')) {
-      formattedPhone = '0' + formattedPhone.substring(2);
+      // 639123456789 -> +639123456789
+      formattedPhone = '+' + formattedPhone;
+    } else if (formattedPhone.startsWith('+639')) {
+      // Already in correct format
+      formattedPhone = formattedPhone;
+    } else if (formattedPhone.startsWith('63')) {
+      // 63123456789 -> +639123456789
+      formattedPhone = '+' + formattedPhone;
     }
     
-    if (!/^09\d{9}$/.test(formattedPhone)) {
+    console.log('   Formatted phone number:', formattedPhone);
+    
+    // Validate Philippine number format
+    if (!/^\+639\d{9}$/.test(formattedPhone)) {
+      console.error('❌ Invalid phone format:', formattedPhone);
       throw new Error('Invalid Philippine mobile number format');
     }
     
     const message = `CLICARE: Your verification code is ${otp}. Valid for 5 minutes. Do not share this code.`;
     
-    const params = {
-      '1': formattedPhone,
-      '2': message,
-      '3': ITEXMO_CONFIG.apiKey,
-      passwd: ITEXMO_CONFIG.apiKey.split('_')[1] || 'default'
-    };
+    console.log('   Sending to TextBee API...');
+    console.log('   Device ID:', TEXTBEE_CONFIG.deviceId);
+    console.log('   API URL:', `${TEXTBEE_CONFIG.apiUrl}/gateway/devices/${TEXTBEE_CONFIG.deviceId}/send-sms`);
     
-    const response = await axios.post(ITEXMO_CONFIG.apiUrl, new URLSearchParams(params), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
+    // Send SMS using TextBee API
+    const response = await axios.post(
+      `${TEXTBEE_CONFIG.apiUrl}/gateway/devices/${TEXTBEE_CONFIG.deviceId}/send-sms`,
+      {
+        recipients: [formattedPhone],
+        message: message
       },
-      timeout: 30000
-    });
+      {
+        headers: {
+          'x-api-key': TEXTBEE_CONFIG.apiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000 // 30 second timeout
+      }
+    );
     
-    if (response.data && response.data.toString().trim() === '0') {
-      return {
-        success: true,
-        messageId: 'itexmo_' + Date.now(),
-        provider: 'iTexMo'
-      };
+    console.log('✅ TextBee API response:', JSON.stringify(response.data, null, 2));
+    
+    // TextBee response structure check
+    // Check multiple possible success indicators
+    if (response.data) {
+      // TextBee might return: { success: true, messageId: "..." }
+      // OR: { status: "success", ... }
+      // OR: { data: { success: true } }
+      
+      const isSuccess = 
+        response.data.success === true ||
+        response.data.status === 'success' ||
+        response.data.status === 'queued' ||
+        (response.data.data && response.data.data.success === true) ||
+        response.status === 200; // If status code is 200, consider it success
+      
+      if (isSuccess) {
+        console.log('✅ SMS sent successfully!');
+        return {
+          success: true,
+          messageId: response.data.messageId || response.data.id || 'textbee_' + Date.now(),
+          provider: 'TextBee',
+          recipient: formattedPhone
+        };
+      } else {
+        console.error('❌ TextBee returned unsuccessful response:', response.data);
+        throw new Error('SMS sending failed: ' + (response.data.error || response.data.message || 'Unknown error'));
+      }
     } else {
-      const errorCodes = {
-        '1': 'Incomplete parameters',
-        '2': 'Invalid number',
-        '3': 'Invalid API key',
-        '4': 'Maximum SMS per day reached',
-        '5': 'Maximum SMS per hour reached',
-        '10': 'Duplicate message',
-        '15': 'Invalid message',
-        '16': 'SMS contains spam words'
-      };
-      
-      const errorCode = response.data.toString().trim();
-      const errorMessage = errorCodes[errorCode] || `Unknown error (${errorCode})`;
-      
-      throw new Error(`SMS sending failed: ${errorMessage}`);
+      console.error('❌ Empty response from TextBee');
+      throw new Error('SMS sending failed: Empty response from TextBee');
     }
     
   } catch (error) {
+    console.error('❌ SMS sending error:', error);
+    
+    // Detailed error logging
+    if (error.response) {
+      console.error('   Response status:', error.response.status);
+      console.error('   Response data:', error.response.data);
+      console.error('   Response headers:', error.response.headers);
+    }
+    
+    // Handle different types of errors
     if (error.code === 'ECONNABORTED') {
       throw new Error('SMS service timeout. Please try again.');
+    } else if (error.code === 'ECONNREFUSED') {
+      throw new Error('Cannot connect to TextBee service. Please check if your Android device is online and the TextBee app is running.');
+    } else if (error.code === 'ENOTFOUND') {
+      throw new Error('TextBee service not found. Please check your internet connection.');
     } else if (error.response) {
-      throw new Error(`SMS service error: ${error.response.data || error.response.status}`);
+      // HTTP error response from TextBee
+      const status = error.response.status;
+      const data = error.response.data;
+      
+      if (status === 401) {
+        throw new Error('Invalid TextBee API key. Please check your configuration.');
+      } else if (status === 404) {
+        throw new Error('TextBee device not found. Please check your Device ID.');
+      } else if (status === 400) {
+        const errorMsg = data?.error || data?.message || 'Invalid request';
+        throw new Error(`TextBee error: ${errorMsg}`);
+      } else {
+        const errorMsg = data?.error || data?.message || status;
+        throw new Error(`SMS service error: ${errorMsg}`);
+      }
     } else if (error.message.includes('Network Error')) {
       throw new Error('Network error. Please check your internet connection.');
     } else {
@@ -563,18 +901,40 @@ const sendSMSOTP = async (phoneNumber, otp, patientName) => {
   }
 };
 
-// Configure multer for file uploads
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, 'uploads', 'lab-results');
-    cb(null, uploadPath);
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'uploads', 'lab-results');
+    // Ensure directory exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
   },
-  filename: (req, file, cb) => {
-    const timestamp = Date.now();
-    const originalName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `${timestamp}_${originalName}`);
+  filename: function (req, file, cb) {
+    // Create unique filename with timestamp
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
   }
 });
+
+const hasOnlyRoutineCareSymptoms = (symptoms) => {
+  const routineCareSymptoms = [
+    'Annual Check-up',
+    'Health Screening', 
+    'Vaccination',
+    'Physical Exam',
+    'Blood Pressure Check',
+    'Cholesterol Screening',
+    'Diabetes Screening',
+    'Cancer Screening'
+  ];
+  
+  if (!symptoms || symptoms.length === 0) return false;
+  
+  const symptomsList = Array.isArray(symptoms) ? symptoms : symptoms.split(', ');
+  
+  return symptomsList.every(symptom => routineCareSymptoms.includes(symptom.trim()));
+};
 
 const upload = multer({
   storage,
@@ -609,28 +969,11 @@ app.use(helmet({
   }
 }));
 
-// ✅ MODIFIED CORS CONFIGURATION (LINES 1415-1430)
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-  : ['http://localhost:3000'];
-
-console.log('🌐 Allowed CORS origins:', allowedOrigins);
-
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.warn('⚠️ CORS blocked origin:', origin);
-      callback(null, false);
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: process.env.NODE_ENV === 'production'
+    ? process.env.CORS_ORIGINS?.split(',') || []
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: true
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -673,6 +1016,208 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
+
+app.get('/api/print/printers', async (req, res) => {
+  try {
+    const printers = await printServer.getAvailablePrinters();
+    res.json({
+      success: true,
+      printers: printers
+    });
+  } catch (error) {
+    console.error('Failed to get printers:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Print patient guidance packet
+app.post('/api/print/guidance', async (req, res) => {
+  try {
+    const { 
+      registrationData, 
+      patientData, 
+      navigationSteps, 
+      floorPlanImage,
+      printerName 
+    } = req.body;
+
+    console.log('🖨️ Print request received for patient:', registrationData.patientId);
+
+    // Validate required data
+    if (!registrationData || !patientData) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required patient data'
+      });
+    }
+
+    // ✅ NEW: Fetch queue color from database
+    const department = registrationData.recommendedDepartment;
+    let queueColor = 'Gray'; // Default
+    
+    try {
+      const { data: deptData } = await supabase
+        .from('department')
+        .select('queue_color')
+        .eq('name', department)
+        .single();
+      
+      if (deptData && deptData.queue_color) {
+        queueColor = deptData.queue_color;
+      }
+      console.log('🎨 Queue color for', department, ':', queueColor);
+    } catch (err) {
+      console.warn('⚠️ Could not fetch queue color, using default');
+    }
+
+    // Print the document (with queue color)
+    const result = await printServer.printPatientGuidance(
+      registrationData,
+      patientData,
+      navigationSteps || [],
+      floorPlanImage || null,
+      queueColor  // ✅ ONLY CHANGE: Added this parameter
+    );
+
+    if (result.success) {
+      console.log('✅ Print job completed successfully');
+      res.json({
+        success: true,
+        message: 'Document sent to printer successfully'
+      });
+    } else {
+      console.error('❌ Print job failed:', result.error);
+      res.status(500).json({
+        success: false,
+        error: result.error
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Print endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Print thermal receipt
+app.post('/api/print/receipt', async (req, res) => {
+  try {
+    const { registrationData, patientData } = req.body;
+
+    console.log('🖨️ Receipt print request for:', registrationData.patientId);
+
+    // Generate simple receipt HTML
+    const receiptHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            width: 80mm;
+            margin: 0;
+            padding: 10mm;
+          }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .line { border-top: 1px dashed #000; margin: 5mm 0; }
+        </style>
+      </head>
+      <body>
+        <div class="center bold">CLICARE HOSPITAL</div>
+        <div class="center">Patient Registration Receipt</div>
+        <div class="line"></div>
+        <div class="bold">PATIENT ID: ${registrationData.patientId}</div>
+        <div>Name: ${patientData.fullName || patientData.name}</div>
+        <div>Age/Sex: ${patientData.age} / ${patientData.sex}</div>
+        <div class="line"></div>
+        <div class="bold">DEPARTMENT: ${registrationData.recommendedDepartment}</div>
+        <div class="bold">QUEUE NO: ${registrationData.queue_number || 'N/A'}</div>
+        <div class="line"></div>
+        <div><strong>SYMPTOMS:</strong></div>
+        <div>${(patientData.selectedSymptoms || []).join(', ')}</div>
+        <div class="line"></div>
+        <div><strong>NEXT STEPS:</strong></div>
+        <div>1. Go to Reception Desk</div>
+        <div>2. Present this receipt</div>
+        <div>3. Proceed to ${registrationData.recommendedDepartment}</div>
+        <div>4. Wait for queue number</div>
+        <div class="line"></div>
+        <div class="center">Visit: ${new Date().toLocaleString()}</div>
+        <div class="line"></div>
+        <div class="center">Keep this receipt for your visit</div>
+      </body>
+      </html>
+    `;
+
+    // Create PDF and print
+    const timestamp = Date.now();
+    const pdfPath = path.join(__dirname, 'temp', `receipt_${timestamp}.pdf`);
+    
+    await printServer.generatePDF(receiptHTML, pdfPath);
+    await printServer.printPDF(pdfPath);
+
+    res.json({
+      success: true,
+      message: 'Receipt printed successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Receipt print error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Test print endpoint (for debugging)
+app.post('/api/print/test', async (req, res) => {
+  try {
+    const testHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial; padding: 20px; }
+          h1 { color: #1a672a; }
+        </style>
+      </head>
+      <body>
+        <h1>CliCare Hospital - Test Print</h1>
+        <p>This is a test print from the CliCare print server.</p>
+        <p>Date: ${new Date().toLocaleString()}</p>
+        <p>If you can see this, the print server is working correctly!</p>
+      </body>
+      </html>
+    `;
+
+    const timestamp = Date.now();
+    const pdfPath = path.join(__dirname, 'temp', `test_${timestamp}.pdf`);
+    
+    await printServer.generatePDF(testHTML, pdfPath);
+    await printServer.printPDF(pdfPath);
+
+    res.json({
+      success: true,
+      message: 'Test print sent successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Test print error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 // Healthcare Provider Login
 app.post('/api/staff/login', generalLoginLimiter, async (req, res) => {
@@ -5503,21 +6048,6 @@ app.delete('/api/temp-registration/:tempId', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => {
-  res.json({
-    message: 'CliCare Backend API',
-    status: 'running',
-    version: '1.0.0',
-    endpoints: {
-      health: '/api/health',
-      symptoms: '/api/symptoms',
-      staff_login: '/api/staff/login',
-      admin_login: '/api/admin/login',
-      patient_register: '/api/patient/register'
-    }
-  });
-});
-
 // Health check
 app.get('/api/health', (req, res) => {
   res.status(200).json({
@@ -6260,85 +6790,158 @@ app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.sin
     }
 });
 
-  app.post('/api/healthcare/lab-result/accept', authenticateToken, async (req, res) => {
-    try {
-      if (req.user.type !== 'healthcare') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
-
-      const { requestId } = req.body;
-
-      if (!requestId) {
-        return res.status(400).json({ error: 'Request ID is required' });
-      }
-
-      // FIXED: Update lab request status to completed (this removes it from patient view only)
-      const { error: updateError } = await supabase
-        .from('lab_request')
-        .update({ 
-          status: 'completed',
-          reviewed_by: req.user.id,
-          reviewed_at: new Date().toISOString()
-        })
-        .eq('request_id', requestId)
-        .eq('staff_id', req.user.id);
-
-      if (updateError) {
-        console.error('Error accepting lab result:', updateError);
-        return res.status(500).json({ error: 'Failed to accept lab result' });
-      }
-
-      res.status(200).json({
-        success: true,
-        message: 'Lab result accepted successfully'
-      });
-
-    } catch (error) {
-      console.error('Accept lab result error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+app.post('/api/healthcare/lab-result/accept', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.type !== 'healthcare') {
+      return res.status(403).json({ error: 'Access denied' });
     }
-  });
 
-  // Doctor declines lab result
-  app.post('/api/healthcare/lab-result/decline', authenticateToken, async (req, res) => {
-    try {
-      if (req.user.type !== 'healthcare') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
+    const { requestId } = req.body;
 
-      const { requestId, reason } = req.body;
-
-      if (!requestId) {
-        return res.status(400).json({ error: 'Request ID is required' });
-      }
-
-      // FIXED: Update lab request status to declined (keeps it visible to patient for re-upload)
-      const { error: updateError } = await supabase
-        .from('lab_request')
-        .update({ 
-          status: 'declined',
-          decline_reason: reason || 'No reason provided',
-          reviewed_by: req.user.id,
-          reviewed_at: new Date().toISOString()
-        })
-        .eq('request_id', requestId)
-        .eq('staff_id', req.user.id);
-
-      if (updateError) {
-        console.error('Error declining lab result:', updateError);
-        return res.status(500).json({ error: 'Failed to decline lab result' });
-      }
-
-      res.status(200).json({
-        success: true,
-        message: 'Lab result declined successfully'
-      });
-
-    } catch (error) {
-      console.error('Decline lab result error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+    if (!requestId) {
+      return res.status(400).json({ error: 'Request ID is required' });
     }
-  });
+
+    // Get patient info before updating
+    const { data: labRequest } = await supabase
+      .from('lab_request')
+      .select(`
+        request_id,
+        test_type,
+        visit!inner(
+          outpatient!inner(
+            patient_id,
+            name,
+            email
+          )
+        )
+      `)
+      .eq('request_id', requestId)
+      .eq('staff_id', req.user.id)
+      .single();
+
+    const { error: updateError } = await supabase
+      .from('lab_request')
+      .update({ 
+        status: 'completed',
+        reviewed_by: req.user.id,
+        reviewed_at: new Date().toISOString()
+      })
+      .eq('request_id', requestId)
+      .eq('staff_id', req.user.id);
+
+    if (updateError) {
+      console.error('Error accepting lab result:', updateError);
+      return res.status(500).json({ error: 'Failed to accept lab result' });
+    }
+
+    // Send email notification to patient
+    if (labRequest) {
+      try {
+        await sendLabAcceptedEmail(
+          labRequest.visit.outpatient.email,
+          labRequest.visit.outpatient.name,
+          {
+            request_id: labRequest.request_id,
+            test_type: labRequest.test_type
+          }
+        );
+        console.log('✅ Lab accepted email sent to:', labRequest.visit.outpatient.email);
+      } catch (emailError) {
+        console.error('⚠️ Failed to send lab accepted email:', emailError);
+        // Don't fail the request if email fails
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Lab result accepted successfully'
+    });
+
+  } catch (error) {
+    console.error('Accept lab result error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Doctor declines lab result
+app.post('/api/healthcare/lab-result/decline', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.type !== 'healthcare') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { requestId, reason } = req.body;
+
+    if (!requestId) {
+      return res.status(400).json({ error: 'Request ID is required' });
+    }
+
+    // Get patient info before updating
+    const { data: labRequest } = await supabase
+      .from('lab_request')
+      .select(`
+        request_id,
+        test_type,
+        visit!inner(
+          outpatient!inner(
+            patient_id,
+            name,
+            email
+          )
+        )
+      `)
+      .eq('request_id', requestId)
+      .eq('staff_id', req.user.id)
+      .single();
+
+    const declineReason = reason || 'No reason provided';
+
+    const { error: updateError } = await supabase
+      .from('lab_request')
+      .update({ 
+        status: 'declined',
+        decline_reason: declineReason,
+        reviewed_by: req.user.id,
+        reviewed_at: new Date().toISOString()
+      })
+      .eq('request_id', requestId)
+      .eq('staff_id', req.user.id);
+
+    if (updateError) {
+      console.error('Error declining lab result:', updateError);
+      return res.status(500).json({ error: 'Failed to decline lab result' });
+    }
+
+    // Send email notification to patient
+    if (labRequest) {
+      try {
+        await sendLabDeclinedEmail(
+          labRequest.visit.outpatient.email,
+          labRequest.visit.outpatient.name,
+          {
+            request_id: labRequest.request_id,
+            test_type: labRequest.test_type
+          },
+          declineReason
+        );
+        console.log('✅ Lab declined email sent to:', labRequest.visit.outpatient.email);
+      } catch (emailError) {
+        console.error('⚠️ Failed to send lab declined email:', emailError);
+        // Don't fail the request if email fails
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Lab result declined successfully'
+    });
+
+  } catch (error) {
+    console.error('Decline lab result error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Get patient lab history
 app.get('/api/patient/lab-history/:patientId', authenticateToken, async (req, res) => {
@@ -6749,7 +7352,7 @@ app.post('/api/healthcare/lab-requests-grouped', authenticateToken, async (req, 
 
     const { data: patientData } = await supabase
       .from('outpatient')
-      .select('id, patient_id, name')
+      .select('id, patient_id, name, email')
       .eq('patient_id', patient_id)
       .single();
 
@@ -6804,6 +7407,21 @@ app.post('/api/healthcare/lab-requests-grouped', authenticateToken, async (req, 
       return res.status(500).json({ error: 'Failed to create lab request' });
     }
 
+    // Send email notification to patient
+    try {
+      await sendLabRequestEmail(patientData.email, patientData.name, {
+        request_id: labRequestData.request_id,
+        test_requests: test_requests,
+        priority: priority || 'normal',
+        due_date: due_date,
+        instructions: instructions || ''
+      });
+      console.log('✅ Lab request email sent to:', patientData.email);
+    } catch (emailError) {
+      console.error('⚠️ Failed to send lab request email:', emailError);
+      // Don't fail the request if email fails
+    }
+
     res.status(201).json({
       success: true,
       labRequest: labRequestData,
@@ -6815,7 +7433,7 @@ app.post('/api/healthcare/lab-requests-grouped', authenticateToken, async (req, 
     console.error('Create grouped lab request error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+}); 
 
 app.post('/api/healthcare/lab-requests', authenticateToken, async (req, res) => {
   try {
@@ -7066,10 +7684,10 @@ app.get('/api/queue/display/:departmentId', async (req, res) => {
     const { departmentId } = req.params;
     const today = new Date().toISOString().split('T')[0];
 
-    // Get department name
+    // Get department info
     const { data: department, error: deptError } = await supabase
       .from('department')
-      .select('name')
+      .select('name, is_scheduled, service_type, queue_color')
       .eq('department_id', departmentId)
       .single();
 
@@ -7080,51 +7698,95 @@ app.get('/api/queue/display/:departmentId', async (req, res) => {
       });
     }
 
+    // Determine which queues to show based on department type
+    let statusFilter = ['waiting', 'in_progress'];
+    let dateFilter = today;
+
+    // For scheduled subspecialties, also show 'scheduled' status for today
+    if (department.is_scheduled && department.service_type === 'subspecialty') {
+      statusFilter.push('scheduled');
+    }
+
     // Get current patient being served (status = 'in_progress')
     const { data: currentPatient } = await supabase
       .from('queue')
       .select(`
         queue_no,
+        status,
+        scheduled_date,
         visit!inner(
-          visit_date
+          visit_date,
+          outpatient!inner(
+            name
+          )
         )
       `)
       .eq('department_id', departmentId)
       .eq('status', 'in_progress')
-      .eq('visit.visit_date', today)
+      .eq('scheduled_date', dateFilter)
       .maybeSingle();
 
-    // Get waiting patients (status = 'waiting')
+    // Get waiting patients
     const { data: waitingPatients } = await supabase
       .from('queue')
       .select(`
         queue_id,
         queue_no,
+        status,
         created_time,
+        scheduled_date,
         visit!inner(
-          visit_date
+          visit_date,
+          outpatient!inner(
+            name
+          )
         )
       `)
       .eq('department_id', departmentId)
-      .eq('status', 'waiting')
-      .eq('visit.visit_date', today)
+      .in('status', statusFilter.filter(s => s !== 'in_progress'))
+      .eq('scheduled_date', dateFilter)
       .order('queue_no', { ascending: true });
 
     // Calculate wait times
     const now = new Date();
-    const formattedWaiting = (waitingPatients || []).map(patient => ({
-      queue_id: patient.queue_id,
-      queue_no: patient.queue_no,
-      wait_minutes: Math.floor((now - new Date(patient.created_time)) / 60000)
-    }));
+    const formattedWaiting = (waitingPatients || []).map(patient => {
+      const waitMinutes = Math.floor((now - new Date(patient.created_time)) / 60000);
+      
+      return {
+        queue_id: patient.queue_id,
+        queue_no: patient.queue_no,
+        status: patient.status,
+        wait_minutes: waitMinutes > 0 ? waitMinutes : 0,
+        patient_name: patient.visit?.outpatient?.name || 'Unknown'
+      };
+    });
+
+    // Get completed count for today
+    const { count: completedCount } = await supabase
+      .from('queue')
+      .select('*', { count: 'exact', head: true })
+      .eq('department_id', departmentId)
+      .eq('status', 'completed')
+      .eq('scheduled_date', dateFilter);
 
     res.json({
       success: true,
       departmentName: department.name,
+      departmentColor: department.queue_color || 'Gray',
+      isScheduled: department.is_scheduled,
+      serviceType: department.service_type,
       current: currentPatient ? {
-        queue_no: currentPatient.queue_no
+        queue_no: currentPatient.queue_no,
+        patient_name: currentPatient.visit?.outpatient?.name || 'Unknown'
       } : null,
-      waiting: formattedWaiting
+      waiting: formattedWaiting,
+      stats: {
+        totalWaiting: formattedWaiting.length,
+        totalServed: completedCount || 0,
+        avgWaitTime: formattedWaiting.length > 0 
+          ? Math.floor(formattedWaiting.reduce((sum, p) => sum + p.wait_minutes, 0) / formattedWaiting.length)
+          : 0
+      }
     });
 
   } catch (error) {
@@ -7133,6 +7795,30 @@ app.get('/api/queue/display/:departmentId', async (req, res) => {
       success: false, 
       error: 'Internal server error' 
     });
+  }
+});
+
+// Get all departments for queue display selection
+app.get('/api/departments', async (req, res) => {
+  try {
+    const { data: departments, error } = await supabase
+      .from('department')
+      .select('department_id, name, queue_color, is_scheduled, service_type, status')
+      .eq('status', 'active')
+      .order('name', { ascending: true });
+
+    if (error) {
+      return res.status(500).json({ error: 'Failed to fetch departments' });
+    }
+
+    res.json({
+      success: true,
+      departments: departments || []
+    });
+
+  } catch (error) {
+    console.error('Get departments error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -7182,6 +7868,23 @@ app.listen(PORT, () => {
   console.log(`Email OTP: ${emailConfig.auth.user ? 'Configured' : 'Not configured'}`);
   console.log(`SMS OTP: ${isSMSConfigured ? 'iTexMo configured' : 'Not configured'}`);
   console.log(`Database: ${SUPABASE_URL ? 'Connected' : 'Not connected'}`);
+});
+
+process.on('SIGINT', async () => {
+  await printServer.cleanup();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Shutting down print server...');
+  await printServer.cleanup();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n🛑 Shutting down print server...');
+  await printServer.cleanup();
+  process.exit(0);
 });
 
 module.exports = app;
