@@ -83,14 +83,6 @@ console.log('📧 Email Configuration:', {
   apiConfigured: !!process.env.BREVO_API_KEY
 });
 
-// ✅ Log configuration on startup (masked for security)
-console.log('📧 Email Configuration:', {
-  host: emailConfig.host,
-  port: emailConfig.port,
-  secure: emailConfig.secure,
-  user: emailConfig.auth.user ? '✓ Set' : '✗ Missing',
-  pass: emailConfig.auth.pass ? '✓ Set' : '✗ Missing'
-});
 
 const TEXTBEE_CONFIG = {
   apiKey: process.env.TEXTBEE_API_KEY,
