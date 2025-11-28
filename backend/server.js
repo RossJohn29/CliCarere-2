@@ -5908,7 +5908,7 @@ app.post('/api/generate-qr-email', async (req, res) => {
       });
     }
 
-    // Step 3: Prepare email
+    // Step 3: Prepare email HTML
     console.log('Step 3: Preparing email...');
     const emailHtml = `
       <!DOCTYPE html>
@@ -5918,40 +5918,22 @@ app.post('/api/generate-qr-email', async (req, res) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
       </head>
-
       <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
         <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
-
-          <!-- Logo -->
-          <div style="text-align: center; margin-bottom: 24px;">
-            <img src="cid:clicareLogo" alt="CliCare Hospital" style="height: 28px; width: auto;">
-          </div>
-
-          <!-- Greeting -->
           <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 6px 0;">
             Hello ${patientName},
           </p>
-
           <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
             Your registration has been successfully recorded. Please present the QR code below upon arriving at the hospital.
           </p>
-
-          <!-- QR CODE BLOCK -->
           <div style="text-align: center; margin: 0 0 24px 0;">
             <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 16px 20px;">
-              <img src="cid:qrcode" alt="QR Code" style="max-width: 200px; height: auto; border-radius: 6px;">
+              <img src="data:image/png;base64,${qrCodeBuffer.toString('base64')}" alt="QR Code" style="max-width: 200px; height: auto; border-radius: 6px;">
               <p style="color: #6b7280; font-size: 13px; font-weight: 400; margin: 12px 0 0 0;">
                 Show this QR code to the registration staff
               </p>
             </div>
           </div>
-
-          <!-- Appointment Details Title -->
-          <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
-            Appointment Details:
-          </p>
-
-          <!-- APPOINTMENT DETAILS LIST -->
           <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
             <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
               <strong style="color: #27371f;">Department:</strong> ${qrData.department || 'General Practice'}<br>
@@ -5960,70 +5942,37 @@ app.post('/api/generate-qr-email', async (req, res) => {
               <strong style="color: #27371f;">Temporary Patient ID:</strong> ${qrData.tempPatientId || 'N/A'}
             </p>
           </div>
-
-          <!-- NEXT STEPS -->
-          <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
-            What to do next:
-          </p>
-
-          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
-            <ol style="color: #6b7280; font-size: 14px; padding-left: 18px; margin: 0; line-height: 1.7;">
-              <li>Arrive 15 minutes before your scheduled time</li>
-              <li>Go directly to the registration desk</li>
-              <li>Present the QR code</li>
-              <li>Wait for your queue number to be called</li>
-            </ol>
-          </div>
-
-          <!-- FOOTER -->
           <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
             <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
               CliCare Hospital Management System<br>
               This is an automated message. Please do not reply.
             </p>
           </div>
-
         </div>
       </body>
       </html>
     `;
 
-    // Step 4: Send email
+    // Step 4: Send email via Brevo API
     console.log('Step 4: Sending email to:', patientEmail);
     try {
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD
-        }
-      });
+      if (!brevoApiInstance) {
+        throw new Error('Brevo API not configured - missing API key');
+      }
       
-      // Verify connection
-      await transporter.verify();
-      console.log('✅ Email transport verified');
+      const sendSmtpEmail = new brevo.SendSmtpEmail();
       
-      const mailOptions = {
-        from: `"CliCare Hospital" <${process.env.EMAIL_USER}>`,
-        to: patientEmail,
-        subject: `Your CliCare Registration QR Code - ${patientName}`,
-        html: emailHtml,
-        attachments: [
-          {
-            filename: 'clicareLogo.png',
-            path: path.join(__dirname, '../src/clicareLogo.png'),
-            cid: 'clicareLogo'
-          },
-          {
-            filename: 'qr-code.png',
-            content: qrCodeBuffer,
-            cid: 'qrcode'
-          }
-        ]
+      sendSmtpEmail.sender = {
+        name: emailConfig.from.name,
+        email: emailConfig.from.email
       };
+      
+      sendSmtpEmail.to = [{ email: patientEmail, name: patientName }];
+      sendSmtpEmail.subject = `Your CliCare Registration QR Code - ${patientName}`;
+      sendSmtpEmail.htmlContent = emailHtml;
 
-      const result = await transporter.sendMail(mailOptions);
-      console.log('✅ Email sent successfully. Message ID:', result.messageId);
+      const result = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
+      console.log('✅ Email sent successfully via Brevo API');
 
     } catch (emailError) {
       console.error('❌ Email sending failed:', emailError.message);
