@@ -986,9 +986,11 @@ app.use(helmet({
 
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? process.env.CORS_ORIGINS?.split(',') || []
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
-  credentials: true
+    ? (process.env.CORS_ORIGINS?.split(',').map(origin => origin.trim()) || ['https://clicare-web.vercel.app'])
+    : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3001', 'http://localhost:3002'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json({ limit: '10mb' }));
