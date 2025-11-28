@@ -5965,6 +5965,8 @@ app.post('/api/generate-qr-email', async (req, res) => {
       const uploadResult = await uploadToSupabaseStorage(qrCodeBuffer, qrFileName, 'lab-results');
       const qrImageUrl = uploadResult.publicUrl;
       console.log('✅ QR code uploaded to storage:', qrImageUrl);
+    
+      await new Promise(resolve => setTimeout(resolve, 10000));
       
       const sendSmtpEmail = new brevo.SendSmtpEmail();
       
