@@ -15,32 +15,31 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
+// Print server - optional (only for local kiosk)
+let printServer;
+
 (async () => {
-  if (printServer && process.env.NODE_ENV !== 'production') {
-    try {
+  try {
+    printServer = require('./printServer');
+    if (process.env.NODE_ENV !== 'production') {
       await printServer.initialize();
       console.log('✅ Print server initialized successfully');
-    } catch (error) {
-      console.error('⚠️ Print server initialization failed:', error);
-      console.log('ℹ️ Printing features will be limited');
+    } else {
+      console.log('ℹ️ Print server loaded but disabled in production');
     }
-  } else {
-    console.log('ℹ️ Print server disabled (cloud deployment)');
+  } catch (error) {
+    console.log('ℹ️ Print server not available (not needed for cloud deployment)');
+    printServer = {
+      initialize: async () => {},
+      getAvailablePrinters: async () => [],
+      printPatientGuidance: async () => ({ 
+        success: false, 
+        error: 'Printing not available in cloud' 
+      }),
+      cleanup: async () => {}
+    };
   }
 })();
-
-let printServer = null;
-try {
-  printServer = require('./printServer');
-} catch (err) {
-  console.log('ℹ️ Print server not available (not needed for cloud deployment)');
-  printServer = {
-    initialize: async () => { console.log('Print server skipped'); },
-    getAvailablePrinters: async () => [],
-    printPatientGuidance: async () => ({ success: false, error: 'Printing not available in cloud' }),
-    cleanup: async () => {}
-  };
-}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
