@@ -970,19 +970,46 @@ const upload = multer({
 
 const uploadToSupabaseStorage = async (fileBuffer, fileName, bucketName = 'lab-results') => {
   try {
+    // Get the file extension and determine MIME type
+    const fileExt = path.extname(fileName).toLowerCase();
+    let contentType;
+    
+    // Map only the required file types
+    switch (fileExt) {
+      case '.jpg':
+      case '.jpeg':
+        contentType = 'image/jpeg';
+        break;
+      case '.png':
+        contentType = 'image/png';
+        break;
+      case '.pdf':
+        contentType = 'application/pdf';
+        break;
+      default:
+        throw new Error(`Unsupported file type: ${fileExt}. Only PDF, JPEG, PNG, and JPG files are allowed.`);
+    }
+
+    console.log(`Uploading file: ${fileName} with content type: ${contentType}`);
+
     const { data, error } = await supabase.storage
       .from(bucketName)
       .upload(fileName, fileBuffer, {
-        contentType: 'auto',
+        contentType: contentType,
         upsert: false
       });
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase upload error details:', error);
+      throw error;
+    }
 
     // Get public URL
     const { data: urlData } = supabase.storage
       .from(bucketName)
       .getPublicUrl(fileName);
+
+    console.log(`File uploaded successfully: ${urlData.publicUrl}`);
 
     return {
       success: true,
