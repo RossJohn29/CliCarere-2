@@ -984,13 +984,33 @@ app.use(helmet({
   }
 }));
 
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? (process.env.CORS_ORIGINS 
+      ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
+      : ['https://clicare-web.vercel.app'])
+  : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
+  console.log('🌐 Allowed CORS origins:', allowedOrigins);
+  console.log('🔧 NODE_ENV:', process.env.NODE_ENV);
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? (process.env.CORS_ORIGINS?.split(',').map(origin => origin.trim()) || ['https://clicare-web.vercel.app'])
-    : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3001', 'http://localhost:3002'],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, Postman, or server-to-server)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log('✅ CORS allowed for:', origin);
+      callback(null, true);
+    } else {
+      console.log('❌ CORS blocked for:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Length', 'X-Request-Id'],
+  maxAge: 600
 }));
 
 app.use(express.json({ limit: '10mb' }));
