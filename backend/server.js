@@ -5805,8 +5805,10 @@ app.post('/api/generate-health-assessment-qr', authenticateToken, async (req, re
           },
           {
             filename: 'health-assessment-qr.png',
-            content: qrCodeBuffer,
-            cid: 'healthqrcode'
+            content: qrCodeBuffer.toString('base64'),
+            cid: 'healthqrcode',
+            encoding: 'base64',
+            contentType: 'image/png'
           }
         ]
       };
