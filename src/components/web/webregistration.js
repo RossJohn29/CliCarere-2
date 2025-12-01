@@ -14,23 +14,21 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   RotateCcw,
   X,
   Check,
   Camera,
-  Info
+  Info,
+  Search
 } from 'lucide-react';
 
 import {
   processIDWithOCR,
-  processIDWithOCREnhanced,
   isCameraAvailable,
   initializeCamera,
   cleanupCamera,
-  captureImageFromVideo,
-  startAutoCapture,
-  detectIDInFrame,
-  cropAndPreprocessID,
+  captureImageFromVideo
 } from '../../services/tesseractOCR';
 
 const WebRegistration = () => {
@@ -63,10 +61,8 @@ const WebRegistration = () => {
   const [durationOptions, setDurationOptions] = useState([]);
   const [outpatientSymptoms, setOutpatientSymptoms] = useState([]);
   const [symptomsLoading, setSymptomsLoading] = useState(true);
-  const [autoDetectionActive, setAutoDetectionActive] = useState(false);
-  const [autoDetectionController, setAutoDetectionController] = useState(null);
-  const [idDetected, setIdDetected] = useState(false);
-  const [detectionIndicator, setDetectionIndicator] = useState(null);
+  const [categorySearches, setCategorySearches] = useState({});
+  const [openCategories, setOpenCategories] = useState({});
 
   const [formData, setFormData] = useState({
     fullName: '', 
@@ -134,22 +130,9 @@ const WebRegistration = () => {
     if (showCameraModal) {
       initializeCameraStream();
     } else {
-      // Stop auto-detection when modal closes
-      if (autoDetectionController) {
-        autoDetectionController.stop();
-        setAutoDetectionController(null);
-      }
-      setAutoDetectionActive(false);
-      setIdDetected(false);
-      setDetectionIndicator(null);
       cleanupCameraStream();
     }
-    return () => {
-      if (autoDetectionController) {
-        autoDetectionController.stop();
-      }
-      cleanupCameraStream();
-    };
+    return () => cleanupCameraStream();
   }, [showCameraModal]);
 
   useEffect(() => {
@@ -166,7 +149,7 @@ const WebRegistration = () => {
     if (showSuccessModal) {
       const timer = setTimeout(() => {
         handleSuccessModalClose();
-      }, 5000);
+      }, 30000);
       return () => clearTimeout(timer);
     }
   }, [showSuccessModal]);
@@ -260,6 +243,21 @@ const WebRegistration = () => {
     const maxDate = new Date();
     maxDate.setFullYear(maxDate.getFullYear() + 1);
     return maxDate.toISOString().split('T')[0];
+  };
+
+  const getFilteredSymptoms = (category) => {
+    const searchTerm = categorySearches[category.category]?.toLowerCase() || '';
+    if (!searchTerm) return category.symptoms;
+    
+    return category.symptoms.filter(symptom =>
+      symptom.toLowerCase().includes(searchTerm)
+    );
+  };
+
+  const getCategorySelectedCount = (category) => {
+    return category.symptoms.filter(symptom => 
+      formData.selectedSymptoms.includes(symptom)
+    ).length;
   };
 
   const isRoutineCareSymptom = (symptoms) => {
@@ -648,7 +646,7 @@ const WebRegistration = () => {
       setCameraError('');
       
       setTimeout(() => {
-        const video = document.getElementById('camera-feed');
+        const video = document.getElementById('webreg-camera-feed');
         
         if (!video) {
           setCameraError('Video element not available. Please try again.');
@@ -661,20 +659,10 @@ const WebRegistration = () => {
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
         video.muted = true;
-
-        video.style.width = '100%';
-        video.style.height = 'auto';
-        video.style.maxHeight = '60vh';
-        video.style.objectFit = 'contain';
-                
+        
         const playVideo = async () => {
           try {
             await video.play();
-            
-            setTimeout(() => {
-              startAutoIDDetection(video);
-            }, 1000);
-            
           } catch (playError) {
             setCameraError('Failed to start camera preview. Please check camera permissions.');
           }
@@ -701,46 +689,6 @@ const WebRegistration = () => {
     }
   };
 
-  const startAutoIDDetection = (video) => {
-    if (!video || autoDetectionActive) return;
-    
-    console.log('🤖 Starting auto ID detection...');
-    setAutoDetectionActive(true);
-    
-    const controller = startAutoCapture(
-      video,
-      // onCapture callback
-      async (processedImage, detection) => {
-        console.log('📸 Auto-capture triggered!', detection);
-        setIdDetected(true);
-        setCapturedImage(processedImage);
-        
-        // Visual feedback
-        showToastNotification('ID detected! Processing...', 'info');
-        
-        // Process with OCR
-        await processIDImageWithOCR(processedImage, 0);
-        
-        // Reset detection indicator after processing
-        setTimeout(() => {
-          setIdDetected(false);
-        }, 2000);
-      },
-      // onDetection callback (visual feedback)
-      (detection) => {
-        setDetectionIndicator({
-          x: detection.boundingBox.x,
-          y: detection.boundingBox.y,
-          width: detection.boundingBox.width,
-          height: detection.boundingBox.height,
-          confidence: detection.confidence
-        });
-      }
-    );
-    
-    setAutoDetectionController(controller);
-  };
-
   const cleanupCameraStream = () => {
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => {
@@ -748,7 +696,7 @@ const WebRegistration = () => {
       });
     }
 
-    const video = document.getElementById('camera-feed');
+    const video = document.getElementById('webreg-camera-feed');
     if (video) {
       video.srcObject = null;
       video.load();
@@ -761,13 +709,7 @@ const WebRegistration = () => {
   const handleCaptureID = () => {
     if (ocrProcessing) return;
     
-    // Stop auto-detection temporarily for manual capture
-    if (autoDetectionController) {
-      autoDetectionController.stop();
-      setAutoDetectionActive(false);
-    }
-    
-    const video = document.getElementById('camera-feed');
+    const video = document.getElementById('webreg-camera-feed');
     if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
       setCameraError('Camera not ready. Please wait a moment and try again.');
       return;
@@ -781,58 +723,34 @@ const WebRegistration = () => {
       }
       
       setCapturedImage(imageData);
-      processIDImageWithOCR(imageData, 0);
+      processIDImageWithOCR(imageData);
     } catch (error) {
       setCameraError('Failed to capture image. Please try again.');
     }
   };
 
-  const processIDImageWithOCR = async (imageData, retryCount = 0) => {
-    if (ocrProcessing && retryCount === 0) return;
+  const processIDImageWithOCR = async (imageData) => {
+    if (ocrProcessing || !imageData) return;
     
     setOcrProcessing(true);
     
     try {
-      const result = await processIDWithOCREnhanced(imageData, retryCount);
-      
-      console.log('OCR Result:', result);
+      const result = await processIDWithOCR(imageData);
       
       if (result.success && result.name) {
         setFormData((prev) => ({ ...prev, fullName: result.name }));
-        
-        // Stop auto-detection after success
-        if (autoDetectionController) {
-          autoDetectionController.stop();
-          setAutoDetectionController(null);
-        }
-        setAutoDetectionActive(false);
-        
         setShowCameraModal(false);
         setError('');
-        
-        // Show confidence level in toast
-        const confidencePercent = result.confidence ? Math.round(result.confidence) : 0;
-        showToastNotification(
-          `✅ ${result.name} - Extracted successfully! (${confidencePercent}% confidence)`, 
-          confidencePercent >= 60 ? 'success' : 'warning'
-        );
+        showToastNotification('ID scanned successfully! Name auto-filled.', 'success');
       } else {
         setCameraError(result.message || 'Failed to extract name from ID');
-        
-        // Show the raw OCR text in console for debugging
-        console.log('OCR Raw Text:', result.rawText);
-        
-        showToastNotification('Could not extract name. Please try repositioning the ID or enter manually.', 'error');
       }
     } catch (err) {
-      console.error('OCR Error:', err);
       setCameraError('Failed to process ID image. Please try again.');
-      showToastNotification('OCR failed. Please try again.', 'error');
     } finally {
       setOcrProcessing(false);
     }
   };
-
 
   const closeCameraModal = (focusFullName = false) => {
     setShowCameraModal(false);
@@ -1109,7 +1027,7 @@ const WebRegistration = () => {
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
       };
 
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration`, {
+       const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1224,6 +1142,20 @@ const WebRegistration = () => {
     }, 500);
   };
 
+  const handleCategoryToggle = (categoryName) => {
+    setOpenCategories(prev => ({
+      ...prev,
+      [categoryName]: !prev[categoryName]
+    }));
+  };
+
+  const handleSearchChange = (categoryName, searchValue) => {
+    setCategorySearches(prev => ({
+      ...prev,
+      [categoryName]: searchValue
+    }));
+  };
+
   const showToastNotification = (message, type = 'success') => {
     setToastMessage(message);
     setToastType(type);
@@ -1233,32 +1165,45 @@ const WebRegistration = () => {
     }, 4000);
   };
 
-  const renderProgressBar = () => (
-    <div className="webreg-progress-container">
-      <div className="webreg-progress-steps">
-        {['Personal', 'Emergency', 'Review', 'Symptoms', 'Details', 'Schedule', 'Summary'].map((name, index) => {
-          const stepNumber = index + 1;
-          const isActive = stepNumber === currentStep;
-          const isCompleted = stepNumber < currentStep;
-          const isLast = index === 6;
+  const renderProgressBar = () => {
+    const stepNames = ['Personal Info', 'Emergency Contact', 'Review Info', 'Health Assessment', 'Additional Info', 'Schedule', 'Final Review'];
 
-          return (
-            <div key={index} className="webreg-progress-step-item">
-              <div className={`webreg-step ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}>
-                <div className="webreg-step-number">
-                  {isCompleted ? <Check size={12} /> : stepNumber}
+    return (
+      <div className="webreg-progress-container">
+        <div className="webreg-progress-wrapper">
+          {stepNames.map((name, index) => {
+            const stepNumber = index + 1;
+            const isActive = stepNumber === currentStep;
+            const isCompleted = stepNumber < currentStep;
+
+            return (
+              <div
+                key={index}
+                className={`webreg-progress-step-wrapper 
+                  ${isCompleted ? 'completed' : ''} 
+                  ${isActive ? 'active' : ''}`}
+              >
+                <div className="webreg-progress-step">
+                  <div className="webreg-step-number-circle">
+                    {isCompleted ? <Check size={16} /> : stepNumber}
+                  </div>
+                  <div className="webreg-step-details">
+                    <div className="webreg-step-label">{name}</div>
+                    <div className="webreg-step-description">
+                      {isCompleted ? 'Completed' : isActive ? 'In Progress' : 'Pending'}
+                    </div>
+                  </div>
                 </div>
-                <div className="webreg-step-label">{name}</div>
+                {index < stepNames.length - 1 && (
+                  <div className={`webreg-step-connector-line ${isCompleted ? 'completed' : ''}`}></div>
+                )}
               </div>
-              {!isLast && (
-                <div className={`webreg-step-connector ${isCompleted ? 'completed' : ''} ${stepNumber === currentStep ? 'active' : ''}`}></div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderPersonalDetailsStep = () => (
     <div className="webreg-reg-card webreg-step-transition">
@@ -1272,7 +1217,7 @@ const WebRegistration = () => {
 
       <div className="webreg-input-group">
         <label>Scan ID</label>
-        <div className="webreg-scan-helper">Optional: Scan your PhilHealth or Driving License to autofill your name</div>
+        <div className="webreg-scan-helper">Optional: a shortcut to speed up typing your full name</div>
         <div className="webreg-id-scan">
           <img src={sampleID} alt="Sample ID" className="sampleID"/>
           <button
@@ -1601,41 +1546,10 @@ const WebRegistration = () => {
           <div className="webreg-info-icon"><Stethoscope size={20} /></div>
           <div className="webreg-info-content">
             <h4>Select Your Symptoms</h4>
-            <p>Choose all symptoms or health concerns you're experiencing</p>
+            <p>Search and select from categories below</p>
           </div>
         </div>
       </div>
-
-      {symptomsLoading ? (
-        <div className="webreg-loading">
-          <span className="webreg-loading-spinner"></span>
-          Loading symptoms...
-        </div>
-      ) : outpatientSymptoms.length === 0 ? (
-        <div className="webreg-reg-error">
-          No symptoms available. Please refresh the page or contact support.
-        </div>
-      ) : (
-        <div className="webreg-symptoms-categories">
-          {outpatientSymptoms.map(category => (
-            <div key={category.category} className="webreg-symptom-category">
-              <div className="webreg-category-title">{category.category}</div>
-              <div className="webreg-symptom-grid">
-                {category.symptoms.map((symptom, index) => (
-                  <button
-                    key={`${category.category}-${symptom}-${index}`}
-                    onClick={() => handleSymptomToggle(symptom)}
-                    className={`webreg-symptom-btn ${formData.selectedSymptoms.includes(symptom) ? 'selected' : ''}`}
-                  >
-                    <span className="symptom-text">{symptom}</span>
-                    {formData.selectedSymptoms.includes(symptom) && <span className="check-icon">✓</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {formData.selectedSymptoms.length > 0 && (
         <div className="webreg-selected-symptoms">
@@ -1652,6 +1566,83 @@ const WebRegistration = () => {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {symptomsLoading ? (
+        <div className="webreg-loading">
+          <span className="webreg-loading-spinner"></span>
+          Loading symptoms...
+        </div>
+      ) : outpatientSymptoms.length === 0 ? (
+        <div className="webreg-reg-error">
+          No symptoms available. Please refresh the page or contact support.
+        </div>
+      ) : (
+        <div className="webreg-symptoms-categories">
+          {outpatientSymptoms.map(category => {
+            const filteredSymptoms = getFilteredSymptoms(category);
+            const selectedCount = getCategorySelectedCount(category);
+            const isOpen = openCategories[category.category];
+
+            return (
+              <div key={category.category} className="webreg-symptom-category">
+                <div 
+                  className="webreg-category-header"
+                  onClick={() => handleCategoryToggle(category.category)}
+                >
+                  <div className="webreg-category-title">
+                    {category.category}
+                    {selectedCount > 0 && (
+                      <span className="webreg-category-count">{selectedCount}</span>
+                    )}
+                  </div>
+                  <div className="webreg-category-toggle">
+                    {isOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                  </div>
+                </div>
+
+                <div className={`webreg-symptom-dropdown ${isOpen ? 'open' : ''}`}>
+                  <div className="webreg-symptom-search-container">
+                    <input
+                      type="text"
+                      placeholder={`Search ${category.category.toLowerCase()}...`}
+                      value={categorySearches[category.category] || ''}
+                      onChange={(e) => handleSearchChange(category.category, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="webreg-symptom-search"
+                    />
+                    <div className="webreg-search-icon">
+                      <Search size={16} />
+                    </div>
+                  </div>
+
+                  <div className="webreg-symptom-list">
+                    {filteredSymptoms.length === 0 ? (
+                      <div className="webreg-no-results">
+                        No symptoms found matching "{categorySearches[category.category]}"
+                      </div>
+                    ) : (
+                      filteredSymptoms.map((symptom, index) => (
+                        <div
+                          key={`${category.category}-${symptom}-${index}`}
+                          onClick={() => handleSymptomToggle(symptom)}
+                          className={`webreg-symptom-item ${
+                            formData.selectedSymptoms.includes(symptom) ? 'selected' : ''
+                          }`}
+                        >
+                          <span className="webreg-symptom-text">{symptom}</span>
+                          {formData.selectedSymptoms.includes(symptom) && (
+                            <span className="webreg-symptom-check">✓</span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -2007,107 +1998,80 @@ const WebRegistration = () => {
     );
   };
 
-  const renderNavigationButtons = () => (
-    <div className="webreg-nav-buttons">
-      {renderBackButton()}
-      {renderNextButton()}
-    </div>
-  );
-
   const renderCameraModal = () => {
     if (!showCameraModal) return null;
 
-  return (
-    <div className="web-popup-overlay">
-      <div className="web-popup web-camera-modal">
-        <div className="web-popup-header">
-          <h3>Scan Philippine ID</h3>
-          <p style={{ fontSize: '0.9em', color: '#666', margin: '5px 0 0 0' }}>
-            Supported: PhilHealth, Driving License
-          </p>
-          <button onClick={closeCameraModal} className="web-popup-close">
-            <X size={20} />
-          </button>
-        </div>
-        <div className="web-popup-content">
-          {cameraError ? (
-            <div className="web-camera-error">
-              <div className="web-error-icon">
-                <AlertTriangle size={48} />
-              </div>
-              <p>{cameraError}</p>
-              <div className="web-error-actions">
-                {cameraError.includes('HTTPS') ? (
-                  <button onClick={() => closeCameraModal(true)} className="web-retry-btn">
-                    Enter Manually
-                  </button>
-                ) : (
-                  <>
-                    <button onClick={retryIDCamera} className="web-retry-btn">
-                      <RotateCcw size={16} /> Try Again
-                    </button>
-                    <button onClick={() => closeCameraModal(true)} className="web-cancel-btn">
+    return (
+      <div className="webreg-popup-overlay">
+        <div className="webreg-popup webreg-camera-modal">
+          <div className="webreg-popup-content">
+            <div className="webreg-popup-header">
+              <h3>Scan Philippine ID</h3>
+              <button onClick={closeCameraModal} className="webreg-popup-close">
+                <X size={20} />
+              </button>
+            </div>
+            {cameraError ? (
+              <div className="webreg-camera-error">
+                <div className="webreg-error-icon">
+                  <AlertTriangle size={48} />
+                </div>
+                <p>{cameraError}</p>
+                <div className="webreg-error-actions">
+                  {cameraError.includes('HTTPS') ? (
+                    <button onClick={() => closeCameraModal(true)} className="webreg-retry-btn">
                       Enter Manually
                     </button>
-                  </>
-                )}
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="web-camera-container">
-                <video 
-                  id="camera-feed" 
-                  autoPlay
-                  playsInline
-                  muted
-                  className="web-camera-feed"
-                />
-                
-                <div className="web-camera-overlay">
-                  <div className="web-id-frame">
-                    <div className="web-corner tl"></div>
-                    <div className="web-corner tr"></div>
-                    <div className="web-corner bl"></div>
-                    <div className="web-corner br"></div>
-                    
-                    {(ocrProcessing || idDetected) && (
-                      <div className="web-processing-overlay">
-                        <div className="web-processing-spinner"></div>
-                        <p>{idDetected ? 'ID Detected! Processing...' : 'Processing...'}</p>
-                      </div>
-                    )}
-                  </div>
+                  ) : (
+                    <>
+                      <button onClick={retryIDCamera} className="webreg-retry-btn">
+                        <RotateCcw size={16} /> Try Again
+                      </button>
+                      <button onClick={() => closeCameraModal(true)} className="webreg-cancel-btn">
+                        Enter Manually
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
-              
-              <p className="web-camera-instruction">
-                <Camera size={16} />
-                {autoDetectionActive ? (
-                  <span style={{ color: '#4ade80', fontWeight: '600' }}>
-                    🟢 Auto-detection active – Hold your ID clearly in view
-                  </span>
-                ) : (
-                  'Position your PhilHealth or Driving License clearly in view'
-                )}
-              </p>
-              
-              <div className="web-error-actions">
-                <button
-                  onClick={handleCaptureID}
-                  disabled={ocrProcessing || !cameraStream}
-                  className="web-capture-btn"
-                >
-                  {ocrProcessing ? 'Processing...' : '📸 Manual Capture'}
-                </button>
-              </div>
-            </>
-          )}
+            ) : (
+              <>
+                <div className="webreg-camera-container">
+                  <video 
+                    id="webreg-camera-feed" 
+                    autoPlay
+                    playsInline
+                    muted
+                    className="webreg-camera-feed"
+                  />
+                  <div className="webreg-camera-overlay">
+                    <div className="webreg-id-frame">
+                      <div className="webreg-corner tl"></div>
+                      <div className="webreg-corner tr"></div>
+                      <div className="webreg-corner bl"></div>
+                      <div className="webreg-corner br"></div>
+                    </div>
+                  </div>
+                </div>
+                <p className="webreg-camera-instruction">
+                  <Camera size={16} />Position your ID within the frame above
+                </p>
+                <div className="webreg-error-actions">
+                  <button
+                    onClick={handleCaptureID}
+                    disabled={ocrProcessing || !cameraStream}
+                    className="webreg-capture-btn"
+                  >
+                    Capture ID
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
-  };
+    );
+  }; 
 
   const renderSuccessModal = () => {
     if (!showSuccessModal || !registrationResult) return null;
@@ -2117,25 +2081,29 @@ const WebRegistration = () => {
         <div className="webreg-popup webreg-success-modal">
           <div className="webreg-popup-content">
             <div className="webreg-success-content">
-              <div className="webreg-success-icon">
-                <CheckCircle size={48} />
-              </div>
               <div className="webreg-success-message">
                 <h4>Registration QR Code Sent!</h4>
-                <p style={{ color: 'var(--webreg-text-light)', fontSize: '0.85em', margin: '10px 0' }}>
-                  Your registration QR code has been sent to your email.
-                </p>
-                <p style={{ color: 'var(--webreg-text-light)', fontSize: '0.85em', margin: '10px 0' }}>
-                  Please check your email and present the QR code at the hospital kiosk to complete your registration.
-                </p>
-              </div>
-              <div className="webreg-error-actions">
-                <button
-                  onClick={handleSuccessModalClose}
-                  className="webreg-success-btn"
-                >
-                  Continue to Homepage
-                </button>
+
+                {/* Add Patient Details Section */}
+                <div className="webreg-success-details">
+                  <p><strong>Registration ID:</strong> {registrationResult.tempPatientId}</p>
+                  <p><strong>Status:</strong> Pending Kiosk Completion</p>
+                </div>
+
+                {/* Email Instructions */}
+                <div className="webreg-email-instructions">
+                  <p>Your registration QR code has been sent to your email.</p>
+                  <p>Please check your email and present the QR code at the hospital kiosk to complete your registration.</p>
+                </div>
+
+                <div className="webreg-error-actions">
+                  <button
+                    onClick={handleSuccessModalClose}
+                    className="webreg-success-btn"
+                  >
+                    Continue to Homepage
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -2168,26 +2136,31 @@ const WebRegistration = () => {
     );
   };
 
+  const renderWelcomeSection = () => {
+    return (
+      <div className="webreg-welcome-container">
+        <h1 className="webreg-welcome-title">Welcome to CliCare Hospital</h1>
+        <p className="webreg-welcome-subtitle">
+          You are registering as a <strong>New Patient</strong>. 
+          Please complete all required steps below.
+        </p>
+      </div>
+    );
+  };
+
   return (
     <div className="webreg-registration-portal">
-      <div className="webreg-reg-header">
-        <img src={clicareLogo} alt="CliCare Logo" className="webreg-reg-logo"/>
-        <div className="webreg-hospital-info">
-          <p><strong>{formatTime(currentTime)}</strong></p>
-          <p>{formatDate(currentTime)}</p>
-        </div>
-      </div>
-
+      {renderWelcomeSection()}
       {renderProgressBar()}
       
       <div className="webreg-reg-content">
         {renderCurrentStep()}
       </div>
 
-      <div className="webreg-nav-container">
-        {renderNavigationButtons()}
+      <div className="webreg-nav-buttons">
+        {renderBackButton()}
+        {renderNextButton()}
       </div>
-
       <div className="webreg-help-footer">
         <div className="webreg-help-section">
           <h4>Need Help?</h4>
@@ -2198,6 +2171,7 @@ const WebRegistration = () => {
       {renderCameraModal()}
       {renderSuccessModal()}
       {renderToast()}
+
     </div>
   );
 };
