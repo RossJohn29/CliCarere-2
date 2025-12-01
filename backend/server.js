@@ -5930,7 +5930,7 @@ app.post('/api/generate-qr-email', async (req, res) => {
           </p>
           <div style="text-align: center; margin: 0 0 24px 0;">
             <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 16px 20px;">
-              <img src="data:image/png;base64,${qrCodeBuffer.toString('base64')}" alt="QR Code" style="max-width: 200px; height: auto; border-radius: 6px;">
+              <img src="data:image/png;base64,${qrCodeBuffer.toString('base64')}" alt="QR Code" style="max-width: 200px; height: auto; border-radius: 6px;"/>
               <p style="color: #6b7280; font-size: 13px; font-weight: 400; margin: 12px 0 0 0;">
                 Show this QR code to the registration staff
               </p>
