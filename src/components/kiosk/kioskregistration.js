@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   RotateCcw,
   X,
   Check,
@@ -33,19 +34,16 @@ import {
   Printer,
   Receipt,
   Home,
-  LogOut
+  LogOut,
+  Search
 } from 'lucide-react';
 
 import {
   processIDWithOCR,
-  processIDWithOCREnhanced,
   isCameraAvailable,
   initializeCamera,
   cleanupCamera,
-  captureImageFromVideo,
-  startAutoCapture,
-  detectIDInFrame,
-  cropAndPreprocessID,
+  captureImageFromVideo
 } from '../../services/tesseractOCR';
 
 const KioskRegistration = () => {
@@ -88,10 +86,8 @@ const KioskRegistration = () => {
   const [durationOptions, setDurationOptions] = useState([]);
   const [outpatientSymptoms, setOutpatientSymptoms] = useState([]);
   const [symptomsLoading, setSymptomsLoading] = useState(true);
-  const [autoDetectionActive, setAutoDetectionActive] = useState(false);
-  const [autoDetectionController, setAutoDetectionController] = useState(null); 
-  const [idDetected, setIdDetected] = useState(false);
-  const [detectionIndicator, setDetectionIndicator] = useState(null);
+  const [categorySearches, setCategorySearches] = useState({});
+  const [openCategories, setOpenCategories] = useState({});
 
   const [patientData, setPatientData] = useState({
     patient_id: '', 
@@ -217,22 +213,9 @@ const KioskRegistration = () => {
     if (showCameraModal) {
       initializeCameraStream();
     } else {
-      // Stop auto-detection when modal closes
-      if (autoDetectionController) {
-        autoDetectionController.stop();
-        setAutoDetectionController(null);
-      }
-      setAutoDetectionActive(false);
-      setIdDetected(false);
-      setDetectionIndicator(null);
       cleanupCameraStream();
     }
-    return () => {
-      if (autoDetectionController) {
-        autoDetectionController.stop();
-      }
-      cleanupCameraStream();
-    };
+    return () => cleanupCameraStream();
   }, [showCameraModal]);
 
   useEffect(() => {
@@ -262,7 +245,7 @@ const KioskRegistration = () => {
     if (showSuccessModal) {
       const timer = setTimeout(() => {
         handleSuccessModalClose();
-      }, 5000);
+      }, 30000);
       return () => clearTimeout(timer);
     }
   }, [showSuccessModal]);
@@ -449,21 +432,10 @@ const KioskRegistration = () => {
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
         video.muted = true;
-
-        video.style.width = '100%';
-        video.style.height = 'auto';
-        video.style.maxHeight = '60vh';
-        video.style.objectFit = 'contain';
         
         const playVideo = async () => {
           try {
             await video.play();
-            
-            if (!showQrScanModal && videoId === 'camera-feed') {
-              setTimeout(() => {
-                startAutoIDDetection(video);
-              }, 1000);
-            }
             
             if (showQrScanModal && videoId === 'qr-camera-feed') {
               const checkVideoReady = () => {
@@ -503,47 +475,6 @@ const KioskRegistration = () => {
     }
   };
 
-  const startAutoIDDetection = (video) => {
-    if (!video || autoDetectionActive) return;
-    
-    console.log('🤖 Starting auto ID detection...');
-    setAutoDetectionActive(true);
-    
-    const controller = startAutoCapture(
-      video,
-      // onCapture callback
-      async (processedImage, detection) => {
-        console.log('📸 Auto-capture triggered!', detection);
-        setIdDetected(true);
-        setCapturedImage(processedImage);
-        
-        // Visual feedback
-        showToastNotification('ID detected! Processing...', 'info');
-        
-        // Process with OCR
-        await processIDImageWithOCR(processedImage, 0);
-        
-        // Reset detection indicator after processing
-        setTimeout(() => {
-          setIdDetected(false);
-        }, 2000);
-      },
-      // onDetection callback (visual feedback)
-      (detection) => {
-        setDetectionIndicator({
-          x: detection.boundingBox.x,
-          y: detection.boundingBox.y,
-          width: detection.boundingBox.width,
-          height: detection.boundingBox.height,
-          confidence: detection.confidence
-        });
-      }
-    );
-    
-    setAutoDetectionController(controller);
-  };
-
-
   const cleanupCameraStream = () => {
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => {
@@ -567,12 +498,6 @@ const KioskRegistration = () => {
   const handleCaptureID = () => {
     if (ocrProcessing) return;
     
-    // Stop auto-detection temporarily for manual capture
-    if (autoDetectionController) {
-      autoDetectionController.stop();
-      setAutoDetectionActive(false);
-    }
-    
     const video = document.getElementById('camera-feed');
     if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
       setCameraError('Camera not ready. Please wait a moment and try again.');
@@ -587,53 +512,30 @@ const KioskRegistration = () => {
       }
       
       setCapturedImage(imageData);
-      processIDImageWithOCR(imageData, 0);
+      processIDImageWithOCR(imageData);
     } catch (error) {
       setCameraError('Failed to capture image. Please try again.');
     }
   };
 
-  const processIDImageWithOCR = async (imageData, retryCount = 0) => {
-    if (ocrProcessing && retryCount === 0) return;
+  const processIDImageWithOCR = async (imageData) => {
+    if (ocrProcessing || !imageData) return;
     
     setOcrProcessing(true);
     
     try {
-      const result = await processIDWithOCREnhanced(imageData, retryCount);
-      
-      console.log('OCR Result:', result);
+      const result = await processIDWithOCR(imageData);
       
       if (result.success && result.name) {
         setFormData((prev) => ({ ...prev, fullName: result.name }));
-        
-        // Stop auto-detection after success
-        if (autoDetectionController) {
-          autoDetectionController.stop();
-          setAutoDetectionController(null);
-        }
-        setAutoDetectionActive(false);
-        
         setShowCameraModal(false);
         setError('');
-        
-        // Show confidence level in toast
-        const confidencePercent = result.confidence ? Math.round(result.confidence) : 0;
-        showToastNotification(
-          `✅ ${result.name} - Extracted successfully! (${confidencePercent}% confidence)`, 
-          confidencePercent >= 60 ? 'success' : 'warning'
-        );
+        showToastNotification('ID scanned successfully! Name auto-filled.', 'success');
       } else {
         setCameraError(result.message || 'Failed to extract name from ID');
-        
-        // Show the raw OCR text in console for debugging
-        console.log('OCR Raw Text:', result.rawText);
-        
-        showToastNotification('Could not extract name. Please try repositioning the ID or enter manually.', 'error');
       }
     } catch (err) {
-      console.error('OCR Error:', err);
       setCameraError('Failed to process ID image. Please try again.');
-      showToastNotification('OCR failed. Please try again.', 'error');
     } finally {
       setOcrProcessing(false);
     }
@@ -1008,6 +910,23 @@ const KioskRegistration = () => {
     }
   };
 
+  const getFilteredSymptoms = (category) => {
+    const searchTerm = categorySearches[category.category]?.toLowerCase() || '';
+    if (!searchTerm) return category.symptoms;
+    
+    return category.symptoms.filter(symptom =>
+      symptom.toLowerCase().includes(searchTerm)
+    );
+  };
+
+  const getCategorySelectedCount = (category) => {
+    const currentData = patientType === 'returning' ? patientData : formData;
+    
+    return category.symptoms.filter(symptom => 
+      currentData.selectedSymptoms.includes(symptom)
+    ).length;
+  };
+
   const hasOnlyRoutineCareSymptoms = (symptoms) => {
     if (!symptoms || symptoms.length === 0) return false;
     
@@ -1151,17 +1070,17 @@ const KioskRegistration = () => {
     try {
       setDuplicateChecking(true);
       
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/check-duplicate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        email: email ? email.toLowerCase() : undefined,
-        contact_no: contactNumber ? cleanPhoneNumber(contactNumber) : undefined
-      })
-    });
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/check-duplicate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          email: email ? email.toLowerCase() : undefined,
+          contact_no: contactNumber ? cleanPhoneNumber(contactNumber) : undefined
+        })
+      });
 
       const result = await response.json();
       
@@ -1701,6 +1620,20 @@ const KioskRegistration = () => {
     }
   };
 
+  const handleCategoryToggle = (categoryName) => {
+    setOpenCategories(prev => ({
+      ...prev,
+      [categoryName]: !prev[categoryName]
+    }));
+  };
+
+  const handleSearchChange = (categoryName, searchValue) => {
+    setCategorySearches(prev => ({
+      ...prev,
+      [categoryName]: searchValue
+    }));
+  };
+
   const showToastNotification = (message, type = 'success') => {
     setToastMessage(message);
     setToastType(type);
@@ -1719,41 +1652,50 @@ const KioskRegistration = () => {
     }, 3000);
   };
 
-  const renderProgressBar = () => {
-    const totalSteps = patientType === 'returning' ? 4 : 6;
-    const stepNames = patientType === 'returning'
-      ? ['Personal', 'Symptoms', 'Details', 'Summary']
-      : ['Personal', 'Emergency', 'Review', 'Symptoms', 'Details', 'Summary'];
-    const adjustedStep = patientType === 'returning' ? Math.max(1, currentStep - 3) : currentStep;
-    const stepIcons = patientType === 'returning' ? ['1', '2', '3', '4'] : ['1', '2', '3', '4', '5', '6'];
+// REPLACE your existing renderProgressBar with this
+const renderProgressBar = () => {
+  const stepNames = patientType === 'returning'
+    ? ['Personal Info', 'Health Assessment', 'Additional Info', 'Review & Submit']
+    : ['Personal Info', 'Emergency Contact', 'Review Info', 'Health Assessment', 'Additional Info', 'Final Review'];
+  const adjustedStep = patientType === 'returning' ? Math.max(1, currentStep - 3) : currentStep;
 
-    return (
-      <div className="kioskreg-progress-container">
-        <div className="kioskreg-progress-steps">
-          {stepNames.map((name, index) => {
-            const stepNumber = index + 1;
-            const isActive = stepNumber === adjustedStep;
-            const isCompleted = stepNumber < adjustedStep;
-            const isLast = index === stepNames.length - 1;
+  return (
+    <div className="kioskreg-progress-container">
+      <div className="kioskreg-progress-wrapper">
+        {stepNames.map((name, index) => {
+          const stepNumber = index + 1;
+          const isActive = stepNumber === adjustedStep;
+          const isCompleted = stepNumber < adjustedStep;
 
-            return (
-              <div key={index} className="kioskreg-progress-step-item">
-                <div className={`kioskreg-step ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}>
-                  <div className="kioskreg-step-number">
-                    {isCompleted ? <Check size={12} /> : stepIcons[index]}
-                  </div>
-                  <div className="kioskreg-step-label">{name}</div>
+          return (
+            <div
+              key={index}
+              className={`kioskreg-progress-step-wrapper 
+                ${isCompleted ? 'completed' : ''} 
+                ${isActive ? 'active' : ''}`}
+            >
+              <div className="kioskreg-progress-step">
+                <div className="kioskreg-step-number-circle">
+                  {isCompleted ? <Check size={16} /> : stepNumber}
                 </div>
-                {!isLast && (
-                  <div className={`kioskreg-step-connector ${isCompleted ? 'completed' : ''} ${stepNumber === adjustedStep ? 'active' : ''}`}></div>
-                )}
+                <div className="kioskreg-step-details">
+                  <div className="kioskreg-step-label">{name}</div>
+                  <div className="kioskreg-step-description">
+                    {isCompleted ? 'Completed' : isActive ? 'In Progress' : 'Pending'}
+                  </div>
+                </div>
               </div>
-            );
-          })}
-        </div>
+              {index < stepNames.length - 1 && (
+                <div className={`kioskreg-step-connector-line ${isCompleted ? 'completed' : ''}`}></div>
+              )}
+            </div>
+          );
+        })}
       </div>
-    );
-  };
+    </div>
+  );
+};
+
 
   const renderPatientInfoStep = () => (
     <div className="kioskreg-card kioskreg-step-transition">
@@ -1871,21 +1813,22 @@ const KioskRegistration = () => {
 
       {renderQRCodeButton()}
 
-        <div className="webreg-input-group">
-          <label>Scan ID</label>
-          <div className="webreg-scan-helper">Optional: Scan your PhilHealth or Driving License to autofill your name</div>
-          <div className="webreg-id-scan">
-            <img src={sampleID} alt="Sample ID" className="sampleID"/>
-            <button
-              onClick={handleIDScanClick}
-              disabled={ocrProcessing || !isCameraAvailable()}
-              className="webreg-id-scan-btn"
-            >
-              {!isCameraAvailable() ? 'Camera Not Available (HTTPS Required)' :
-                ocrProcessing ? (<><span className="webreg-loading-spinner"></span>Scanning ID...</>) : "Scan ID"}
-            </button>
-          </div>
+      <div className="kioskreg-input-group">
+        <label>Scan ID</label>
+        <div className="kioskreg-scan-helper">Optional: a shortcut to speed up typing your full name</div>
+        <div className="kioskreg-id-scan">
+          <img src={sampleID} alt="Sample ID" className="sampleID" />
+          <button
+            onClick={handleIDScanClick}
+            disabled={ocrProcessing || !isCameraAvailable()}
+            className="kioskreg-id-scan-btn"
+          >
+            {!isCameraAvailable() ? 'Camera Not Available (HTTPS Required)' :
+              ocrProcessing ? (<><span className="kioskreg-loading-spinner"></span>Scanning ID...</>) : 
+              (<><Camera size={16} />Scan ID</>)}
+          </button>
         </div>
+      </div>
 
       <div className="kioskreg-form-grid two-column">
         <div className="kioskreg-input-group">
@@ -2186,41 +2129,10 @@ const KioskRegistration = () => {
             <div className="kioskreg-info-icon"><Stethoscope size={20} /></div>
             <div className="kioskreg-info-content">
               <h4>Select Your Symptoms</h4>
-              <p>Choose all symptoms or health concerns you're experiencing</p>
+              <p>Search and select from categories below</p>
             </div>
           </div>
         </div>
-
-        {symptomsLoading ? (
-          <div className="kioskreg-loading">
-            <span className="kioskreg-loading-spinner"></span>
-            Loading symptoms...
-          </div>
-        ) : outpatientSymptoms.length === 0 ? (
-          <div className="kioskreg-error">
-            No symptoms available. Please refresh the page or contact support.
-          </div>
-        ) : (
-          <div className="kioskreg-symptoms-categories">
-            {outpatientSymptoms.map(category => (
-              <div key={category.category} className="kioskreg-symptom-category">
-                <div className="kioskreg-category-title">{category.category}</div>
-                <div className="kioskreg-symptom-grid">
-                  {category.symptoms.map((symptom, index) => (
-                    <button
-                      key={`${category.category}-${symptom}-${index}`}
-                      onClick={() => handleSymptomToggle(symptom)}
-                      className={`kioskreg-symptom-btn ${currentData.selectedSymptoms.includes(symptom) ? 'selected' : ''}`}
-                    >
-                      <span className="symptom-text">{symptom}</span>
-                      {currentData.selectedSymptoms.includes(symptom) && <span className="check-icon">✓</span>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
 
         {currentData.selectedSymptoms.length > 0 && (
           <div className="kioskreg-selected-symptoms">
@@ -2237,6 +2149,83 @@ const KioskRegistration = () => {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {symptomsLoading ? (
+          <div className="kioskreg-loading">
+            <span className="kioskreg-loading-spinner"></span>
+            Loading symptoms...
+          </div>
+        ) : outpatientSymptoms.length === 0 ? (
+          <div className="kioskreg-error">
+            No symptoms available. Please refresh the page or contact support.
+          </div>
+        ) : (
+          <div className="kioskreg-symptoms-categories">
+            {outpatientSymptoms.map(category => {
+              const filteredSymptoms = getFilteredSymptoms(category);
+              const selectedCount = getCategorySelectedCount(category);
+              const isOpen = openCategories[category.category];
+
+              return (
+                <div key={category.category} className="kioskreg-symptom-category">
+                  <div 
+                    className="kioskreg-category-header"
+                    onClick={() => handleCategoryToggle(category.category)}
+                  >
+                    <div className="kioskreg-category-title">
+                      {category.category}
+                      {selectedCount > 0 && (
+                        <span className="kioskreg-category-count">{selectedCount}</span>
+                      )}
+                    </div>
+                    <div className="kioskreg-category-toggle">
+                      {isOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                    </div>
+                  </div>
+
+                  <div className={`kioskreg-symptom-dropdown ${isOpen ? 'open' : ''}`}>
+                    <div className="kioskreg-symptom-search-container">
+                      <input
+                        type="text"
+                        placeholder={`Search ${category.category.toLowerCase()}...`}
+                        value={categorySearches[category.category] || ''}
+                        onChange={(e) => handleSearchChange(category.category, e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="kioskreg-symptom-search"
+                      />
+                      <div className="kioskreg-search-icon">
+                        <Search size={16} />
+                      </div>
+                    </div>
+
+                    <div className="kioskreg-symptom-list">
+                      {filteredSymptoms.length === 0 ? (
+                        <div className="kioskreg-no-results">
+                          No symptoms found matching "{categorySearches[category.category]}"
+                        </div>
+                      ) : (
+                        filteredSymptoms.map((symptom, index) => (
+                          <div
+                            key={`${category.category}-${symptom}-${index}`}
+                            onClick={() => handleSymptomToggle(symptom)}
+                            className={`kioskreg-symptom-item ${
+                              currentData.selectedSymptoms.includes(symptom) ? 'selected' : ''
+                            }`}
+                          >
+                            <span className="kioskreg-symptom-text">{symptom}</span>
+                            {currentData.selectedSymptoms.includes(symptom) && (
+                              <span className="kioskreg-symptom-check">✓</span>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -2576,96 +2565,78 @@ const KioskRegistration = () => {
   const renderCameraModal = () => {
     if (!showCameraModal) return null;
 
-  return (
-    <div className="kiosk-popup-overlay">
-      <div className="kiosk-popup kiosk-camera-modal">
-        <div className="kiosk-popup-header">
-          <h3>Scan Philippine ID</h3>
-          <p style={{ fontSize: '0.9em', color: '#666', margin: '5px 0 0 0' }}>
-            Supported: PhilHealth, Driving License
-          </p>
-          <button onClick={closeCameraModal} className="kiosk-popup-close">
-            <X size={20} />
-          </button>
-        </div>
-        <div className="kiosk-popup-content">
-          {cameraError ? (
-            <div className="kiosk-camera-error">
-              <div className="kiosk-error-icon">
-                <AlertTriangle size={48} />
-              </div>
-              <p>{cameraError}</p>
-              <div className="kiosk-error-actions">
-                {cameraError.includes('HTTPS') ? (
-                  <button onClick={() => closeCameraModal(true)} className="kiosk-retry-btn">
-                    Enter Manually
-                  </button>
-                ) : (
-                  <>
-                    <button onClick={retryIDCamera} className="kiosk-retry-btn">
-                      <RotateCcw size={16} /> Try Again
-                    </button>
-                    <button onClick={() => closeCameraModal(true)} className="kiosk-cancel-btn">
+    return (
+      <div className="kiosk-popup-overlay">
+        <div className="kiosk-popup kiosk-camera-modal">
+          <div className="kiosk-popup-content">
+
+            <div className="kiosk-popup-header">
+              <h3>Scan Philippine ID</h3>
+              <button onClick={closeCameraModal} className="kiosk-popup-close">
+                <X size={20} />
+              </button>
+            </div>
+
+            {cameraError ? (
+              <div className="kiosk-camera-error">
+                <div className="kiosk-error-icon">
+                  <AlertTriangle size={48} />
+                </div>
+                <p>{cameraError}</p>
+                <div className="kiosk-error-actions">
+                  {cameraError.includes('HTTPS') ? (
+                    <button onClick={() => closeCameraModal(true)} className="kiosk-retry-btn">
                       Enter Manually
                     </button>
-                  </>
-                )}
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="kiosk-camera-container">
-                <video 
-                  id="camera-feed" 
-                  autoPlay
-                  playsInline
-                  muted
-                  className="kiosk-camera-feed"
-                />
-                
-                <div className="kiosk-camera-overlay">
-                  <div className="kiosk-id-frame">
-                    <div className="kiosk-corner tl"></div>
-                    <div className="kiosk-corner tr"></div>
-                    <div className="kiosk-corner bl"></div>
-                    <div className="kiosk-corner br"></div>
-                    
-                    {(ocrProcessing || idDetected) && (
-                      <div className="kiosk-processing-overlay">
-                        <div className="kiosk-processing-spinner"></div>
-                        <p>{idDetected ? 'ID Detected! Processing...' : 'Processing...'}</p>
-                      </div>
-                    )}
-                  </div>
+                  ) : (
+                    <>
+                      <button onClick={retryIDCamera} className="kiosk-retry-btn">
+                        <RotateCcw size={16} /> Try Again
+                      </button>
+                      <button onClick={() => closeCameraModal(true)} className="kiosk-cancel-btn">
+                        Enter Manually
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
-              
-              <p className="kiosk-camera-instruction">
-                <Camera size={16} />
-                {autoDetectionActive ? (
-                  <span style={{ color: '#4ade80', fontWeight: '600' }}>
-                    🟢 Auto-detection active – Hold your ID clearly in view
-                  </span>
-                ) : (
-                  'Position your PhilHealth or Driving License clearly in view'
-                )}
-              </p>
-              
-              <div className="kiosk-error-actions">
-                <button
-                  onClick={handleCaptureID}
-                  disabled={ocrProcessing || !cameraStream}
-                  className="kiosk-capture-btn"
-                >
-                  {ocrProcessing ? 'Processing...' : '📸 Manual Capture'}
-                </button>
-              </div>
-            </>
-          )}
+            ) : (
+              <>
+                <div className="kiosk-camera-container">
+                  <video 
+                    id="camera-feed" 
+                    autoPlay
+                    playsInline
+                    muted
+                    className="kiosk-camera-feed"
+                  />
+                  <div className="kiosk-camera-overlay">
+                    <div className="kiosk-id-frame">
+                      <div className="kiosk-corner tl"></div>
+                      <div className="kiosk-corner tr"></div>
+                      <div className="kiosk-corner bl"></div>
+                      <div className="kiosk-corner br"></div>
+                    </div>
+                  </div>
+                </div>
+                <p className="kiosk-camera-instruction">
+                  <Camera size={16} />Position your ID within the frame above
+                </p>
+                <div className="kiosk-error-actions">
+                  <button
+                    onClick={handleCaptureID}
+                    disabled={ocrProcessing || !cameraStream}
+                    className="kiosk-capture-btn"
+                  >
+                    Capture ID
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
   };
 
   const renderQRCodeButton = () => {
@@ -2704,15 +2675,17 @@ const KioskRegistration = () => {
     return (
       <div className="kiosk-popup-overlay">
         <div className="kiosk-popup kiosk-camera-modal">
-          <div className="kiosk-popup-header">
-            <h3>
-              {isReturningPatient() ? 'Scan Health Assessment QR' : 'Scan Registration QR Code'}
-            </h3>
-            <button onClick={closeQrScanModal} className="kiosk-popup-close">
-              <X size={20} />
-            </button>
-          </div>
           <div className="kiosk-popup-content">
+
+            <div className="kiosk-popup-header">
+              <h3>
+                {isReturningPatient() ? 'Scan Health Assessment QR' : 'Scan Registration QR Code'}
+              </h3>
+              <button onClick={closeQrScanModal} className="kiosk-popup-close">
+                <X size={20} />
+              </button>
+            </div>
+
             {cameraError ? (
               <div className="kiosk-camera-error">
                 <div className="kiosk-error-icon">
@@ -2809,68 +2782,112 @@ const KioskRegistration = () => {
   const renderSuccessModal = () => {
     if (!showSuccessModal || !registrationResult) return null;
 
+    const isScheduled = registrationResult.appointment_status === 'scheduled';
+    const schedulingInfo = registrationResult.scheduling_info;
+
     return (
-      <div className="kiosk-popup-overlay">
-        <div className="kiosk-popup kiosk-success-modal">
-          <div className="kiosk-popup-header">
-          </div>
-          <div className="kiosk-popup-content">
+      <div className="kiosk-modal-overlay">
+        <div className="kiosk-modal kiosk-success-modal">
+
+          <div className="kiosk-modal-content">
             <div className="kiosk-success-content">
-              <div className="kiosk-success-icon">
-                <CheckCircle size={48} />
-              </div>
               <div className="kiosk-success-message">
-                <h4>{registrationResult.message}</h4>
+
+                {/* TITLE */}
+                <h4>Registration Successful!</h4>
+
+                {/* IMPORTANT REMINDER (only for scheduled) */}
+                {isScheduled && schedulingInfo && (
+                  <div className="kiosk-appointment-reminder">
+                    <AlertTriangle size={18} />
+                    <div className="kiosk-reminder-text">
+                      <strong>Important Reminder</strong>
+                      <p>
+                        Please arrive 15 minutes before your scheduled time.
+                        Your queue number <strong>#{registrationResult.queue_number}</strong> 
+                        will be called on <strong>{schedulingInfo.day_name}</strong>.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* QUEUE BANNER (only for immediate/non-scheduled) */}
+                {!isScheduled && (
+                  <div className="kiosk-queue-banner">
+                    <div className="kiosk-queue-icon">🩺</div>
+                    <div className="kiosk-queue-text">
+                      <h4>You're in the Queue</h4>
+                      <p>Please proceed to the waiting area</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* PATIENT + DEPARTMENT DETAILS */}
                 <div className="kiosk-success-details">
-                  <div className="kiosk-success-item">
-                    <label>Your Patient ID:</label>
-                    <span className="kioskreg-id">{registrationResult.patientId}</span>
-                  </div>
-                  <div className="kiosk-success-item">
-                    <label>Recommended Department:</label>
-                    <span className="kiosk-department">{registrationResult.recommendedDepartment}</span>
-                  </div>
-                  <div className="kiosk-success-item">
-                    <label>Queue Number:</label>
-                    <span className="kiosk-queue">{registrationResult.queue_number}</span>
-                  </div>
+                  <p><strong>Your Patient ID:</strong> {registrationResult.patientId}</p>
+                  <p><strong>Recommended Department:</strong> {registrationResult.recommendedDepartment}</p>
                 </div>
-              </div>
-              
-              {/* Add printing options */}
-              <div className="kiosk-print-options">
-                <div className="kiosk-print-status">
-                  <Printer size={16} />
-                  <span>Your guidance packet is being prepared for printing...</span>
-                </div>
-                
-                <div className="kiosk-print-buttons">
-                  <button
-                    onClick={() => handleAutomaticPrint(registrationResult)}
-                    className="kiosk-print-btn"
-                  >
-                    <Printer size={16} /> Print Guidance Packet
+
+                {/* SCHEDULED APPOINTMENT BLOCK */}
+                {isScheduled && schedulingInfo && (
+                  <div className="kiosk-scheduled-info">
+                    <div className="kiosk-appointment-details">
+
+                      <p>
+                        <strong>Appointment Date:</strong>{" "}
+                        {schedulingInfo.day_name},{" "}
+                        {new Date(schedulingInfo.appointment_date).toLocaleDateString("en-US", {
+                          month: "long",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </p>
+
+                      <p>
+                        <strong>Time Slot:</strong> {schedulingInfo.time_slot}
+                      </p>
+
+                      <p>
+                        <strong>Your Queue Position:</strong> #{registrationResult.queue_number}
+                      </p>
+
+                    </div>
+                  </div>
+                )}
+
+                {!isScheduled && (
+                  <div className="kiosk-immediate-info">
+                    <div className="kiosk-queue-details">
+                      <div className="kiosk-queue-number-display">
+                        <label>Your Queue Number</label>
+                        <div className="kiosk-queue-number-large">
+                          {registrationResult.queue_number}
+                        </div>
+                      </div>
+
+                      <div className="kiosk-queue-info-items">
+                        <div className="kiosk-queue-info-item">
+                          <strong>Estimated Wait:</strong><span>{registrationResult.estimated_wait || "15–30 minutes"}</span>
+                        </div>
+                        <div className="kiosk-queue-info-item">
+                          <strong>Waiting Area:</strong><span>{registrationResult.recommendedDepartment}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* BUTTON AREA */}
+                <div className="kiosk-error-actions">
+                  <button className="kiosk-success-btn" onClick={handleSuccessModalClose}>
+                    Continue to Homepage
                   </button>
-                  
-                  <button
-                    onClick={() => handleReceiptPrint(registrationResult)}
-                    className="kiosk-receipt-btn"
-                  >
-                    <Receipt size={16} /> Print Receipt Only
-                  </button>
                 </div>
-              </div>
-              
-              <div className="kiosk-error-actions">
-                <button
-                  onClick={handleSuccessModalClose}
-                  className="kiosk-success-btn"
-                >
-                  Continue to Homepage
-                </button>
+
               </div>
             </div>
           </div>
+
         </div>
       </div>
     );
@@ -2899,94 +2916,47 @@ const KioskRegistration = () => {
     );
   };
 
+  const renderWelcomeSection = () => {
+    const userName = patientType === 'returning' ? patientData.name : 'CliCare Hospital';
+    const accessType = patientType === 'returning' ? 'Returning Patient' : 'New Patient Registration';
+    
+    return (
+      <div className="kioskreg-welcome-container">
+        <h1 className="kioskreg-welcome-title">Welcome to {userName}</h1>
+        <p className="kioskreg-welcome-subtitle">
+          You are registering as a <strong>{accessType}</strong>. 
+          Please complete all required steps below.
+        </p>
+      </div>
+    );
+  };
+
   return (
     <div className="kioskreg-registration-portal">
-      <div className="kioskreg-header">
-        <img src={clicareLogo} alt="CliCare Logo" className="kioskreg-logo"/>
-        <div className="kioskreg-hospital-info">
-          <p><strong>{formatTime(currentTime)}</strong></p>
-          <p>{formatDate(currentTime)}</p>
+
+        {renderWelcomeSection()}
+        {renderProgressBar()}
+
+        <div className="kioskreg-content">
+          {renderCurrentStep()}
         </div>
-      </div>
-      
-      {renderProgressBar()}
 
-      <div className="kioskreg-content">
-        {renderCurrentStep()}
-      </div>
-
-      <div className="kioskreg-nav-container">
         <div className="kioskreg-nav-buttons">
           {renderBackButton()}
           {renderNextButton()}
         </div>
-      </div>
 
-      <div className="kioskreg-help-footer">
-        <div className="kioskreg-help-section">
-          <h4>Need Help?</h4>
-          <p>Press the help button or ask hospital staff for assistance</p>
-        </div>
-      </div>
-
-      {showLogoutConfirmModal && (
-        <div className="kiosk-popup-overlay">
-          <div className="kiosk-popup">
-            <div className="kiosk-popup-header">
-              <h3>Confirm Logout</h3>
-              <button 
-                className="kiosk-popup-close" 
-                onClick={() => setShowLogoutConfirmModal(false)}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="kiosk-popup-content">
-              <p style={{ color: 'var(--kioskreg-text-light)', fontSize: '0.8em', lineHeight: '1.5', marginBottom: '15px', fontWeight: 400 }}>
-                Are you sure you want to logout? You will need to login again to continue your registration.
-              </p>
-            </div>
-            <div className="kiosk-modal-actions">
-              <button 
-                className="kiosk-modal-btn secondary" 
-                onClick={() => setShowLogoutConfirmModal(false)}
-              >
-                Cancel
-              </button>
-              <button 
-                className="kiosk-modal-btn logout" 
-                onClick={() => {
-                  localStorage.clear();
-                  window.location.href = '/kiosk-login';
-                }}
-              >
-                Logout
-              </button>
-            </div>
+        <div className="kioskreg-help-footer">
+          <div className="kioskreg-help-section">
+            <h4>Need Help?</h4>
+            <p>Press the help button or ask hospital staff for assistance</p>
           </div>
         </div>
-      )}
 
-      {showAlertModal && (
-        <div className="kiosk-popup-overlay" onClick={() => setShowAlertModal(false)}>
-          <div className="kiosk-popup kiosk-alert-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="kiosk-alert-content">
-              <div className={`kiosk-alert-icon ${alertModalContent.type}`}>
-                {alertModalContent.type === 'success' && <CheckCircle size={24} />}
-                {alertModalContent.type === 'error' && <AlertTriangle size={24} />}
-                {alertModalContent.type === 'info' && <Info size={24} />}
-              </div>
-              <h3>{alertModalContent.title}</h3>
-              <p style={{ whiteSpace: 'pre-line' }}>{alertModalContent.message}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {renderCameraModal()}
-      {renderQrScanModal()}
-      {renderSuccessModal()}
-      {renderToast()}
+        {renderCameraModal()}
+        {renderQrScanModal()}
+        {renderSuccessModal()}
+        {renderToast()}
     </div>
   );
 };
