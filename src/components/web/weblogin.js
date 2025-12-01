@@ -28,6 +28,7 @@ const WebLogin = () => {
   const [error, setError] = useState('');
   const [countdown, setCountdown] = useState(0);
   const [justSent, setJustSent] = useState(false);
+  const [checkTimeout, setCheckTimeout] = useState(null)
 
   useEffect(() => {
     let timer;
@@ -36,6 +37,14 @@ const WebLogin = () => {
     }
     return () => clearTimeout(timer);
   }, [countdown]);
+
+  useEffect(() => {
+    return () => {
+      if (checkTimeout) {
+        clearTimeout(checkTimeout);
+      }
+    };
+  }, [checkTimeout]);
 
   // Enhanced phone number validation
   const validatePhoneNumber = (phone) => {
@@ -50,15 +59,57 @@ const WebLogin = () => {
     return emailRegex.test(email);
   };
 
+  const checkReturningPatientPendingQueue = async (patientId) => {
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/check-pending-queue-by-id`, {
+        method: 'POST',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ patientId })
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('Error checking pending queue:', result);
+        return { hasPending: false }; // Allow login on error
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Failed to check pending queue:', error);
+      return { hasPending: false }; // Allow login on error
+    }
+  };
+
   const handleInputChange = (e) => {
-    setCredentials({ ...credentials, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setCredentials({ ...credentials, [name]: value });
     
-    if (showValidation) {
+    // Real-time pending queue check for Patient ID with debouncing
+    if (name === 'patientId') {
+      // Clear previous timeout
+      if (checkTimeout) {
+        clearTimeout(checkTimeout);
+      }
+      
+      // Set new timeout for checking (wait 500ms after user stops typing)
+      const newTimeout = setTimeout(() => {
+        checkPendingQueueRealtime(value);
+      }, 500);
+      
+      setCheckTimeout(newTimeout);
+    }
+    
+    if (showValidation && !error.includes('Active Consultation')) {
       setShowValidation(false);
       setFieldErrors({});
     }
     
-    setError('');
+    if (!error.includes('Active Consultation')) {
+      setError('');
+    }
   };
 
   const handleMethodSwitch = (method) => {
@@ -74,7 +125,12 @@ const WebLogin = () => {
 
   const checkPendingQueueRealtime = async (patientId) => {
     if (!patientId || patientId.trim().length < 3) {
-      return; // Don't check until at least 3 characters
+      // Clear error and enable button if patient ID is too short
+      if (error.includes('Active Consultation') || error.includes('scheduled appointment')) {
+        setError('');
+        setFieldErrors({});
+      }
+      return false;
     }
 
     try {
@@ -91,29 +147,29 @@ const WebLogin = () => {
       console.log('📊 Queue check result:', data);
 
       if (data.success && data.hasPendingQueue) {
-        console.log('⚠️ Pending queue detected - Is newly registered:', data.isNewlyRegistered);
+        console.log('⚠️ Pending queue detected:', data.status);
         
-        // ✅ UPDATED: Only block if patient is newly registered
-        if (data.isNewlyRegistered) {
-          console.log('🚫 Blocking login - newly registered patient with pending queue');
-          setError(
-            `You cannot log in while your registration is being processed.\n\n` +
-            `Queue Number: ${data.queueNumber}\n` +
-            `Department: ${data.departmentName}\n` +
-            `Status: ${data.status === 'waiting' ? 'Waiting' : 'In Progress'}\n\n` +
-            `Please wait until your consultation is completed before logging in again.`
-          );
-          setFieldErrors({ patientId: 'Active queue detected' });
-          return true; // Has pending queue AND is newly registered
+        // ✅ Different messages based on status
+        let errorMessage = '';
+        if (data.status === 'scheduled') {
+          const schedDate = data.scheduledDate ? new Date(data.scheduledDate).toLocaleDateString() : 'your scheduled date';
+          errorMessage = `Please complete your first consultation before logging in.`;
+        } else if (data.status === 'waiting') {
+          errorMessage = `Please complete your first consultation before logging in.`;
+        } else if (data.status === 'in_progress') {
+          errorMessage = `Please complete your first consultation before logging in.`;
         } else {
-          // Existing patient with pending queue - allow login but show info
-          console.log('✅ Allowing login - existing patient with pending queue (Queue #' + data.queueNumber + ')');
-          return false;
+          errorMessage = data.message || 'Please complete your current consultation before logging in.';
         }
+        
+        setError(errorMessage);
+        setFieldErrors({ patientId: 'Pending consultation detected' });
+        
+        return true; // Has pending queue
       } else {
         console.log('✅ No pending queue - allowing login');
         // Clear error if no pending queue
-        if (error.includes('active consultation') || error.includes('registration is being processed')) {
+        if (error.includes('Active Consultation') || error.includes('scheduled appointment')) {
           setError('');
           setFieldErrors({});
         }
@@ -134,6 +190,7 @@ const WebLogin = () => {
       // Check for pending queue before sending OTP
       const hasPendingQueue = await checkPendingQueueRealtime(credentials.patientId);
       if (hasPendingQueue) {
+        // Don't set sendingCode to true here
         return; // Stop OTP sending if pending queue exists
       }
     }
@@ -166,7 +223,6 @@ const WebLogin = () => {
 
     try {
       const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/outpatient/send-otp`, {
-        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
@@ -207,6 +263,13 @@ const WebLogin = () => {
 
     if (!credentials.patientId.trim()) {
       stepErrors.patientId = 'Patient ID is required';
+    } else {
+      // Final check before login
+      const hasPendingQueue = await checkPendingQueueRealtime(credentials.patientId);
+      if (hasPendingQueue) {
+        setLoading(false);
+        return;
+      }
     }
 
     if (!codeSent) {
@@ -253,27 +316,6 @@ const WebLogin = () => {
 
       const data = await response.json();
       console.log('📥 Login response:', data);
-
-      // ✅ UPDATED: Handle pending queue error ONLY for newly registered patients
-      if (response.status === 403 && data.error === 'PENDING_QUEUE') {
-        console.log('⚠️ Received PENDING_QUEUE error:', data);
-        
-        if (data.isNewlyRegistered) {
-          console.log('🚫 Blocking newly registered patient');
-          setError(
-            `You cannot log in while your registration is being processed.\n\n` +
-            `Queue Number: ${data.queueNumber}\n` +
-            `Department: ${data.departmentName}\n\n` +
-            `Please wait until your consultation is completed.`
-          );
-          setLoading(false);
-          return;
-        } else {
-          // Existing patient - should not reach here, but handle gracefully
-          console.log('⚠️ Unexpected PENDING_QUEUE for existing patient - allowing login anyway');
-          // Continue with login anyway (this shouldn't happen with updated backend)
-        }
-      }
 
       if (!response.ok) {
         console.error('❌ Login failed:', data.error);
@@ -537,14 +579,21 @@ const WebLogin = () => {
 
   return (
     <div className="weblogin-portal">
+      <div className="weblogin-welcome-container">
+        <h1 className="weblogin-welcome-title">Welcome to CliCare Hospital</h1>
+        <p className="weblogin-welcome-subtitle">
+          Access your <strong>Patient Portal</strong> or create a new account
+        </p>
+      </div>
+
       <div className="weblogin-content">
         {!patientType && renderPatientTypeSelection()}
         {patientType === 'old' && renderOldPatientLogin()}
         {patientType === 'new' && renderNewPatientRedirect()}
       </div>
 
-      <div className="weblogin-footer">
-        <p>Secure patient access • Need help? Tap to call (02) 8123-4567</p>
+      <div className="admin-footer">
+        <p>© 2025 CliCare. All rights reserved.</p>
       </div>
     </div>
   );

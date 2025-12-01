@@ -1,3 +1,4 @@
+// adminlogin.js
 import React, { useState, useEffect } from 'react';
 import './adminlogin.css';
 import { adminApi, adminUtils } from '../../services/adminApi';
@@ -110,6 +111,14 @@ const AdminLogin = () => {
 
   return (
     <div className="admin-portal">
+
+      <div className="admin-welcome-container">
+        <h1 className="admin-welcome-title">CliCare Hospital Admin Portal</h1>
+        <p className="admin-welcome-subtitle">
+          Sign in to access your <strong>Administrative Dashboard</strong>
+        </p>
+      </div>
+
       <div className="admin-content">
         <div className="admin-card">
           <div className="admin-form-header">
@@ -224,8 +233,7 @@ const AdminLogin = () => {
       </div>
 
       <div className="admin-footer">
-        <p>CliCare Hospital Management System</p>
-        <p>Secure Admin Access Portal</p>
+        <p>© 2025 CliCare. All rights reserved.</p>
       </div>
     </div>
   );

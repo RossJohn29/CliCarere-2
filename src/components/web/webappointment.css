@@ -49,10 +49,41 @@
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
+/* Welcome */
+.webapp-welcome-container {
+  background: var(--webapp-white);
+  padding: 40px 40px 20px;
+  text-align: center;
+}
+
+.webapp-welcome-title {
+  font-size: 1.25em;
+  font-weight: 600;
+  color: var(--webapp-secondary-color);
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.webapp-welcome-subtitle {
+  font-size: 0.8em;
+  color: var(--webapp-text-light);
+  margin-bottom: 0;
+  line-height: 1.5;
+  max-width: 600px;
+  margin: 0 auto;
+  font-weight: 400;
+}
+
+.webapp-welcome-subtitle strong {
+  color: var(--webapp-primary-color);
+  font-weight: 500;
+}
+
 /* Main Layout */
 .webapp-registration-portal {
   min-height: 100vh;
-  background: var(--webapp-background);
+  background: var(--webapp-white);
   font-family: var(--webapp-font-family);
   position: relative;
   display: flex;
@@ -125,43 +156,39 @@
 /* Progress Bar */
 .webapp-progress-container {
   background: var(--webapp-white);
-  padding: 20px 40px;
-  position: relative;
-  z-index: 10;
-  box-shadow: var(--webapp-shadow);
+  padding: 24px 40px 20px;
 }
 
-.webapp-progress-steps {
+.webapp-progress-wrapper {
   display: flex;
   align-items: flex-start;
-  justify-content: center;
-  max-width: 800px;
-  width: 100%;
-  margin: 0 auto;
+  justify-content: space-between;
+  gap: 0;
   position: relative;
+  width: 100%;
+  max-width: 750px;
+  margin: 0 auto;
 }
 
-.webapp-progress-step-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+.webapp-progress-step-wrapper {
   position: relative;
   flex: 1;
-}
-
-.webapp-progress-step-item:not(:last-child) {
-  margin-right: 20px;
-}
-
-.webapp-step {
   display: flex;
   flex-direction: column;
   align-items: center;
-  position: relative;
-  z-index: 2;
 }
 
-.webapp-step-number {
+.webapp-progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: 100%;
+  position: relative;
+  z-index: 3;
+}
+
+.webapp-step-number-circle {
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -170,69 +197,75 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 500;
+  font-weight: 600;
   font-size: 0.75em;
-  margin-bottom: 8px;
-  transition: var(--webapp-transition);
+  margin-bottom: 12px;
   position: relative;
   z-index: 3;
+  transition: all 0.3s ease;
 }
 
-.webapp-step.active .webapp-step-number,
-.webapp-step.completed .webapp-step-number {
+.webapp-progress-step-wrapper.active .webapp-step-number-circle {
   background: var(--webapp-primary-color);
-  color: var(--webapp-white);
+  color: white;
+  box-shadow: 0 0 0 4px rgba(26, 103, 42, 0.1);
 }
 
-.webapp-step.active .webapp-step-number {
-  transform: scale(1.1);
-  box-shadow: 0 0 0 3px rgba(26, 103, 42, 0.08);
+.webapp-progress-step-wrapper.completed .webapp-step-number-circle {
+  background: var(--webapp-success);
+  color: white;
+}
+
+.webapp-step-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .webapp-step-label {
   font-size: 0.75em;
+  color: var(--webapp-text-dark);
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.webapp-step-description {
+  font-size: 0.7em;
   color: var(--webapp-text-light);
   font-weight: 400;
-  text-align: center;
-  white-space: nowrap;
-  transition: var(--webapp-transition);
-  min-width: 60px;
 }
 
-.webapp-step.active .webapp-step-label {
+.webapp-progress-step-wrapper.active .webapp-step-label {
   color: var(--webapp-primary-color);
-  font-weight: 500;
+  font-weight: 600;
 }
 
-.webapp-step.completed .webapp-step-label {
-  color: var(--webapp-primary-color);
-  font-weight: 500;
+.webapp-progress-step-wrapper.active .webapp-step-description {
+  color: var(--webapp-primary-dark);
 }
 
-.webapp-step-connector {
-  height: 2px;
-  background: var(--webapp-gray-200);
+.webapp-progress-step-wrapper.completed .webapp-step-label {
+  color: var(--webapp-success);
+}
+
+/* Connector Line */
+.webapp-step-connector-line {
   position: absolute;
-  transition: var(--webapp-transition);
-  z-index: 1;
   top: 16px;
   left: calc(50% + 16px);
-  right: calc(-100% + 36px);
+  right: calc(-100% + 50% + 16px);
+  height: 2px;
+  background: var(--webapp-gray-200);
+  z-index: 1;
+  transition: background 0.3s ease;
 }
 
-.webapp-step-connector::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  width: 0%;
-  background: var(--webapp-primary-color);
-  transition: width 0.6s ease;
+.webapp-progress-step-wrapper.completed .webapp-step-connector-line {
+  background: var(--webapp-success);
 }
 
-.webapp-step-connector.completed::before {
-  width: 100%;
+.webapp-progress-step-wrapper:last-child .webapp-step-connector-line {
+  display: none;
 }
 
 /* Main Content */
@@ -256,7 +289,7 @@
   padding: 40px;
   width: 100%;
   position: relative;
-  box-shadow: var(--webapp-shadow-lg);
+  border: 1px solid var(--webapp-gray-200);
 }
 
 .webapp-step-transition {
@@ -377,7 +410,7 @@
 }
 
 .webapp-input-group {
-  margin-bottom: 0;
+  margin-bottom: 10px;
 }
 
 .webapp-input-group.full-width {
@@ -565,6 +598,171 @@ select.webapp-reg-form-input:focus {
   color: var(--webapp-secondary-color);
   font-weight: 500;
   font-size: 0.8em;
+}
+
+/* Category Header with Toggle */
+.webapp-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 0;
+}
+
+.webapp-category-header:hover {
+  opacity: 0.8;
+}
+
+.webapp-category-title {
+  color: var(--webapp-secondary-color);
+  font-weight: 500;
+  font-size: 0.8em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.webapp-category-count {
+  background: var(--webapp-primary-color);
+  color: var(--webapp-white);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 0.7em;
+  font-weight: 500;
+  min-width: 24px;
+  text-align: center;
+}
+
+.webapp-category-toggle {
+  color: var(--webapp-text-light);
+  transition: var(--webapp-transition);
+  display: flex;
+  align-items: center;
+}
+
+.webapp-category-header:hover .webapp-category-toggle {
+  color: var(--webapp-primary-color);
+}
+
+/* Search Input */
+.webapp-symptom-search-container {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.webapp-symptom-search {
+  width: 100%;
+  padding: 10px 36px 10px 12px;
+  border: 2px solid var(--webapp-gray-200);
+  border-radius: var(--webapp-border-radius);
+  font-size: 0.75em;
+  transition: var(--webapp-transition);
+  background: var(--webapp-white);
+  font-family: var(--webapp-font-family);
+  color: var(--webapp-secondary-color);
+}
+
+.webapp-symptom-search:focus {
+  outline: none;
+  background: var(--webapp-white);
+}
+
+.webapp-search-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--webapp-text-light);
+  pointer-events: none;
+}
+
+/* Dropdown Container */
+.webapp-symptom-dropdown {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.webapp-symptom-dropdown.open {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Symptom List */
+.webapp-symptom-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.webapp-symptom-item {
+  background: var(--webapp-white);
+  border: 1px solid var(--webapp-gray-200);
+  border-radius: var(--webapp-border-radius);
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 0.75em;
+  font-weight: 400;
+  transition: var(--webapp-transition);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  color: var(--webapp-secondary-color);
+  font-family: var(--webapp-font-family);
+  user-select: none;
+}
+
+.webapp-symptom-item:hover {
+  background: var(--webapp-gray-50);
+  border-color: var(--webapp-primary-color);
+}
+
+.webapp-symptom-item.selected {
+  border-color: var(--webapp-primary-color);
+  color: var(--webapp-primary-color);
+  font-weight: 500;
+}
+
+.webapp-symptom-text {
+  flex-grow: 1;
+}
+
+.webapp-symptom-check {
+  color: var(--webapp-primary-color);
+  font-weight: 700;
+  font-size: 1.1em;
+  min-width: 20px;
+  text-align: center;
+}
+
+.webapp-no-results {
+  text-align: center;
+  padding: 20px;
+  color: var(--webapp-text-light);
+  font-size: 0.75em;
+  font-style: italic;
+}
+
+/* Scrollbar for dropdown */
+.webapp-symptom-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.webapp-symptom-dropdown::-webkit-scrollbar-track {
+  background: var(--webapp-gray-50);
+  border-radius: 3px;
+}
+
+.webapp-symptom-dropdown::-webkit-scrollbar-thumb {
+  background: var(--webapp-gray-300);
+  border-radius: 3px;
+}
+
+.webapp-symptom-dropdown::-webkit-scrollbar-thumb:hover {
+  background: var(--webapp-primary-color);
 }
 
 .webapp-symptom-grid {
@@ -774,17 +972,17 @@ select.webapp-reg-form-input:focus {
 .webapp-nav-container {
   position: relative;
   z-index: 50;
-  padding: 20px 40px 30px;
-  background: var(--webapp-white);
-  box-shadow: 0 -1px 3px rgba(0,0,0,0.04);
+  padding: 20px 80px 30px;
 }
 
 .webapp-nav-buttons {
   display: flex;
   gap: 12px;
-  max-width: 800px;
+  max-width: 600px;
+  width: 100%;
   margin: 0 auto;
-  justify-content: space-between;
+  padding: 0px 20px 30px;
+  justify-content: flex-end;
   align-items: center;
 }
 
@@ -832,9 +1030,9 @@ select.webapp-reg-form-input:focus {
 }
 
 .webapp-nav-btn.secondary:hover:not(:disabled) {
-  background: var(--webapp-gray-50);
-  border-color: var(--webapp-primary-color);
-  color: var(--webapp-primary-color);
+  background: var(--webapp-gray-200);
+  color: var(--webapp-text-light);
+  border-color: var(--webapp-gray-200);
 }
 
 .webapp-nav-btn.home:hover:not(:disabled) {
@@ -967,7 +1165,7 @@ select.webapp-reg-form-input:focus {
 
 .webapp-modal-content,
 .webapp-popup-content {
-  padding: 0 40px;
+  padding: 40px 40px;
 }
 
 .webapp-modal-actions {
@@ -1027,90 +1225,62 @@ select.webapp-reg-form-input:focus {
 
 .webapp-success-content {
   text-align: center;
-  padding: 20px 30px 30px;
-}
-
-.webapp-success-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: var(--webapp-green-light);
-  border: 2px solid var(--webapp-primary-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2em;
-  color: var(--webapp-primary-color);
-  margin: 0 auto 20px auto;
-  animation: webapp-success-pulse 0.6s ease-out;
-}
-
-@keyframes webapp-success-pulse {
-  0% { transform: scale(0.8); opacity: 0; }
-  50% { transform: scale(1.05); }
-  100% { transform: scale(1); opacity: 1; }
 }
 
 .webapp-success-message h4 {
   color: var(--webapp-secondary-color);
-  font-size: 0.9em;
+  font-size: 1.1em;
   margin: 0 0 20px 0;
-  font-weight: 500;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .webapp-success-details {
-  background: var(--webapp-gray-50);
-  border: 1px solid var(--webapp-gray-200);
-  border-radius: var(--webapp-border-radius);
-  padding: 20px;
-  margin: 20px 0;
+  background: var(--webapp-white);
   text-align: left;
+  border-bottom: 1px solid var(--webapp-gray-200);
+  padding: 20px 0;
+  margin-bottom: 20px;
 }
 
-.webapp-success-item {
+.webapp-success-details p {
+  margin: 0 0 6px 0;
+  color: var(--webapp-secondary-color);
+  font-size: 0.75em;
+  line-height: 1.6;
+  font-weight: 400;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: baseline;
 }
 
-.webapp-success-item:last-child {
+.webapp-success-details p:last-child {
   margin-bottom: 0;
 }
 
-.webapp-success-item label {
-  font-weight: 500;
+.webapp-success-details p strong {
+  color: var(--webapp-text-light);
+  font-weight: 400;
+  flex-shrink: 0;
+  min-width: 120px;
+}
+
+.webapp-email-instructions {
+  text-align: left;
+  margin-bottom: 30px;
+}
+
+.webapp-email-instructions p {
   color: var(--webapp-text-light);
   font-size: 0.75em;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.webapp-temp-id,
-.webapp-department {
-  color: var(--webapp-secondary-color);
-  padding: 6px 12px;
-  border-radius: var(--webapp-border-radius);
-  font-weight: 500;
-  font-size: 0.8em;
-  background: var(--webapp-white);
-  border: 1px solid var(--webapp-gray-200);
-}
-
-.webapp-qr-info {
-  background: var(--webapp-blue-light);
-  border: 1px solid var(--webapp-info);
-  border-radius: var(--webapp-border-radius);
-  padding: 15px;
-  margin: 20px 0;
-}
-
-.webapp-qr-info p {
-  color: var(--webapp-info-dark);
-  margin: 0;
-  font-size: 0.8em;
+  margin: 0 0 10px 0;
+  line-height: 1.6;
   font-weight: 400;
-  line-height: 1.4;
+}
+
+.webapp-email-instructions p:last-child {
+  margin-bottom: 0;
 }
 
 .webapp-success-btn {
@@ -1240,28 +1410,25 @@ select.webapp-reg-form-input:focus {
   }
   
   .webapp-progress-container {
-    padding: 15px 20px;
+    padding: 20px 20px 16px;
   }
-  
-  .webapp-progress-step-item:not(:last-child) {
-    margin-right: 15px;
-  }
-  
-  .webapp-step-number {
+
+  .webapp-step-number-circle {
     width: 28px;
     height: 28px;
     font-size: 0.7em;
   }
-  
-  .webapp-step-connector {
-    top: 14px;
-    left: calc(50% + 14px);
-    right: calc(-100% + 14px);
-  }
-  
+
   .webapp-step-label {
     font-size: 0.7em;
-    min-width: 50px;
+  }
+
+  .webapp-step-description {
+    font-size: 0.65em;
+  }
+
+  .webapp-step-connector-line {
+    top: 14px;
   }
   
   .webapp-reg-content {
@@ -1275,12 +1442,13 @@ select.webapp-reg-form-input:focus {
   .webapp-nav-container {
     padding: 15px 20px 25px;
   }
-  
+
   .webapp-nav-buttons {
     flex-direction: column;
     gap: 10px;
+    padding: 0px 0px 20px;
   }
-  
+
   .webapp-nav-btn {
     max-width: 100%;
   }
@@ -1354,7 +1522,26 @@ select.webapp-reg-form-input:focus {
   .webapp-progress-container {
     padding: 12px 16px;
   }
-  
+
+  .webapp-step-number-circle {
+    width: 24px;
+    height: 24px;
+    font-size: 0.65em;
+    margin-bottom: 8px;
+  }
+
+  .webapp-step-label {
+    font-size: 0.65em;
+  }
+
+  .webapp-step-description {
+    display: none;
+  }
+
+  .webapp-step-connector-line {
+    top: 12px;
+  }
+    
   .webapp-reg-content {
     padding: 18px 12px;
   }
@@ -1379,6 +1566,10 @@ select.webapp-reg-form-input:focus {
   
   .webapp-nav-container {
     padding: 12px 16px 20px;
+  }
+
+  .webapp-nav-buttons {
+    padding: 0px 0px 15px;
   }
   
   .webapp-help-footer {

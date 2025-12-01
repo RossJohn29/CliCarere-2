@@ -3608,7 +3608,7 @@ app.post('/api/check-pending-queue-by-id', async (req, res) => {
 
     if (queueData) {
       return res.json({
-        success: true,
+        success: true,  
         hasPending: true,
         queueNumber: queueData.queue_no,
         departmentName: queueData.department.name,

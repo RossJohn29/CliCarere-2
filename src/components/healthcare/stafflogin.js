@@ -1,3 +1,4 @@
+// stafflogin.js
 import React, { useState, useEffect } from 'react';
 import './stafflogin.css';
 import { 
@@ -118,6 +119,12 @@ const StaffLogin = () => {
 
   return (
     <div className="stafflogin-portal">
+      <div className="stafflogin-welcome-container">
+        <h1 className="stafflogin-welcome-title">CliCare Hospital Staff Portal</h1>
+        <p className="stafflogin-welcome-subtitle">
+          Sign in to access the <strong>Patient Management System</strong>
+        </p>
+      </div>
       <div className="stafflogin-content">
         <div className="stafflogin-card">
           <div className="stafflogin-form-header">
@@ -235,8 +242,7 @@ const StaffLogin = () => {
       </div>
 
       <div className="stafflogin-footer">
-        <p>CliCare Hospital Management System</p>
-        <p>For technical support: itsupport@plm.edu.ph</p>
+        <p>© 2025 CliCare. All rights reserved.</p>
       </div>
     </div>
   );

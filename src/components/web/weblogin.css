@@ -45,9 +45,41 @@
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
+/* Welcome */
+.weblogin-welcome-container {
+  background: var(--weblogin-white);
+  padding: 40px 40px 20px;
+  text-align: center;
+  width: 100%;
+}
+
+.weblogin-welcome-title {
+  font-size: 1.25em;
+  font-weight: 600;
+  color: var(--weblogin-secondary-color);
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.weblogin-welcome-subtitle {
+  font-size: 0.8em;
+  color: var(--weblogin-text-light);
+  margin-bottom: 0;
+  line-height: 1.5;
+  max-width: 600px;
+  margin: 0 auto;
+  font-weight: 400;
+}
+
+.weblogin-welcome-subtitle strong {
+  color: var(--weblogin-primary-color);
+  font-weight: 500;
+}
+
 .weblogin-portal {
   min-height: 100vh;
-  background: var(--weblogin-background);
+  background: var(--weblogin-white);
   font-family: var(--weblogin-font-family);
   position: relative;
   padding: 0;
@@ -74,7 +106,6 @@
   padding: 40px;
   width: 100%;
   margin-bottom: 20px;
-  box-shadow: var(--weblogin-shadow-lg);
   border: 1px solid var(--weblogin-gray-200);
 }
 
@@ -541,6 +572,18 @@
 
 /* Mobile Large */
 @media (max-width: 767px) {
+   .weblogin-welcome-container {
+    padding: 30px 20px 15px;
+  }
+
+  .weblogin-welcome-title {
+    font-size: 1.1em;
+  }
+
+  .weblogin-welcome-subtitle {
+    font-size: 0.75em;
+  }
+
   .weblogin-content {
     max-width: 100%;
     padding: 20px 15px;
@@ -572,6 +615,18 @@
 
 /* Mobile Medium */
 @media (max-width: 480px) {
+  .weblogin-welcome-container {
+    padding: 25px 15px 12px;
+  }
+
+  .weblogin-welcome-title {
+    font-size: 1em;
+  }
+
+  .weblogin-welcome-subtitle {
+    font-size: 0.7em;
+  }
+
   .weblogin-content {
     padding: 15px 10px;
   }
@@ -625,6 +680,18 @@
 
 /* Mobile Small */
 @media (max-width: 360px) {
+    .weblogin-welcome-container {
+    padding: 20px 12px 10px;
+  }
+
+  .weblogin-welcome-title {
+    font-size: 0.9em;
+  }
+
+  .weblogin-welcome-subtitle {
+    font-size: 0.65em;
+  }
+
   .weblogin-content {
     padding: 12px 8px;
   }
@@ -743,6 +810,18 @@
 
 /* Mobile Extra Small */
 @media (max-width: 320px) {
+    .weblogin-welcome-container {
+    padding: 18px 10px 8px;
+  }
+
+  .weblogin-welcome-title {
+    font-size: 0.85em;
+  }
+
+  .weblogin-welcome-subtitle {
+    font-size: 0.6em;
+  }
+
   .weblogin-content {
     padding: 10px 6px;
   }
