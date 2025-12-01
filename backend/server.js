@@ -5805,13 +5805,15 @@ app.post('/api/generate-health-assessment-qr', authenticateToken, async (req, re
           },
           {
             filename: 'health-assessment-qr.png',
-            content: qrCodeBuffer.toString('base64'),
+            content: qrCodeBuffer,
             cid: 'healthqrcode',
             encoding: 'base64',
             contentType: 'image/png'
           }
         ]
       };
+
+      console.log("QR Buffer size:", qrCodeBuffer.length)
 
       const emailResult = await transporter.sendMail(mailOptions);
 
