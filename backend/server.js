@@ -5912,8 +5912,28 @@ app.post('/api/generate-qr-email', async (req, res) => {
       });
     }
 
-    // Step 3: Prepare email HTML
-    console.log('Step 3: Preparing email...');
+    // Step 3: Upload QR code to Supabase Storage
+    console.log('Step 3: Uploading QR code to storage...');
+    let qrImageUrl;
+    try {
+      const qrFileName = `qr_${qrData.tempPatientId}_${Date.now()}.png`;
+      const uploadResult = await uploadToSupabaseStorage(qrCodeBuffer, qrFileName, 'lab-results');
+      qrImageUrl = uploadResult.publicUrl;
+      console.log('✅ QR code uploaded to storage:', qrImageUrl);
+    } catch (uploadError) {
+      console.error('❌ Storage upload failed:', uploadError.message);
+      return res.status(500).json({
+        error: 'Failed to upload QR code',
+        details: uploadError.message
+      });
+    }
+
+    // Step 4: Wait for storage propagation
+    console.log('Step 4: Waiting for storage propagation...');
+    await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+
+    // Step 5: Prepare email HTML with hosted image URL
+    console.log('Step 5: Preparing email...');
     const emailHtml = `
       <!DOCTYPE html>
       <html lang="en">
@@ -5932,7 +5952,7 @@ app.post('/api/generate-qr-email', async (req, res) => {
           </p>
           <div style="text-align: center; margin: 0 0 24px 0;">
             <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 16px 20px;">
-              <img src="data:image/png;base64,${qrCodeBuffer.toString('base64')}" alt="QR Code" style="max-width: 200px; height: auto; border-radius: 6px;"/>
+              <img src="${qrImageUrl}" alt="QR Code" style="max-width: 200px; height: auto; border-radius: 6px; display: block;"/>
               <p style="color: #6b7280; font-size: 13px; font-weight: 400; margin: 12px 0 0 0;">
                 Show this QR code to the registration staff
               </p>
@@ -5957,20 +5977,12 @@ app.post('/api/generate-qr-email', async (req, res) => {
       </html>
     `;
 
-    // Step 4: Send email via Brevo API
-    console.log('Step 4: Sending email to:', patientEmail);
+    // Step 6: Send email via Brevo API
+    console.log('Step 6: Sending email to:', patientEmail);
     try {
       if (!brevoApiInstance) {
         throw new Error('Brevo API not configured - missing API key');
       }
-      
-      // Upload QR code to Supabase Storage first
-      const qrFileName = `qr_${qrData.tempPatientId}_${Date.now()}.png`;
-      const uploadResult = await uploadToSupabaseStorage(qrCodeBuffer, qrFileName, 'lab-results');
-      const qrImageUrl = uploadResult.publicUrl;
-      console.log('✅ QR code uploaded to storage:', qrImageUrl);
-    
-      await new Promise(resolve => setTimeout(resolve, 10000));
       
       const sendSmtpEmail = new brevo.SendSmtpEmail();
       
@@ -5981,9 +5993,7 @@ app.post('/api/generate-qr-email', async (req, res) => {
       
       sendSmtpEmail.to = [{ email: patientEmail, name: patientName }];
       sendSmtpEmail.subject = `Your CliCare Registration QR Code - ${patientName}`;
-      
-      // Use your existing emailHtml but replace the QR image source
-      sendSmtpEmail.htmlContent = emailHtml.replace('cid:qrcode', qrImageUrl);
+      sendSmtpEmail.htmlContent = emailHtml;
 
       const result = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
       console.log('✅ Email sent successfully via Brevo API');
@@ -5996,7 +6006,7 @@ app.post('/api/generate-qr-email', async (req, res) => {
       });
     }
 
-    // Step 5: Update database (optional)
+    // Step 7: Update database (optional)
     try {
       await supabase
         .from('pre_registration')
