@@ -13,12 +13,14 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   X,
   Check,
   Info,
   Phone,
   CalendarCheck,
-  Hospital
+  Hospital,
+  Search
 } from 'lucide-react';
 
 const WebAppointment = () => {
@@ -42,6 +44,8 @@ const WebAppointment = () => {
   // Symptoms state
   const [outpatientSymptoms, setOutpatientSymptoms] = useState([]);
   const [symptomsLoading, setSymptomsLoading] = useState(true);
+  const [categorySearches, setCategorySearches] = useState({});
+  const [openCategories, setOpenCategories] = useState({});
 
   // Patient and form data
   const [patientData, setPatientData] = useState({
@@ -167,6 +171,21 @@ const WebAppointment = () => {
     const maxDate = new Date();
     maxDate.setFullYear(maxDate.getFullYear() + 1);
     return maxDate.toISOString().split('T')[0];
+  };
+
+  const getFilteredSymptoms = (category) => {
+    const searchTerm = categorySearches[category.category]?.toLowerCase() || '';
+    if (!searchTerm) return category.symptoms;
+    
+    return category.symptoms.filter(symptom =>
+      symptom.toLowerCase().includes(searchTerm)
+    );
+  };
+
+  const getCategorySelectedCount = (category) => {
+    return category.symptoms.filter(symptom => 
+      formData.selectedSymptoms.includes(symptom)
+    ).length;
   };
 
   const isRoutineCareSymptom = (symptoms) => {
@@ -329,6 +348,20 @@ const WebAppointment = () => {
       setFieldErrors(newErrors);
       setError('');
     }
+  };
+
+  const handleCategoryToggle = (categoryName) => {
+    setOpenCategories(prev => ({
+      ...prev,
+      [categoryName]: !prev[categoryName]
+    }));
+  };
+
+  const handleSearchChange = (categoryName, searchValue) => {
+    setCategorySearches(prev => ({
+      ...prev,
+      [categoryName]: searchValue
+    }));
   };
 
   // Business Logic
@@ -539,7 +572,7 @@ const WebAppointment = () => {
       try {
         console.log('Generating QR code for assessment:', tempAssessmentId);
 
-       const qrResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/generate-health-assessment-qr`, {
+        const qrResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/generate-health-assessment-qr`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -651,6 +684,8 @@ const WebAppointment = () => {
     }, 500);
   };
 
+
+
   const showToastNotification = (message, type = 'success') => {
     setToastMessage(message);
     setToastType(type);
@@ -660,33 +695,58 @@ const WebAppointment = () => {
     }, 4000);
   };
 
-  // Render Components
-  const renderProgressBar = () => (
-    <div className="webapp-progress-container">
-      <div className="webapp-progress-steps">
-        {['Personal', 'Symptoms', 'Details', 'Schedule', 'Summary'].map((name, index) => {
-          const stepNumber = index + 1;
-          const isActive = stepNumber === currentStep;
-          const isCompleted = stepNumber < currentStep;
-          const isLast = index === 4;
-
-          return (
-            <div key={index} className="webapp-progress-step-item">
-              <div className={`webapp-step ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}>
-                <div className="webapp-step-number">
-                  {isCompleted ? <Check size={14} /> : stepNumber}
-                </div>
-                <div className="webapp-step-label">{name}</div>
-              </div>
-              {!isLast && (
-                <div className={`webapp-step-connector ${isCompleted ? 'completed' : ''} ${stepNumber === currentStep ? 'active' : ''}`}></div>
-              )}
-            </div>
-          );
-        })}
+  const renderWelcomeSection = () => {
+    return (
+      <div className="webapp-welcome-container">
+        <h1 className="webapp-welcome-title">Welcome back, {patientData.name}!</h1>
+        <p className="webapp-welcome-subtitle">
+          You are booking an appointment as a <strong>Returning Patient</strong>. 
+          Please complete your health assessment below.
+        </p>
       </div>
-    </div>
-  );
+    );
+  };
+
+  // Render Components
+  const renderProgressBar = () => {
+    const stepNames = ['Personal Info', 'Health Assessment', 'Additional Info', 'Schedule', 'Final Review'];
+
+    return (
+      <div className="webapp-progress-container">
+        <div className="webapp-progress-wrapper">
+          {stepNames.map((name, index) => {
+            const stepNumber = index + 1;
+            const isActive = stepNumber === currentStep;
+            const isCompleted = stepNumber < currentStep;
+
+            return (
+              <div
+                key={index}
+                className={`webapp-progress-step-wrapper 
+                  ${isCompleted ? 'completed' : ''} 
+                  ${isActive ? 'active' : ''}`}
+              >
+                <div className="webapp-progress-step">
+                  <div className="webapp-step-number-circle">
+                    {isCompleted ? <Check size={16} /> : stepNumber}
+                  </div>
+                  <div className="webapp-step-details">
+                    <div className="webapp-step-label">{name}</div>
+                    <div className="webapp-step-description">
+                      {isCompleted ? 'Completed' : isActive ? 'In Progress' : 'Pending'}
+                    </div>
+                  </div>
+                </div>
+                {index < stepNames.length - 1 && (
+                  <div className={`webapp-step-connector-line ${isCompleted ? 'completed' : ''}`}></div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   const renderPatientInfoStep = () => (
     <div className="webapp-reg-card webapp-step-transition">
@@ -809,41 +869,10 @@ const WebAppointment = () => {
           <div className="webapp-info-icon"><Stethoscope size={20} /></div>
           <div className="webapp-info-content">
             <h4>Select Your Symptoms</h4>
-            <p>Choose all symptoms or health concerns you're experiencing</p>
+            <p>Search and select from categories below</p>
           </div>
         </div>
       </div>
-
-      {symptomsLoading ? (
-        <div className="webapp-loading">
-          <span className="webapp-loading-spinner"></span>
-          Loading symptoms...
-        </div>
-      ) : outpatientSymptoms.length === 0 ? (
-        <div className="webapp-reg-error">
-          No symptoms available. Please refresh the page or contact support.
-        </div>
-      ) : (
-        <div className="webapp-symptoms-categories">
-          {outpatientSymptoms.map(category => (
-            <div key={category.category} className="webapp-symptom-category">
-              <div className="webapp-category-title">{category.category}</div>
-              <div className="webapp-symptom-grid">
-                {category.symptoms.map((symptom, index) => (
-                  <button
-                    key={`${category.category}-${symptom}-${index}`}
-                    onClick={() => handleSymptomToggle(symptom)}
-                    className={`webapp-symptom-btn ${formData.selectedSymptoms.includes(symptom) ? 'selected' : ''}`}
-                  >
-                    <span className="symptom-text">{symptom}</span>
-                    {formData.selectedSymptoms.includes(symptom) && <span className="check-icon">✓</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {formData.selectedSymptoms.length > 0 && (
         <div className="webapp-selected-symptoms">
@@ -860,6 +889,83 @@ const WebAppointment = () => {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {symptomsLoading ? (
+        <div className="webapp-loading">
+          <span className="webapp-loading-spinner"></span>
+          Loading symptoms...
+        </div>
+      ) : outpatientSymptoms.length === 0 ? (
+        <div className="webapp-reg-error">
+          No symptoms available. Please refresh the page or contact support.
+        </div>
+      ) : (
+        <div className="webapp-symptoms-categories">
+          {outpatientSymptoms.map(category => {
+            const filteredSymptoms = getFilteredSymptoms(category);
+            const selectedCount = getCategorySelectedCount(category);
+            const isOpen = openCategories[category.category];
+
+            return (
+              <div key={category.category} className="webapp-symptom-category">
+                <div 
+                  className="webapp-category-header"
+                  onClick={() => handleCategoryToggle(category.category)}
+                >
+                  <div className="webapp-category-title">
+                    {category.category}
+                    {selectedCount > 0 && (
+                      <span className="webapp-category-count">{selectedCount}</span>
+                    )}
+                  </div>
+                  <div className="webapp-category-toggle">
+                    {isOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                  </div>
+                </div>
+
+                <div className={`webapp-symptom-dropdown ${isOpen ? 'open' : ''}`}>
+                  <div className="webapp-symptom-search-container">
+                    <input
+                      type="text"
+                      placeholder={`Search ${category.category.toLowerCase()}...`}
+                      value={categorySearches[category.category] || ''}
+                      onChange={(e) => handleSearchChange(category.category, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="webapp-symptom-search"
+                    />
+                    <div className="webapp-search-icon">
+                      <Search size={16} />
+                    </div>
+                  </div>
+
+                  <div className="webapp-symptom-list">
+                    {filteredSymptoms.length === 0 ? (
+                      <div className="webapp-no-results">
+                        No symptoms found matching "{categorySearches[category.category]}"
+                      </div>
+                    ) : (
+                      filteredSymptoms.map((symptom, index) => (
+                        <div
+                          key={`${category.category}-${symptom}-${index}`}
+                          onClick={() => handleSymptomToggle(symptom)}
+                          className={`webapp-symptom-item ${
+                            formData.selectedSymptoms.includes(symptom) ? 'selected' : ''
+                          }`}
+                        >
+                          <span className="webapp-symptom-text">{symptom}</span>
+                          {formData.selectedSymptoms.includes(symptom) && (
+                            <span className="webapp-symptom-check">✓</span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1194,13 +1300,6 @@ const WebAppointment = () => {
     );
   };
 
-  const renderNavigationButtons = () => (
-    <div className="webapp-nav-buttons">
-      {renderBackButton()}
-      {renderNextButton()}
-    </div>
-  );
-
   const renderSuccessModal = () => {
     if (!showSuccessModal || !registrationResult) return null;
 
@@ -1209,24 +1308,28 @@ const WebAppointment = () => {
         <div className="webapp-popup webapp-success-modal">
           <div className="webapp-popup-content">
             <div className="webapp-success-content">
-              <div className="webapp-success-icon">
-                <CheckCircle size={48} />
-              </div>
               <div className="webapp-success-message">
                 <h4>Health Assessment QR Code Sent!</h4>
-                <p style={{ color: 'var(--webapp-text-light)', fontSize: '0.85em', margin: '10px 0' }}>
-                  Your health assessment QR code has been sent to your email.
-                </p>
-                <p style={{ color: 'var(--webapp-text-light)', fontSize: '0.85em', margin: '10px 0' }}>
-                  Please check your email and present the QR code at the hospital kiosk for your appointment.
-                </p>
+
+                {/* Add Assessment Details Section */}
+                <div className="webapp-success-details">
+                  <p><strong>Assessment ID:</strong> {registrationResult.tempPatientId}</p>
+                  <p><strong>Status:</strong> Pending Kiosk Check-in</p>
+                </div>
+
+                {/* Email Instructions */}
+                <div className="webapp-email-instructions">
+                  <p>Your health assessment QR code has been sent to your email.</p>
+                  <p>Please check your email and present the QR code at the hospital kiosk for your appointment.</p>
+                </div>
+
+                <button
+                  onClick={handleSuccessModalClose}
+                  className="webapp-success-btn"
+                >
+                  Continue to Dashboard
+                </button>
               </div>
-              <button
-                onClick={handleSuccessModalClose}
-                className="webapp-success-btn"
-              >
-                Continue to Dashboard
-              </button>
             </div>
           </div>
         </div>
@@ -1259,36 +1362,33 @@ const WebAppointment = () => {
 
   // Main Render
   return (
-    <div className="webapp-registration-portal">
-      <div className="webapp-reg-header">
-        <img src={clicareLogo} alt="CliCare Logo" className="kioskreg-logo"/>
-        <div className="webapp-hospital-info">
-          <p><strong>{formatTime(currentTime)}</strong></p>
-          <p>{formatDate(currentTime)}</p>
-        </div>
-      </div>
+  <div className="webapp-registration-portal">
 
-      {renderProgressBar()}
-      
-      <div className="webapp-reg-content">
-        {renderCurrentStep()}
-      </div>
-
-      <div className="webapp-nav-container">
-        {renderNavigationButtons()}
-      </div>
-
-      <div className="webapp-help-footer">
-        <div className="webapp-help-section">
-          <h4>Need Help?</h4>
-          <p>Contact hospital staff or use the help button for assistance</p>
-        </div>
-      </div>
-
-      {renderSuccessModal()}
-      {renderToast()}
+    {renderWelcomeSection()}
+    {renderProgressBar()}
+    
+    <div className="webapp-reg-content">
+      {renderCurrentStep()}
     </div>
-  );
+
+    <div className="webapp-nav-buttons">
+      {renderBackButton()}
+      {renderNextButton()}
+    </div>
+
+    <div className="webapp-help-footer">
+      <div className="webapp-help-section">
+        <h4>Need Help?</h4>
+        <p>Contact hospital staff or use the help button for assistance</p>
+      </div>
+    </div>
+
+    {renderSuccessModal()}
+    {renderToast()}
+
+  </div>
+);
+
 };
 
 export default WebAppointment;
