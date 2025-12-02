@@ -1,31 +1,38 @@
-// services/printingService.js
-
+// printingService.js
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 export class PrintingService {
   
+  static async isPrintServerAvailable() {
+    try {
+      const response = await fetch(`${API_URL}/api/print/printers`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      return response.ok;
+    } catch (error) {
+      console.warn('⚠️ Print server not available:', error.message);
+      return false;
+    }
+  }
   static async fetchFloorPlanImageFromDatabase(department) {
     try {
-      const deptResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/department-by-name/${encodeURIComponent(department)}`);
+      const deptResponse = await fetch(`${API_URL}/api/department-by-name/${encodeURIComponent(department)}`);
       
       if (!deptResponse.ok) {
         console.warn(`⚠️ Could not find department "${department}" in database`);
         return null;
       }
-
       const deptResult = await deptResponse.json();
       
       if (!deptResult.success || !deptResult.department) {
         console.warn(`⚠️ No department data found for "${department}"`);
         return null;
       }
-
       if (!deptResult.department.floor_plan_image) {
         console.warn(`⚠️ No floor plan image configured for department "${department}"`);
         return null;
       }
-
-      // ✅ FIXED: The floor_plan_image is already a full URL from Supabase
       const floorPlanUrl = deptResult.department.floor_plan_image;
-      
       console.log(`✅ Successfully fetched floor plan URL for ${department}:`, floorPlanUrl);
       return floorPlanUrl;
       
@@ -34,10 +41,9 @@ export class PrintingService {
       return null;
     }
   }
-
   static async generateNavigationSteps(department) {
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/navigation-steps-by-name/${encodeURIComponent(department)}`);
+      const response = await fetch(`${API_URL}/api/navigation-steps-by-name/${encodeURIComponent(department)}`);
       const result = await response.json();
       
       if (!result.success || !result.steps || result.steps.length === 0) {
@@ -48,7 +54,7 @@ export class PrintingService {
       console.log(`✅ Successfully fetched ${result.steps.length} navigation steps for ${department}`);
       return result.steps.map(step => ({
         location: step.location_name,
-        description: `${step.floor_number} - ${step.description}`,
+        description: step.description,
         floor: step.floor_number,
         rooms: step.room_numbers
       }));
@@ -68,32 +74,129 @@ export class PrintingService {
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     return `DOC${timestamp}${random}`;
   }
-
-  // ✅ FIXED: Main method - now uses iframe instead of window.open()
   static async generatePatientGuidancePacket(registrationResult, patientData, formData) {
     try {
-      console.log('🖨️ Starting print generation...');
+      console.log('🖨️ Starting print job...');
       
       const currentData = patientData || formData || {};
       const department = registrationResult.recommendedDepartment || 'Unknown Department';
       
-      console.log('📋 Patient data:', currentData);
-      console.log('🏥 Department:', department);
+      const printServerAvailable = await this.isPrintServerAvailable();
       
-      // Fetch navigation steps and floor plan BEFORE generating HTML
+      if (printServerAvailable) {
+        console.log('✅ Print server available - using server-side printing');
+        return await this.printViaServer(registrationResult, currentData, department);
+      } else {
+        console.log('⚠️ Print server unavailable - using browser fallback');
+        return await this.printViaBrowser(registrationResult, currentData, department);
+      }
+      
+    } catch (error) {
+      console.error('❌ Print job failed:', error);
+      this.handlePrintError(error);
+      return false;
+    }
+  }
+  static async printViaServer(registrationResult, patientData, department) {
+    try {
+      console.log('📤 Sending print job to server...');
+      
+      const navigationSteps = await this.generateNavigationSteps(department);
+      const floorPlanImage = await this.fetchFloorPlanImageFromDatabase(department);
+      
+      console.log('📍 Navigation steps:', navigationSteps.length);
+      console.log('🗺️ Floor plan:', floorPlanImage ? 'Found' : 'Not found');
+      const response = await fetch(`${API_URL}/api/print/guidance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          registrationData: registrationResult,
+          patientData: patientData,
+          navigationSteps: navigationSteps,
+          floorPlanImage: floorPlanImage
+        })
+      });
+      const result = await response.json();
+      if (result.success) {
+        console.log('✅ Print job sent to printer successfully!');
+        console.log('📄 Document is printing automatically (no dialog)');
+        return true;
+      } else {
+        throw new Error(result.error || 'Print server returned error');
+      }
+    } catch (error) {
+      console.error('❌ Server printing failed:', error);
+      console.log('🔄 Falling back to browser print...');
+      return await this.printViaBrowser(registrationResult, patientData, department);
+    }
+  }
+  static async printViaBrowser(registrationResult, patientData, department) {
+    try {
+      console.log('🌐 Using browser-based printing (will show dialog)...');
+      
+      const currentData = patientData;
+      
       console.log('🔍 Fetching navigation steps and floor plan...');
       const navigationSteps = await this.generateNavigationSteps(department);
       const floorPlanImage = await this.fetchFloorPlanImageFromDatabase(department);
       
+      const deptResponse = await fetch(`${API_URL}/api/department-by-name/${encodeURIComponent(department)}`);
+      let queueColor = 'Gray'; // Default
+      
+      if (deptResponse.ok) {
+        const deptResult = await deptResponse.json();
+        if (deptResult.success && deptResult.department.queue_color) {
+          queueColor = deptResult.department.queue_color;
+        }
+      }
+      
+      console.log('🎨 Queue color for department:', queueColor);
       console.log('✅ Data fetched successfully');
       console.log('📍 Navigation steps:', navigationSteps.length);
       console.log('🗺️ Floor plan:', floorPlanImage ? 'Found' : 'Not found');
-
       const issueDate = new Date();
       const formattedDate = issueDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-      const formattedTime = issueDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const formattedTime = issueDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       
-      // ✅ FIXED: Create iframe instead of window.open()
+      const queueColorMap = {
+        'Gray': '#6b7280',
+        'Red': '#dc2626',
+        'Blue': '#2563eb',
+        'Green': '#16a34a',
+        'Yellow': '#eab308',
+        'Purple': '#9333ea',
+        'Pink': '#ec4899',
+        'Orange': '#ea580c',
+        'White': '#f8fafc',
+        'Cyan': '#06b6d4',
+        'Light Blue': '#38bdf8',
+        'Maroon': '#7f1d1d',
+        'Brown': '#92400e',
+        'Teal': '#0d9488',
+        'Navy': '#1e3a8a',
+        'Lime': '#65a30d',
+        'Olive': '#84cc16',
+        'Violet': '#7c3aed',
+        'Coral': '#f97316',
+        'Sky Blue': '#0ea5e9',
+        'Indigo': '#4f46e5',
+        'Magenta': '#d946ef',
+        'Crimson': '#dc2626',
+        'Silver': '#94a3b8',
+        'Gold': '#f59e0b',
+        'Bronze': '#a16207',
+        'Copper': '#ea580c',
+        'Peach': '#fb923c',
+        'Turquoise': '#14b8a6',
+        'Beige': '#d6d3d1',
+        'Lavender': '#a78bfa'
+      };
+      
+      const queueColorBg = queueColorMap[queueColor] || '#6b7280';
+      const queueColorText = (queueColor === 'White' || queueColor === 'Beige' || queueColor === 'Silver') ? '#000000' : '#ffffff';
+      
       console.log('📄 Creating print iframe...');
       const printFrame = document.createElement('iframe');
       printFrame.style.position = 'fixed';
@@ -104,7 +207,6 @@ export class PrintingService {
       printFrame.style.border = '0';
       printFrame.style.visibility = 'hidden';
       document.body.appendChild(printFrame);
-
       const printDoc = printFrame.contentWindow.document;
       
       const printContent = `
@@ -114,475 +216,519 @@ export class PrintingService {
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width,initial-scale=1" />
           <title>CliCare — Patient Guidance Packet</title>
-          <link rel="preconnect" href="https://fonts.googleapis.com">
-          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
           <style>
-            :root {
-              --clicare-green: #1a672a;
-              --panel-width: 850px;
-              --narrow-padding: 0.5in;
-              --muted: #6b7280;
+            @page {
+              size: letter;
+              margin: 0.75in;
+            }
+            
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
             }
             
             html, body {
               height: 100%;
-              margin: 0;
-              font-family: Inter, Arial, sans-serif;
-              background: #f3f4f6;
-              color: #111827;
+              font-family: 'Times New Roman', Times, serif;
+              background: #f5f5f5;
+              color: #000;
+              font-size: 11pt;
+              line-height: 1.4;
             }
             
-            .page-wrap {
-              min-height: 100%;
+            .page-container {
+              min-height: 100vh;
               display: flex;
-              align-items: flex-start;
+              align-items: center;
               justify-content: center;
-              padding: 40px 20px;
+              padding: 20px;
             }
             
-            .panel {
-              width: 100%;
-              max-width: var(--panel-width);
-              background: #ffffff;
-              box-shadow: 0 8px 30px rgba(0,0,0,0.08);
-              border-radius: 8px;
-              border: 1px solid rgba(26,103,42,0.06);
-              padding: 28px;
-              box-sizing: border-box;
+            .document {
+              width: 8.5in;
+              min-height: 11in;
+              background: white;
+              padding: 0.75in;
+              box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+              position: relative;
             }
-
+            
             /* Header */
             .header {
+              padding-bottom: 12pt;
+              margin-bottom: 16pt;
               display: flex;
               align-items: center;
-              gap: 16px;
-              margin-bottom: 18px;
+              gap: 16pt;
             }
             
-            .logo {
-              width: 68px;
-              height: 68px;
-              border-radius: 8px;
-              background: linear-gradient(180deg, var(--clicare-green), #144b20);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              color: #fff;
-              font-weight: 700;
-              font-size: 20px;
-              box-shadow: 0 3px 10px rgba(26,103,42,0.12);
+            .logo-container {
+              width: 70pt;
+              height: 70pt;
+              flex-shrink: 0;
             }
             
-            .title-block {
+            .logo-container img {
+              width: 100%;
+              height: 100%;
+              object-fit: contain;
+            }
+            
+            .header-text {
               flex: 1;
             }
             
-            .title {
-              font-size: 20px;
-              font-weight: 700;
-              color: var(--clicare-green);
-              letter-spacing: 0.6px;
+            .hospital-name {
+              font-size: 16pt;
+              font-weight: bold;
+              letter-spacing: 0.5pt;
+              margin-bottom: 4pt;
             }
             
-            .subtitle {
-              font-size: 12px;
-              color: var(--muted);
-              margin-top: 4px;
-            }
-
-            /* Info boxes */
-            .info-grid {
-              display: flex;
-              gap: 12px;
-              margin-top: 14px;
-              flex-wrap: wrap;
+            .document-title {
+              font-size: 11pt;
+              font-weight: bold;
+              margin-bottom: 2pt;
             }
             
-            .info-card {
-              flex: 1;
-              min-width: 220px;
-              border: 1px solid rgba(26,103,42,0.08);
-              padding: 12px 14px;
-              border-radius: 6px;
-              background: #fbfdf9;
+            .document-date {
+              font-size: 9pt;
+              color: #333;
             }
             
-            .info-label {
-              font-size: 11px;
-              color: var(--muted);
-              font-weight: 600;
+            .doc-number {
+              text-align: right;
+              font-size: 9pt;
+            }
+            
+            .doc-number-label {
+              color: #666;
+            }
+            
+            .doc-number-value {
+              font-weight: bold;
+              font-size: 10pt;
+              letter-spacing: 0.5pt;
+            }
+            
+            /* Patient ID Box */
+            .patient-id-box {
+              border: 2pt solid #000;
+              padding: 10pt;
+              margin-bottom: 14pt;
+              text-align: center;
+              background: #f9f9f9;
+            }
+            
+            .patient-id-label {
+              font-size: 9pt;
+              font-weight: bold;
               text-transform: uppercase;
-              letter-spacing: 0.6px;
+              letter-spacing: 1pt;
+              margin-bottom: 4pt;
             }
             
-            .info-value {
-              margin-top: 6px;
-              font-size: 15px;
-              font-weight: 600;
-              color: #0f172a;
+            .patient-id-value {
+              font-size: 14pt;
+              font-weight: bold;
+              letter-spacing: 2pt;
+              font-family: 'Courier New', monospace;
             }
-
-            /* Section headings */
+            
+            /* Section Headers */
             .section {
-              margin-top: 20px;
+              margin-bottom: 14pt;
             }
             
-            .section h3 {
-              margin: 0;
-              font-size: 13px;
-              color: var(--clicare-green);
-              letter-spacing: 0.8px;
-              margin-bottom: 10px;
+            .section-header {
+              font-size: 11pt;
+              font-weight: bold;
+              text-transform: uppercase;
+              letter-spacing: 1pt;
+              border-bottom: 1.5pt solid #000;
+              padding-bottom: 3pt;
+              margin-bottom: 8pt;
             }
             
-            .section .box {
-              border: 1px solid rgba(0,0,0,0.06);
-              padding: 14px;
-              border-radius: 6px;
-              background: #fff;
-            }
-
-            /* Navigation steps table */
-            .nav-table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-            
-            .nav-table th {
-              background: var(--clicare-green);
-              color: #fff;
-              padding: 8px 10px;
-              text-align: left;
-              font-size: 12px;
-            }
-            
-            .nav-table td {
-              padding: 10px;
-              border-bottom: 1px solid rgba(0,0,0,0.06);
-              font-size: 13px;
-              color: #111827;
-            }
-
-            /* Floor plan preview */
-            .floor-plan {
+            /* Two Column Layout */
+            .two-col {
               display: flex;
-              gap: 16px;
-              align-items: flex-start;
-              flex-wrap: wrap;
+              gap: 20pt;
+              margin-bottom: 8pt;
             }
             
-            .floor-plan img {
-              max-width: 480px;
-              width: 100%;
-              height: auto;
-              border: 1px solid rgba(0,0,0,0.08);
-              border-radius: 6px;
-              background: #fff;
-              box-shadow: 0 6px 18px rgba(2,6,23,0.04);
-            }
-            
-            .floor-meta {
+            .col {
               flex: 1;
-              min-width: 200px;
             }
             
-            .muted-note {
-              color: var(--muted);
-              font-size: 13px;
-            }
-
-            /* Medical Information */
-            .medical-section .box {
-              padding: 14px;
+            .field {
+              margin-bottom: 8pt;
             }
             
-            .symptoms-header {
-              font-size: 12px;
-              font-weight: 700;
-              color: var(--clicare-green);
+            .field-label {
+              font-weight: bold;
+              font-size: 9pt;
               text-transform: uppercase;
-              letter-spacing: 1px;
-              margin-bottom: 10px;
-              border-bottom: 1px solid rgba(26,103,42,0.1);
-              padding-bottom: 5px;
+              letter-spacing: 0.3pt;
+              margin-bottom: 2pt;
             }
             
-            .symptoms-list {
-              display: block;
-              margin: 10px 0;
+            .field-value {
+              font-size: 11pt;
+              padding-left: 8pt;
             }
             
-            .symptom-item {
+            /* Queue Information */
+            .queue-info {
+              display: flex;
+              gap: 24pt;
+              padding: 10pt 0;
+              border-top: 1pt solid #ccc;
+              border-bottom: 1pt solid #ccc;
+              margin-bottom: 14pt;
+            }
+            
+            .queue-item {
+              flex: 1;
+              text-align: center;
+            }
+            
+            .queue-label {
+              font-size: 8pt;
+              text-transform: uppercase;
+              letter-spacing: 0.5pt;
+              font-weight: bold;
+              margin-bottom: 4pt;
+            }
+            
+            .queue-value {
+              font-size: 11pt;
+              font-weight: bold;
+            }
+            
+            .queue-number {
+              font-size: 16pt;
+            }
+            
+            .color-badge {
               display: inline-block;
-              background: var(--clicare-green);
-              color: #ffffff;
-              padding: 6px 12px;
-              margin: 3px;
-              font-size: 9px;
-              font-weight: 600;
-              text-transform: uppercase;
-              letter-spacing: 0.5px;
-              border-radius: 4px;
+              background: ${queueColorBg};
+              color: ${queueColorText};
+              padding: 6pt 14pt;
+              font-size: 16pt;
+              font-weight: bold;
+              letter-spacing: 1pt;
+              border-radius: 2pt;
+              print-color-adjust: exact;
+              -webkit-print-color-adjust: exact;
+              ${(queueColor === 'White' || queueColor === 'Beige') ? 'border: 1pt solid #ccc;' : ''}
             }
-
+            
             /* Medical Alert Box */
-            .medical-alert {
-              border: 3px solid #dc2626;
-              background: #fef2f2;
-              padding: 15px;
-              margin: 20px 0;
-              border-radius: 6px;
+            .alert-box {
+              border: 3pt solid #000;
+              padding: 10pt;
+              margin: 12pt 0;
+              background: #fff;
             }
             
             .alert-header {
-              font-size: 12px;
-              font-weight: 700;
-              color: #dc2626;
-              text-transform: uppercase;
-              letter-spacing: 1px;
-              margin-bottom: 10px;
               text-align: center;
+              font-size: 10pt;
+              font-weight: bold;
+              text-transform: uppercase;
+              letter-spacing: 1.5pt;
+              margin-bottom: 8pt;
+              border-bottom: 1pt solid #000;
+              padding-bottom: 4pt;
             }
             
             .alert-content {
-              font-size: 11px;
-              color: #000000;
+              font-size: 10pt;
               line-height: 1.5;
             }
-
-            /* Emergency note */
-            .emergency-note {
-              background: #fef2f2;
-              border: 2px solid #dc2626;
-              padding: 10px;
-              margin: 15px 0;
-              border-radius: 6px;
-              text-align: center;
+            
+            .alert-item {
+              margin-bottom: 6pt;
             }
-
-            /* No data message */
-            .no-data-message {
-              background: #f9fafb;
-              border: 1px dashed #d1d5db;
-              padding: 20px;
-              text-align: center;
-              border-radius: 6px;
-              color: var(--muted);
-              font-size: 13px;
+            
+            .alert-item strong {
+              text-transform: uppercase;
+              letter-spacing: 0.3pt;
             }
-
-            /* Footer metadata */
-            .footer-meta {
+            
+            /* Symptoms */
+            .symptoms-list {
+              padding-left: 8pt;
+              line-height: 1.8;
+            }
+            
+            /* Navigation Instructions */
+            .nav-steps {
+              padding-left: 8pt;
+            }
+            
+            .nav-step {
+              margin-bottom: 8pt;
               display: flex;
-              gap: 12px;
-              flex-wrap: wrap;
-              margin-top: 22px;
-              font-size: 13px;
-              color: var(--muted);
+              gap: 12pt;
             }
-
-            /* Responsive */
-            @media (max-width: 900px) {
-              .panel {
-                padding: 18px;
-              }
-              .floor-plan img {
-                max-width: 100%;
-              }
+            
+            .step-number {
+              font-weight: bold;
+              font-size: 11pt;
+              min-width: 20pt;
             }
-
+            
+            .step-content {
+              flex: 1;
+            }
+            
+            .step-location {
+              font-weight: bold;
+              font-style: italic;
+            }
+            
+            .step-details {
+              font-size: 9pt;
+              color: #333;
+              margin-top: 2pt;
+            }
+            
+            /* Emergency Box */
+            .emergency-box {
+              border: 1pt solid #000;
+              padding: 6pt;
+              text-align: center;
+              background: #f9f9f9;
+              margin: 10pt 0;
+              font-size: 9pt;
+            }
+            
+            .emergency-box strong {
+              font-size: 9pt;
+              text-transform: uppercase;
+              letter-spacing: 0.5pt;
+            }
+            
+            /* Footer */
+            .footer {
+              margin-top: 16pt;
+              padding-top: 8pt;
+              font-size: 8pt;
+              text-align: center;
+              color: #666;
+            }
+            
             @media print {
-              @page {
-                margin: 0.5in;
-              }
-              
               body {
-                background: #fff;
+                background: white;
                 print-color-adjust: exact;
                 -webkit-print-color-adjust: exact;
               }
               
-              .page-wrap {
+              .page-container {
                 padding: 0;
+                display: block;
               }
               
-              .panel {
+              .document {
                 box-shadow: none;
-                border: none;
-                max-width: 100%;
+                margin: 0;
+                padding: 0.75in;
+              }
+              
+              .color-badge {
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
               }
             }
           </style>
         </head>
         <body>
-          <div class="page-wrap">
-            <div class="panel" role="main" aria-labelledby="pageTitle">
-              <header class="header">
-                <div class="logo">CC</div>
-                <div class="title-block">
-                  <div id="pageTitle" class="title">CliCare Hospital — Patient Guidance Packet</div>
-                  <div class="subtitle">Digital Patient Management System</div>
+          <div class="page-container">
+            <div class="document">
+              
+              
+              <div class="header">
+                <div class="logo-container">
+                  <img src="logo.png" alt="CliCare Hospital Logo" onerror="this.style.display='none'" />
                 </div>
-                <div style="text-align:right;">
-                  <div style="font-size:12px;color:var(--muted);">Document No.</div>
-                  <div style="font-weight:700;color:#0f172a;margin-top:4px;">${this.generateVisitId()}</div>
+                <div class="header-text">
+                  <div class="hospital-name">CLICARE HOSPITAL</div>
+                  <div class="document-title">Patient Guidance Packet</div>
+                  <div class="document-date">Issued: ${formattedDate} at ${formattedTime}</div>
                 </div>
-              </header>
-
-              <section class="info-grid" aria-label="Patient identification">
-                <div class="info-card" style="flex-basis: 100%;">
-                  <div class="info-label">Your Patient ID</div>
-                  <div class="info-value" style="font-size: 24px; letter-spacing: 2px; color: var(--clicare-green);">
-                    ${registrationResult.patientId}
-                  </div>
-                  <div style="margin-top: 8px; font-size: 11px; color: var(--muted);">
-                    Please keep this ID for all future visits
-                  </div>
+                <div class="doc-number">
+                  <div class="doc-number-label">Document No.</div>
+                  <div class="doc-number-value">${this.generateVisitId()}</div>
                 </div>
-              </section>
-
-              <section class="info-grid" aria-label="Department and queue information">
-                <div class="info-card">
-                  <div class="info-label">Department</div>
-                  <div class="info-value">${department}</div>
-                </div>
-                <div class="info-card">
-                  <div class="info-label">Queue Number</div>
-                  <div class="info-value">${registrationResult.queue_number || this.generateQueueNumber()}</div>
-                </div>
-                <div class="info-card">
-                  <div class="info-label">Estimated Wait</div>
-                  <div class="info-value">${registrationResult.estimated_wait || '15-30 minutes'}</div>
-                </div>
-              </section>
-
-              <section class="section">
-                <h3>Patient Information</h3>
-                <div class="box">
-                  <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                    <div style="flex:1;min-width:180px">
-                      <div class="info-label">Full Name</div>
-                      <div class="info-value">${currentData.fullName || currentData.name || '-'}</div>
+              </div>
+              
+              
+              <div class="section">
+                <div class="section-header">Patient Information</div>
+                <div class="two-col">
+                  <div class="col">
+                    <div class="field">
+                      <div class="field-label">Patient ID</div>
+                      <div class="field-value" style="font-weight: bold; font-size: 14pt; letter-spacing: 1pt;">${registrationResult.patientId}</div>
                     </div>
-                    <div style="min-width:120px">
-                      <div class="info-label">Age</div>
-                      <div class="info-value">${currentData.age || '-'}</div>
+                    <div class="field">
+                      <div class="field-label">Full Name</div>
+                      <div class="field-value">${currentData.fullName || currentData.name || '-'}</div>
                     </div>
-                    <div style="min-width:120px">
-                      <div class="info-label">Gender</div>
-                      <div class="info-value">${currentData.sex || '-'}</div>
+                    <div class="field">
+                      <div class="field-label">Age / Gender</div>
+                      <div class="field-value">${currentData.age || '-'} / ${currentData.sex || '-'}</div>
                     </div>
                   </div>
-
-                  <div style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap;">
-                    <div style="flex:1;min-width:220px">
-                      <div class="info-label">Contact</div>
-                      <div class="info-value">${currentData.contactNumber || currentData.contact_no || '-'}</div>
+                  <div class="col">
+                    <div class="field">
+                      <div class="field-label">Department</div>
+                      <div class="field-value">${department}</div>
                     </div>
-                    <div style="flex:1;min-width:220px">
-                      <div class="info-label">Email</div>
-                      <div class="info-value">${currentData.email || '-'}</div>
+                    <div class="field">
+                      <div class="field-label">Queue Number</div>
+                      <div class="field-value">
+                        <span class="color-badge">${registrationResult.queue_number || this.generateQueueNumber()}</span>
+                      </div>
+                    </div>
+                    <div class="field">
+                      <div class="field-label">Estimated Wait</div>
+                      <div class="field-value">${registrationResult.estimated_wait || '15-30 minutes'}</div>
                     </div>
                   </div>
                 </div>
-              </section>
-
-              <section class="section medical-section">
-                <h3>Medical Information Summary</h3>
-                <div class="box">
-                  <div class="symptoms-header">Reported Symptoms and Conditions (${currentData.selectedSymptoms?.length || 0} Items)</div>
-                  <div class="symptoms-list">
-                    ${(currentData.selectedSymptoms || []).map(symptom => 
-                      `<span class="symptom-item">${symptom}</span>`
-                    ).join('')}
+                <div class="two-col" style="margin-top: 8pt;">
+                  <div class="col">
+                    <div class="field">
+                      <div class="field-label">Contact Number</div>
+                      <div class="field-value">${currentData.contactNumber || currentData.contact_no || '-'}</div>
+                    </div>
                   </div>
-                  
-                  ${currentData.duration || currentData.severity ? `
-                  <div style="margin-top:15px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">
-                    ${currentData.duration ? `
-                    <div>
-                      <div class="info-label">Symptom Duration</div>
-                      <div class="info-value" style="font-size:13px;margin-top:4px;">${currentData.duration}</div>
+                  <div class="col">
+                    <div class="field">
+                      <div class="field-label">Email Address</div>
+                      <div class="field-value">${currentData.email || '-'}</div>
                     </div>
-                    ` : ''}
-                    ${currentData.severity ? `
-                    <div>
-                      <div class="info-label">Severity Assessment</div>
-                      <div class="info-value" style="font-size:13px;margin-top:4px;">${currentData.severity}</div>
+                  </div>
+                </div>
+              </div>
+              
+              
+              <div class="section">
+                <div class="section-header">Medical Information</div>
+                <div class="field">
+                  <div class="field-label">Reported Symptoms</div>
+                  <div class="field-value symptoms-list">
+                    ${(currentData.selectedSymptoms || []).join(', ') || 'None reported'}
+                  </div>
+                </div>
+                <div class="two-col">
+                  <div class="col">
+                    <div class="field">
+                      <div class="field-label">Duration</div>
+                      <div class="field-value">${currentData.duration || '-'}</div>
                     </div>
-                    ` : ''}
+                  </div>
+                  <div class="col">
+                    <div class="field">
+                      <div class="field-label">Severity</div>
+                      <div class="field-value">${currentData.severity || '-'}</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="two-col" style="margin-top: 8pt;">
+                  <div class="col">
+                    <div class="field">
+                      <div class="field-label">⚠ Known Allergies</div>
+                      <div class="field-value" style="font-weight: bold;">${currentData.allergies || 'None'}</div>
+                    </div>
+                  </div>
+                  <div class="col">
+                    <div class="field">
+                      <div class="field-label">Current Medications</div>
+                      <div class="field-value">${currentData.medications || 'None'}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              ${(currentData.allergies && currentData.allergies !== 'None') || (currentData.medications && currentData.medications !== 'None') ? `
+              
+              <div class="alert-box">
+                <div class="alert-header">⚠ Medical Alert</div>
+                <div class="alert-content">
+                  ${currentData.allergies && currentData.allergies !== 'None' ? `
+                  <div class="alert-item">
+                    <strong>Known Allergies:</strong> ${currentData.allergies}
+                  </div>
+                  ` : ''}
+                  ${currentData.medications && currentData.medications !== 'None' ? `
+                  <div class="alert-item">
+                    <strong>Current Medications:</strong> ${currentData.medications}
                   </div>
                   ` : ''}
                 </div>
-              </section>
-
-              ${(currentData.allergies && currentData.allergies !== 'None') || (currentData.medications && currentData.medications !== 'None') ? `
-                <div class="medical-alert">
-                  <div class="alert-header">⚠️ Critical Medical Alert ⚠️</div>
-                  <div class="alert-content">
-                    ${currentData.allergies && currentData.allergies !== 'None' ? `<strong>KNOWN ALLERGIES:</strong> ${currentData.allergies}<br><br>` : ''}
-                    ${currentData.medications && currentData.medications !== 'None' ? `<strong>CURRENT MEDICATIONS:</strong> ${currentData.medications}` : ''}
-                  </div>
-                </div>
+              </div>
               ` : ''}
-
+              
               ${floorPlanImage ? `
-              <section class="section">
-                <h3>Floor Plan Preview</h3>
-                <div class="box floor-plan">
-                  <img src="${floorPlanImage}" alt="Floor plan for ${department}" loading="eager" crossorigin="anonymous" style="max-width: 100%; height: auto;" />
-                  <div class="floor-meta">
-                    <div style="font-weight:700;margin-bottom:8px">${department} — Floor Plan</div>
-                    <div class="muted-note">Reference this map for efficient navigation to your department.</div>
+              
+              <div class="section">
+                <div class="section-header">Department Location Map</div>
+                <div style="text-align: center; margin-bottom: 10pt;">
+                  <img src="${floorPlanImage}" alt="Hospital Floor Plan" style="max-width: 100%; height: auto;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+                  <div style="display: none; border: 1pt dashed #999; padding: 30pt; background: #fafafa; font-size: 9pt; color: #666;">
+                    [Floor Plan Map Image]<br>
+                    Please refer to the physical map at reception if image is not visible
                   </div>
                 </div>
-              </section>
+                <div style="font-size: 9pt; text-align: center; color: #333; font-style: italic;">
+                  ${department} Department — Location Map
+                </div>
+              </div>
               ` : ''}
-
-              <section class="section">
-                <h3>Navigation Instructions</h3>
+              
+              
+              <div class="section">
+                <div class="section-header">Navigation Instructions</div>
                 ${navigationSteps.length > 0 ? `
-                <div class="box" style="overflow:auto;max-height:240px">
-                  <table class="nav-table" aria-label="Navigation steps">
-                    <thead>
-                      <tr>
-                        <th style="width:6%">#</th>
-                        <th style="width:30%">Location</th>
-                        <th>Instructions</th>
-                        <th style="width:18%">Details</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${navigationSteps.map((step, i) => `
-                        <tr>
-                          <td style="font-weight:700">${i+1}</td>
-                          <td>${step.location || '-'}</td>
-                          <td>${step.description || '-'}</td>
-                          <td>${(step.floor ? 'Floor: ' + step.floor + (step.rooms ? '<br>Rooms: ' + step.rooms : '') : (step.rooms ? 'Rooms: ' + step.rooms : '-'))}</td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
-                  </table>
+                <div class="nav-steps">
+                  ${navigationSteps.map((step, index) => `
+                  <div class="nav-step">
+                    <div class="step-number">${index + 1}.</div>
+                    <div class="step-content">
+                      <div class="step-location">${step.location}</div>
+                      <div>${step.description}</div>
+                      <div class="step-details">${step.floor && step.rooms ? `${step.floor} — ${step.rooms}` : step.floor || step.rooms || 'See reception for directions'}</div>
+                    </div>
+                  </div>
+                  `).join('')}
                 </div>
                 ` : `
-                <div class="no-data-message">
-                  <p><strong>Navigation instructions are not yet configured for this department.</strong></p>
-                  <p>Please proceed to the main reception desk for directions to ${department}.</p>
+                <div style="border: 1pt dashed #999; padding: 20pt; background: #fafafa; font-size: 9pt; color: #666; text-align: center;">
+                  Navigation instructions are not yet configured for this department.<br>
+                  Please proceed to the main reception desk for directions to ${department}.
                 </div>
                 `}
-              </section>
-
-              <div class="emergency-note">
-                <strong>⚠️ EMERGENCY NOTE</strong><br>
+              </div>
+              
+              
+              <div class="emergency-box">
+                <strong>⚠ Emergency Notice</strong><br>
                 In case of medical emergency, proceed immediately to the Emergency Department<br>
-                Location: Ground Floor, East Wing
+                <em>Ground Floor, East Wing</em>
               </div>
-
-              <div class="footer-meta">
-                <div><strong>Issued:</strong> ${formattedDate} ${formattedTime}</div>
-                <div><strong>Reference:</strong> ${this.generateVisitId()}</div>
-                <div style="margin-left:auto;color:var(--muted)">CliCare Hospital • Medical Center & Healthcare Institution</div>
+              
+              
+              <div class="footer">
+                CliCare - Medical Center & Healthcare Institution<br>
+                Reference: ${this.generateVisitId()} | Please retain this document for your visit
               </div>
+              
             </div>
           </div>
         </body>
@@ -593,26 +739,22 @@ export class PrintingService {
       printDoc.open();
       printDoc.write(printContent);
       printDoc.close();
-
-      // Wait for images to load before printing
       console.log('⏳ Waiting for content to load...');
       await new Promise((resolve) => {
         if (floorPlanImage) {
           const img = printDoc.querySelector('img');
           if (img) {
-            // Add crossorigin attribute to handle Supabase images
             img.crossOrigin = 'anonymous';
             
             img.onload = () => {
               console.log('✅ Floor plan loaded');
-              setTimeout(resolve, 1000); // Increased delay for external images
+              setTimeout(resolve, 1000);
             };
             img.onerror = (e) => {
               console.warn('⚠️ Floor plan failed to load:', e);
               setTimeout(resolve, 500);
             };
-            // Fallback timeout
-            setTimeout(resolve, 5000); // Increased timeout for external images
+            setTimeout(resolve, 5000);
           } else {
             setTimeout(resolve, 500);
           }
@@ -620,30 +762,50 @@ export class PrintingService {
           setTimeout(resolve, 500);
         }
       });
-
       console.log('🖨️ Triggering print dialog...');
       printFrame.contentWindow.focus();
       printFrame.contentWindow.print();
-
-      // Clean up after printing
       setTimeout(() => {
         document.body.removeChild(printFrame);
-        console.log('✅ Print generation completed successfully!');
+        console.log('✅ Print generation completed!');
       }, 1000);
       
       return true;
       
     } catch (error) {
-      console.error('❌ Print generation failed:', error);
+      console.error('❌ Browser print failed:', error);
       this.handlePrintError(error);
       throw error;
     }
   }
   
-  // ✅ FIXED: Alternative method for thermal receipt printers
-  static printThermalReceipt(registrationResult, patientData, formData) {
+  static async printThermalReceipt(registrationResult, patientData, formData) {
     try {
       const currentData = patientData || formData;
+      
+      const printServerAvailable = await this.isPrintServerAvailable();
+      
+      if (printServerAvailable) {
+        console.log('🖨️ Sending receipt to print server...');
+        
+        const response = await fetch(`${API_URL}/api/print/receipt`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            registrationData: registrationResult,
+            patientData: currentData
+          })
+        });
+        const result = await response.json();
+        if (result.success) {
+          console.log('✅ Receipt printed via server!');
+          return true;
+        }
+      }
+      
+      console.log('🌐 Using browser print for receipt...');
       
       const receiptContent = `
         ================================
@@ -674,7 +836,6 @@ export class PrintingService {
         ================================
       `;
       
-      // ✅ FIXED: Use iframe instead of window.open()
       const printFrame = document.createElement('iframe');
       printFrame.style.position = 'fixed';
       printFrame.style.right = '0';
@@ -684,7 +845,6 @@ export class PrintingService {
       printFrame.style.border = '0';
       printFrame.style.visibility = 'hidden';
       document.body.appendChild(printFrame);
-
       const printDoc = printFrame.contentWindow.document;
       
       printDoc.open();
@@ -726,12 +886,10 @@ export class PrintingService {
     }
   }
   
-  // Method to check if printing is supported
   static isPrintingSupported() {
     return typeof window !== 'undefined' && 'print' in window;
   }
   
-  // Method to handle print errors
   static handlePrintError(error) {
     console.error('Printing failed:', error);
     alert('Printing failed: ' + error.message + '\n\nPlease ask hospital staff for assistance or take a screenshot of your information.');

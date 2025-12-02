@@ -81,11 +81,11 @@ export const fetchAdminData = async () => {
 
 export const adminApi = {
   healthCheck: async () => {
-    return apiCall('/health');
+    return apiCall('/api/health');  // ✅ Added /api
   },
 
   login: async (credentials) => {
-    const response = await apiCall('/admin/login', {
+    const response = await apiCall('/api/admin/login', {  // ✅ Added /api
       method: 'POST',
       body: JSON.stringify(credentials),
     });
@@ -101,7 +101,7 @@ export const adminApi = {
 
   logout: async () => {
     try {
-      await apiCall('/admin/logout', {
+      await apiCall('/api/admin/logout', {  // ✅ Added /api
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -115,26 +115,26 @@ export const adminApi = {
   },
 
   getProfile: async () => {
-    return apiCall('/admin/profile', {
+    return apiCall('/api/admin/profile', {  // ✅ Added /api
       headers: getAuthHeaders(),
     });
   },
 
   validateToken: async () => {
-    return apiCall('/admin/validate-token', {
+    return apiCall('/api/admin/validate-token', {  // ✅ Added /api
       method: 'POST',
       headers: getAuthHeaders(),
     });
   },
 
   getDashboardStats: async () => {
-    return apiCall('/admin/dashboard-stats', {
+    return apiCall('/api/admin/dashboard-stats', {  // ✅ Added /api
       headers: getAuthHeaders(),
     });
   },
 
   getAllAdmins: async () => {
-    return apiCall('/admin/all', {
+    return apiCall('/api/admin/all', {  // ✅ Added /api
       headers: getAuthHeaders(),
     });
   },

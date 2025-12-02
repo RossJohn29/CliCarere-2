@@ -2047,7 +2047,7 @@ app.post('/api/admin/analyze-data', authenticateToken, async (req, res) => {
 
     const { query, hospitalData } = req.body;
     
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
     // ✅ ENHANCED PROMPT WITH PROPER PRIVACY PROTECTION
     const context = `You are CliCare Hospital's data analyst assistant. You MUST comply with RA 10173 (Data Privacy Act) and DOH AO 2020-0030.
