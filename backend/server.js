@@ -2545,7 +2545,7 @@ app.post('/api/admin/analyze-data', authenticateToken, async (req, res) => {
     // ============================================================================
     // ENHANCED GEMINI PROMPT WITH TIME DATA
     // ============================================================================
-    const model = genAI.getGenerativeModel({ model: "gemini-3.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3-pro-preview" });
 
     // Find peak hour and busiest day
     const peakHour = Object.entries(contextData.timeData.hourlyRegistrations)
