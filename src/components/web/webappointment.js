@@ -533,7 +533,7 @@ const WebAppointment = () => {
 
       // Create health assessment record
       const healthAssessmentData = {
-        symptoms: formData.selectedSymptoms,
+        symptoms: formData.selectedSymptoms.join(', '),
         duration: formData.duration,
         severity: formData.severity,
         previous_treatment: formData.previousTreatment || null,

@@ -126,6 +126,9 @@ const StaffMain = () => {
   const [timePeriod, setTimePeriod] = useState('daily');
   const [statsLoading, setStatsLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
+  const [labNotificationCount, setLabNotificationCount] = useState(0);
+  const [labResultNotes, setLabResultNotes] = useState('');
+
 
   useEffect(() => {
     const initializeDashboard = async () => {
@@ -165,8 +168,21 @@ const StaffMain = () => {
         await fetchMyPatients();
         await fetchOverallPatients();
         await fetchDashboardTimeSeries('daily');
+        await fetchLabStats(); // ✅ NEW: Fetch lab statistics
         
         setLoading(false);
+
+        // Fetch lab notification count
+        const notifResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/lab-notifications/count`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          }
+        });
+        if (notifResponse.ok) {
+          const notifData = await notifResponse.json();
+          setLabNotificationCount(notifData.unreadCount || 0);
+        }
 
       } catch (error) {
         console.error('Error initializing dashboard:', error);
@@ -176,10 +192,11 @@ const StaffMain = () => {
     };
 
     initializeDashboard();
-    
+
     const interval = setInterval(async () => {
       try {
         await fetchPatientQueue();
+        await fetchLabStats(); // ✅ NEW: Auto-refresh lab stats
         if (currentPage === 'patients') {
           await fetchMyPatients();
         }
@@ -217,9 +234,34 @@ const StaffMain = () => {
     }
   };
 
+  const handlePageChange = async (pageId) => {
+    setCurrentPage(pageId);
+    setSidebarOpen(false);
+    
+    if (pageId === 'lab-orders' && labNotificationCount > 0) {
+      await markLabNotificationsAsRead();
+    }
+  };
+
   const handleTimePeriodChange = async (newPeriod) => {
     setTimePeriod(newPeriod);
     await fetchDashboardTimeSeries(newPeriod);
+  };
+
+  const markLabNotificationsAsRead = async () => {
+    try {
+      const token = localStorage.getItem('healthcareToken');
+      await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/lab-notifications/mark-read`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        }
+      });
+      setLabNotificationCount(0);
+    } catch (error) {
+      console.error('Failed to mark notifications as read:', error);
+    }
   };
 
   const fetchPatientQueue = async () => {
@@ -507,6 +549,44 @@ const StaffMain = () => {
     }
   };
 
+  const fetchLabStats = async () => {
+    try {
+      const token = localStorage.getItem('healthcareToken');
+      
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/lab-requests`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const allRequests = data.labRequests || [];
+        
+        // Count by status
+        const completed = allRequests.filter(r => r.status === 'completed').length;
+        const declined = allRequests.filter(r => r.status === 'declined').length;
+        const submitted = allRequests.filter(r => r.status === 'submitted').length;
+        const pending = allRequests.filter(r => r.status === 'pending').length;
+        
+        setDashboardData(prev => ({
+          ...prev,
+          todayStats: {
+            ...prev.todayStats,
+            labResults: allRequests.length, // Total
+            labCompleted: completed,
+            labDeclined: declined,
+            labSubmitted: submitted,
+            labPending: pending
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch lab stats:', error);
+    }
+  };
+
   useEffect(() => {
     const fetchLabDataWhenNeeded = async () => {
       if (currentPage === 'lab-orders') {
@@ -563,77 +643,77 @@ const StaffMain = () => {
     return types.filter(Boolean);
   };
 
-const getFilteredLabData = () => {
-  let filtered = [...allLabData];
-  
-  if (labSearchTerm.trim()) {
-    const query = labSearchTerm.toLowerCase();
-    filtered = filtered.filter(item => 
-      item.patient?.name.toLowerCase().includes(query) ||
-      item.patient?.patient_id.toLowerCase().includes(query) ||
-      item.test_name.toLowerCase().includes(query) ||
-      item.test_type.toLowerCase().includes(query)
-    );
-  }
-  
-  if (labFilters.status !== 'all') {
-    if (labFilters.status === 'pending') {
-      filtered = filtered.filter(item => item.status === 'pending');
-    } else if (labFilters.status === 'submitted') {
-      filtered = filtered.filter(item => item.status === 'submitted');
-    } else if (labFilters.status === 'completed') {
-      filtered = filtered.filter(item => item.status === 'completed');
-    } else if (labFilters.status === 'declined') {
-      filtered = filtered.filter(item => item.status === 'declined');
-    }
-  }
-  
-  if (labFilters.priority !== 'all') {
-    filtered = filtered.filter(item => item.priority === labFilters.priority);
-  }
-  
-  if (labFilters.testType !== 'all') {
-    filtered = filtered.filter(item => item.test_type === labFilters.testType);
-  }
-  
-  if (labFilters.dateRange !== 'all') {
-    const now = new Date();
-    const filterDate = new Date();
+  const getFilteredLabData = () => {
+    let filtered = [...allLabData];
     
-    switch (labFilters.dateRange) {
-      case 'today':
-        filterDate.setHours(0, 0, 0, 0);
-        filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
-        break;
-      case 'week':
-        filterDate.setDate(now.getDate() - 7);
-        filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
-        break;
-      case 'month':
-        filterDate.setMonth(now.getMonth() - 1);
-        filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
-        break;
+    if (labSearchTerm.trim()) {
+      const query = labSearchTerm.toLowerCase();
+      filtered = filtered.filter(item => 
+        item.patient?.name.toLowerCase().includes(query) ||
+        item.patient?.patient_id.toLowerCase().includes(query) ||
+        item.test_name.toLowerCase().includes(query) ||
+        item.test_type.toLowerCase().includes(query)
+      );
     }
-  }
-  
-  filtered.sort((a, b) => {
-    switch (labSortBy) {
-      case 'recent':
-        return new Date(b.created_at) - new Date(a.created_at);
-      case 'oldest':
-        return new Date(a.created_at) - new Date(b.created_at);
-      case 'priority':
-        const priorityOrder = { 'stat': 3, 'urgent': 2, 'normal': 1 };
-        return priorityOrder[b.priority] - priorityOrder[a.priority];
-      case 'patient':
-        return a.patient?.name.localeCompare(b.patient?.name);
-      default:
-        return 0;
+    
+    if (labFilters.status !== 'all') {
+      if (labFilters.status === 'pending') {
+        filtered = filtered.filter(item => item.status === 'pending');
+      } else if (labFilters.status === 'submitted') {
+        filtered = filtered.filter(item => item.status === 'submitted');
+      } else if (labFilters.status === 'completed') {
+        filtered = filtered.filter(item => item.status === 'completed');
+      } else if (labFilters.status === 'declined') {
+        filtered = filtered.filter(item => item.status === 'declined');
+      }
     }
-  });
-  
-  return filtered;
-};
+    
+    if (labFilters.priority !== 'all') {
+      filtered = filtered.filter(item => item.priority === labFilters.priority);
+    }
+    
+    if (labFilters.testType !== 'all') {
+      filtered = filtered.filter(item => item.test_type === labFilters.testType);
+    }
+    
+    if (labFilters.dateRange !== 'all') {
+      const now = new Date();
+      const filterDate = new Date();
+      
+      switch (labFilters.dateRange) {
+        case 'today':
+          filterDate.setHours(0, 0, 0, 0);
+          filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
+          break;
+        case 'week':
+          filterDate.setDate(now.getDate() - 7);
+          filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
+          break;
+        case 'month':
+          filterDate.setMonth(now.getMonth() - 1);
+          filtered = filtered.filter(item => new Date(item.created_at) >= filterDate);
+          break;
+      }
+    }
+    
+    filtered.sort((a, b) => {
+      switch (labSortBy) {
+        case 'recent':
+          return new Date(b.created_at) - new Date(a.created_at);
+        case 'oldest':
+          return new Date(a.created_at) - new Date(b.created_at);
+        case 'priority':
+          const priorityOrder = { 'stat': 3, 'urgent': 2, 'normal': 1 };
+          return priorityOrder[b.priority] - priorityOrder[a.priority];
+        case 'patient':
+          return a.patient?.name.localeCompare(b.patient?.name);
+        default:
+          return 0;
+      }
+    });
+    
+    return filtered;
+  };
 
   const resetLabFilters = () => {
     setLabSearchTerm('');
@@ -866,13 +946,20 @@ const getFilteredLabData = () => {
         id: 'lab-orders', 
         icon: <FlaskConical size={15} />, 
         label: 'Lab Orders', 
-        description: 'Laboratory test requests' 
+        description: 'Laboratory test requests',
+        badge: labNotificationCount > 0 ? labNotificationCount : null
       }
     ];
   };
 
   const handleAcceptLabResult = async (requestId) => {
     try {
+      // Validate notes field
+      if (!labResultNotes.trim()) {
+        showAlert('Validation Error', 'Please enter notes before accepting the lab result.', 'error');
+        return;
+      }
+
       setDataLoading(true);
       const token = localStorage.getItem('healthcareToken');
       
@@ -882,13 +969,17 @@ const getFilteredLabData = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ requestId })
+        body: JSON.stringify({ 
+          requestId,
+          notes: labResultNotes.trim()
+        })
       });
 
       if (response.ok) {
         showAlert('Success', 'Lab result accepted successfully!', 'success');
         setShowLabResultModal(false);
         setSelectedLabResult(null);
+        setLabResultNotes(''); // Clear notes
         await fetchLabRequests();
         await fetchLabResults();
       } else {
@@ -905,8 +996,12 @@ const getFilteredLabData = () => {
 
   const handleDeclineLabResult = async (requestId) => {
     try {
-      const reason = prompt('Please provide a reason for declining this lab result (optional):');
-      
+      // Validate notes field
+      if (!labResultNotes.trim()) {
+        showAlert('Validation Error', 'Please enter notes/reason before declining the lab result.', 'error');
+        return;
+      }
+
       setDataLoading(true);
       const token = localStorage.getItem('healthcareToken');
       
@@ -918,7 +1013,7 @@ const getFilteredLabData = () => {
         },
         body: JSON.stringify({ 
           requestId,
-          reason: reason || 'No reason provided'
+          reason: labResultNotes.trim()
         })
       });
 
@@ -926,6 +1021,7 @@ const getFilteredLabData = () => {
         showAlert('Success', 'Lab result declined successfully!', 'success');
         setShowLabResultModal(false);
         setSelectedLabResult(null);
+        setLabResultNotes(''); // Clear notes
         await fetchLabRequests();
         await fetchLabResults();
       } else {
@@ -948,6 +1044,84 @@ const getFilteredLabData = () => {
       showAlert('Error', 'File not available', 'error');
     }
   };
+
+useEffect(() => {
+  const initializeDashboard = async () => {
+    try {
+      const token = localStorage.getItem('healthcareToken'); 
+      const staffInfo = localStorage.getItem('staffInfo');   
+      
+      if (!token || !staffInfo) {
+        window.location.replace('/staff-login');
+        return;
+      }
+
+      const isValid = await validateHealthcareToken();
+      if (!isValid) {
+        localStorage.clear();
+        window.location.replace('/staff-login');
+        return;
+      }
+
+      const parsedStaffInfo = JSON.parse(staffInfo);
+      
+      if (parsedStaffInfo.role !== 'Doctor') {
+        showAlert('Access Denied', 'This system is for doctors only.', 'error');
+        window.location.replace('/staff-login');
+        return;
+      }
+      
+      setStaffInfo({
+        staffId: parsedStaffInfo.staff_id,
+        name: parsedStaffInfo.name,
+        role: 'Attending Physician',
+        department: parsedStaffInfo.specialization || 'General Medicine',
+        staffType: 'doctor'
+      });
+
+      await fetchPatientQueue();
+      await fetchMyPatients();
+      await fetchOverallPatients();
+      await fetchDashboardTimeSeries('daily');
+      await fetchLabStats(); // ✅ NEW: Fetch lab statistics
+      
+      setLoading(false);
+
+      // Fetch lab notification count
+      const notifResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/healthcare/lab-notifications/count`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        }
+      });
+      if (notifResponse.ok) {
+        const notifData = await notifResponse.json();
+        setLabNotificationCount(notifData.unreadCount || 0);
+      }
+
+    } catch (error) {
+      console.error('Error initializing dashboard:', error);
+      localStorage.clear();
+      window.location.replace('/staff-login');
+    }
+  };
+
+  initializeDashboard();
+
+  const interval = setInterval(async () => {
+    try {
+      await fetchPatientQueue();
+      await fetchLabStats(); // ✅ NEW: Auto-refresh lab stats
+      if (currentPage === 'patients') {
+        await fetchMyPatients();
+      }
+    } catch (error) {
+      console.error('Auto-refresh error:', error);
+    }
+  }, 60000);
+  
+  return () => clearInterval(interval);
+}, []);
 
   const renderOverview = () => (
     <div className="staffmain-page-content">
@@ -983,6 +1157,7 @@ const getFilteredLabData = () => {
               </div>
             </div>
 
+            {/* ✅ MODIFIED: Lab Results Card with Sub-list */}
             <div className="staffmain-stat-card hexagon tertiary">
               <div className="stat-card-inner">
                 <div className="staffmain-stat-icon">
@@ -990,7 +1165,27 @@ const getFilteredLabData = () => {
                 </div>
                 <div className="staffmain-stat-content">
                   <h3>Lab Results</h3>
-                  <div className="staffmain-stat-number">{dashboardData.todayStats.labResults}</div>
+                  <div className="staffmain-stat-number">{dashboardData.todayStats.labResults || 0}</div>
+                  
+                  {/* ✅ NEW: Sub-list for lab result categories */}
+                  <div className="staffmain-lab-breakdown">
+                    <div className="lab-breakdown-item pending">
+                      <span className="lab-breakdown-label">Pending:</span>
+                      <span className="lab-breakdown-value">{dashboardData.todayStats.labPending || 0}</span>
+                   </div>
+                    <div className="lab-breakdown-item submitted">
+                      <span className="lab-breakdown-label">Submitted:</span>
+                      <span className="lab-breakdown-value">{dashboardData.todayStats.labSubmitted || 0}</span>
+                    </div>
+                    <div className="lab-breakdown-item completed">
+                      <span className="lab-breakdown-label">Completed:</span>
+                      <span className="lab-breakdown-value">{dashboardData.todayStats.labCompleted || 0}</span>
+                    </div>
+                    <div className="lab-breakdown-item declined">
+                      <span className="lab-breakdown-label">Declined:</span>
+                      <span className="lab-breakdown-value">{dashboardData.todayStats.labDeclined || 0}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1015,7 +1210,7 @@ const getFilteredLabData = () => {
                   <div className="healthcare-queue-list">
                     {patientQueue.length === 0 ? (
                       <div className="empty-state">
-                       <h3>No patients found</h3>
+                      <h3>No patients found</h3>
                         <p>
                           No patients in queue for today
                         </p>
@@ -1869,13 +2064,19 @@ const getFilteredLabData = () => {
         )}
 
         {showLabResultModal && selectedLabResult && (
-          <div className="staffmain-modal-overlay" onClick={() => setShowLabResultModal(false)}>
+          <div className="staffmain-modal-overlay" onClick={() => {
+            setShowLabResultModal(false);
+            setLabResultNotes('');
+          }}>
             <div className="staffmain-modal staffmain-lab-result-modal" onClick={(e) => e.stopPropagation()}>
               <div className="staffmain-lab-modal-header">
                 <h3>Lab Test Details</h3>
                 <button 
                   className="staffmain-modal-close"
-                  onClick={() => setShowLabResultModal(false)}
+                  onClick={() => {
+                    setShowLabResultModal(false);
+                    setLabResultNotes('');
+                  }}
                 >
                   <X size={15} />
                 </button>
@@ -1909,8 +2110,8 @@ const getFilteredLabData = () => {
                         <span className="staffmain-test-info-value">{selectedLabResult.test_name}</span>
                       </div>
                       <div className="staffmain-test-info-item">
-                        <span className="staffmain-test-info-label">Test Type </span>
-                                        <span className="staffmain-test-info-value">{selectedLabResult.test_type}</span>
+                        <span className="staffmain-test-info-label">Test Type</span>
+                        <span className="staffmain-test-info-value">{selectedLabResult.test_type}</span>
                       </div>
                       <div className="staffmain-test-info-item">
                         <span className="staffmain-test-info-label">Request Date</span>
@@ -1934,62 +2135,89 @@ const getFilteredLabData = () => {
                 <div className="staffmain-results-section">
                   <div className="staffmain-results-header">
                     <h4>Test Results</h4>
-                    <span className={`staffmain-results-status ${selectedLabResult.hasResult ? 'submitted' : 'pending'}`}>
-                      {selectedLabResult.hasResult ? 'Results Submitted' : 'Pending Upload'}
+                    {/* ✅ FIXED: Show correct status based on lab result status */}
+                    <span className={`staffmain-results-status ${
+                      selectedLabResult.status === 'declined' ? 'declined' :
+                      selectedLabResult.hasResult ? 'submitted' : 'pending'
+                    }`}>
+                      {selectedLabResult.status === 'declined' ? 'Declined' :
+                      selectedLabResult.hasResult ? 'Results Submitted' : 'Pending Upload'}
                     </span>
                   </div>
 
                   {selectedLabResult.hasResult && selectedLabResult.resultData ? (
-                    selectedLabResult.resultData?.isMultiple ? (
-                      <div className="staffmain-clean-files-grid">
-                        {selectedLabResult.resultData.files?.map((file, index) => (
-                          <div key={index} className="staffmain-clean-file-item">
+                    <>
+                      {selectedLabResult.resultData?.isMultiple ? (
+                        <div className="staffmain-clean-files-grid">
+                          {selectedLabResult.resultData.files?.map((file, index) => (
+                            <div key={index} className="staffmain-clean-file-item">
+                              <div className="staffmain-file-type-icon">
+                                <File size={20} />
+                              </div>
+                              <div className="staffmain-clean-file-info">
+                                <div className="staffmain-clean-file-name">{file.file_name}</div>
+                                <div className="staffmain-clean-file-meta">
+                                  <span><Tag size={12} /> {file.file_type}</span>
+                                  {file.test_name && <span><FlaskConical size={12} /> {file.test_name}</span>}
+                                  <span><Calendar size={12} /> {new Date(file.upload_date).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                              <button 
+                                onClick={() => handleViewFile(file.file_url, file.file_name)}
+                                className="staffmain-clean-view-btn"
+                              >
+                                <Eye size={15} /> View
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="staffmain-clean-files-grid">
+                          <div className="staffmain-clean-file-item">
                             <div className="staffmain-file-type-icon">
                               <File size={20} />
                             </div>
                             <div className="staffmain-clean-file-info">
-                              <div className="staffmain-clean-file-name">{file.file_name}</div>
+                              <div 
+                                className="staffmain-clean-file-name"
+                                onClick={() => handleViewFile(selectedLabResult.resultData.file_url, selectedLabResult.resultData.file_name)}
+                              >
+                                {selectedLabResult.resultData.file_name}
+                              </div>
                               <div className="staffmain-clean-file-meta">
-                                <span><Tag size={12} /> {file.file_type}</span>
-                                {file.test_name && <span><FlaskConical size={12} /> {file.test_name}</span>}
-                                <span><Calendar size={12} /> {new Date(file.upload_date).toLocaleDateString()}</span>
+                                {new Date(selectedLabResult.resultData.upload_date).toLocaleDateString()}
                               </div>
                             </div>
                             <button 
-                              onClick={() => handleViewFile(file.file_url, file.file_name)}
+                              onClick={() => handleViewFile(selectedLabResult.resultData.file_url, selectedLabResult.resultData.file_name)}
                               className="staffmain-clean-view-btn"
                             >
                               <Eye size={15} /> View
                             </button>
                           </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="staffmain-clean-files-grid">
-                        <div className="staffmain-clean-file-item">
-                          <div className="staffmain-file-type-icon">
-                            <File size={20} />
-                          </div>
-                          <div className="staffmain-clean-file-info">
-                            <div 
-                              className="staffmain-clean-file-name"
-                              onClick={() => handleViewFile(selectedLabResult.resultData.file_url, selectedLabResult.resultData.file_name)}
-                            >
-                              {selectedLabResult.resultData.file_name}
-                            </div>
-                            <div className="staffmain-clean-file-meta">
-                              {new Date(selectedLabResult.resultData.upload_date).toLocaleDateString()}
-                            </div>
-                          </div>
-                          <button 
-                            onClick={() => handleViewFile(selectedLabResult.resultData.file_url, selectedLabResult.resultData.file_name)}
-                            className="staffmain-clean-view-btn"
-                          >
-                            <Eye size={15} /> View
-                          </button>
                         </div>
-                      </div>
-                    )
+                      )}
+                      
+                      {/* Only show notes input for submitted results (not declined or completed) */}
+                      {selectedLabResult.status === 'submitted' && (
+                        <div className="staffmain-lab-notes-section">
+                          <label className="staffmain-lab-notes-label">
+                            <strong>Notes / Remarks:</strong> <span className="required-indicator">*</span>
+                          </label>
+                          <textarea
+                            value={labResultNotes}
+                            onChange={(e) => setLabResultNotes(e.target.value)}
+                            placeholder="Enter your notes or reason for accepting/declining this lab result..."
+                            className="staffmain-lab-notes-textarea"
+                            rows="4"
+                            required
+                          />
+                          <p className="staffmain-lab-notes-hint">
+                            Please provide notes explaining your decision to accept or decline this result.
+                          </p>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <div className="staffmain-pending-state">
                       <div className="staffmain-pending-state-icon">
@@ -2008,14 +2236,14 @@ const getFilteredLabData = () => {
                     <button 
                       className="staffmain-accept-btn"
                       onClick={() => handleAcceptLabResult(selectedLabResult.request_id)}
-                      disabled={dataLoading}
+                      disabled={dataLoading || !labResultNotes.trim()}
                     >
                       {dataLoading ? 'Processing...' : 'Accept'}
                     </button>
                     <button 
                       className="staffmain-decline-btn"
                       onClick={() => handleDeclineLabResult(selectedLabResult.request_id)}
-                      disabled={dataLoading}
+                      disabled={dataLoading || !labResultNotes.trim()}
                     >
                       {dataLoading ? 'Processing...' : 'Decline'}
                     </button>
@@ -2023,7 +2251,10 @@ const getFilteredLabData = () => {
                 ) : (
                   <button 
                     className="staffmain-clean-close-btn"
-                    onClick={() => setShowLabResultModal(false)}
+                    onClick={() => {
+                      setShowLabResultModal(false);
+                      setLabResultNotes('');
+                    }}
                   >
                     Close
                   </button>
@@ -2085,15 +2316,19 @@ const getFilteredLabData = () => {
           {getMenuItems().map((item) => (
             <button
               key={item.id}
-              onClick={() => {
-                setCurrentPage(item.id);
-                setSidebarOpen(false);
-              }}
+              onClick={() => handlePageChange(item.id)}
               className={`staffmain-nav-item ${currentPage === item.id ? 'active' : ''}`}
             >
               <span className="staffmain-nav-icon">{item.icon}</span>
               <div className="staffmain-nav-content">
-                <div className="staffmain-nav-label">{item.label}</div>
+                <div className="staffmain-nav-label">
+                  {item.label}
+                  {item.badge && (
+                    <span className="staffmain-notification-badge">
+                      {item.badge}
+                    </span>
+                  )}
+                </div>
                 <div className="staffmain-nav-description">{item.description}</div>
               </div>
             </button>

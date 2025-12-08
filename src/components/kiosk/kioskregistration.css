@@ -2603,3 +2603,111 @@ select.kioskreg-form-input:focus {
     top: 12px;
   }
 }
+
+/* ID Type Selection */
+.kiosk-input-group {
+  margin-bottom: 18px;
+}
+
+.kiosk-input-group label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--kioskreg-secondary-color);
+  font-weight: 500;
+  font-size: 0.8em;
+}
+
+.kiosk-reg-form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 2px solid var(--kioskreg-gray-200);
+  border-radius: var(--kioskreg-border-radius);
+  font-size: 0.8em;
+  transition: var(--kioskreg-transition);
+  background: var(--kioskreg-white);
+  font-family: var(--kioskreg-font-family);
+  font-weight: 400;
+  box-sizing: border-box;
+  color: var(--kioskreg-secondary-color);
+}
+
+.kiosk-reg-form-input:focus {
+  outline: none;
+  border-color: var(--kioskreg-primary-color);
+  background: var(--kioskreg-gray-50);
+  box-shadow: 0 0 0 3px rgba(26, 103, 42, 0.08);
+}
+
+select.kiosk-reg-form-input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background: var(--kioskreg-white) url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e") no-repeat right 12px center;
+  background-size: 16px;
+  padding-right: 40px;
+}
+
+select.kiosk-reg-form-input:focus {
+  background: var(--kioskreg-gray-50) url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a672a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e") no-repeat right 12px center;
+  background-size: 16px;
+}
+
+.kiosk-scan-helper {
+  color: var(--kioskreg-text-light);
+  font-size: 0.75em;
+  font-style: italic;
+  margin: -4px 0 10px 0;
+  line-height: 1.4;
+}
+
+.kiosk-id-scan {
+  background: var(--kioskreg-gray-50);
+  text-align: center;
+  padding: 20px;
+  border-radius: var(--kioskreg-border-radius);
+  border: 2px dashed var(--kioskreg-gray-300);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.kiosk-id-scan-btn {
+  background: var(--kioskreg-primary-color);
+  color: var(--kioskreg-white);
+  border: none;
+  border-radius: var(--kioskreg-border-radius);
+  padding: 10px 20px;
+  font-size: 0.75em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--kioskreg-transition);
+  font-family: var(--kioskreg-font-family);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.kiosk-id-scan-btn:hover:not(:disabled) {
+  background: var(--kioskreg-primary-dark);
+}
+
+.kiosk-id-scan-btn:disabled {
+  background: var(--kioskreg-gray-400);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.kiosk-loading-spinner {
+  border: 2px solid transparent;
+  border-top: 2px solid currentColor;
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+  animation: kioskreg-spin 0.8s linear infinite;
+  display: inline-block;
+}

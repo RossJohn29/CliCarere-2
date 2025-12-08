@@ -739,7 +739,7 @@ const AdminMain = () => {
                   <h3>Total Registered Patients</h3>
                   <div className="adminmain-stat-number-row">
                     <div className="adminmain-stat-number">{dashboardData.stats.totalRegisteredPatients}</div>
-                    {dashboardData.trends?.patients !== undefined && (
+                    {dashboardData.trends?.patients !== undefined && dashboardData.trends.patients !== null && (
                       <small className={`adminmain-stat-trend ${parseFloat(dashboardData.trends.patients) >= 0 ? 'positive' : 'negative'}`}>
                         {parseFloat(dashboardData.trends.patients) >= 0 ? (
                           <ArrowUp className="text-green-500 inline-block" size={10}/>

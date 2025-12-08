@@ -2061,3 +2061,71 @@
   background: var(--webmain-red-bg);
   color: var(--webmain-error);
 }
+
+/* Add these CSS rules to webmain.css */
+
+/* Doctor's Notes Section */
+.webmain-doctor-notes-section {
+  background: var(--webmain-gray-50);
+  border: 1px solid var(--webmain-gray-200);
+  border-radius: var(--webmain-border-radius);
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.webmain-doctor-notes-label {
+  display: block;
+  color: var(--webmain-secondary-color);
+  font-size: 0.75em;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.webmain-doctor-notes-text {
+  color: var(--webmain-text-dark);
+  font-size: 0.75em;
+  font-weight: 400;
+  line-height: 1.5;
+  margin: 0 0 6px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.webmain-review-date {
+  display: block;
+  color: var(--webmain-text-light);
+  font-size: 0.7em;
+  font-weight: 400;
+  font-style: italic;
+  margin-top: 6px;
+}
+
+/* Completed Lab Section */
+.webmain-completed-lab {
+  border: 1px solid var(--webmain-green-border);
+  margin-bottom: 20px;
+  padding: 18px;
+  background: var(--webmain-green-light);
+  border-radius: var(--webmain-border-radius);
+}
+
+.webmain-completed-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.webmain-completed-info .completion-notice {
+  color: var(--webmain-success);
+  font-size: 0.8em;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.webmain-completed-info small {
+  color: var(--webmain-text-light);
+  font-size: 0.75em;
+}

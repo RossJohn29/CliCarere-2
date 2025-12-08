@@ -88,6 +88,16 @@ const KioskRegistration = () => {
   const [symptomsLoading, setSymptomsLoading] = useState(true);
   const [categorySearches, setCategorySearches] = useState({});
   const [openCategories, setOpenCategories] = useState({});
+  const [selectedIDType, setSelectedIDType] = useState('');
+  const [capturedIDImage, setCapturedIDImage] = useState(null);
+  const ID_TYPES = [
+    { value: 'philhealth', label: 'PhilHealth ID' },
+    { value: 'drivers_license', label: 'Driver\'s License' },
+    { value: 'umid', label: 'UMID' },
+    { value: 'philsys', label: 'PhilSys ID' },
+    { value: 'pagibig', label: 'PAG-IBIG ID' },
+    { value: 'postal', label: 'Postal ID' }
+  ];
 
   const [patientData, setPatientData] = useState({
     patient_id: '', 
@@ -125,7 +135,6 @@ const KioskRegistration = () => {
     emergencyContactNumber: '', 
     emergencyRelationship: '',
     idType: '', 
-    idNumber: '', 
     selectedSymptoms: [], 
     preferredTime: '', 
     duration: '',
@@ -318,7 +327,7 @@ const KioskRegistration = () => {
       emergency_contact_name: data.emergencyContactName,
       emergency_contact_relationship: data.emergencyRelationship,
       emergency_contact_no: cleanPhoneNumber(data.emergencyContactNumber),
-      symptoms: data.selectedSymptoms,
+      symptoms: data.selectedSymptoms.join(', '),
       duration: data.duration,
       severity: data.severity,
       previous_treatment: data.previousTreatment,
@@ -521,23 +530,171 @@ const KioskRegistration = () => {
   const processIDImageWithOCR = async (imageData) => {
     if (ocrProcessing || !imageData) return;
     
+    if (!selectedIDType) {
+      setCameraError('Please select an ID type first');
+      return;
+    }
+    
     setOcrProcessing(true);
     
     try {
-      const result = await processIDWithOCR(imageData);
+      const result = await processIDWithOCR(imageData, selectedIDType);
       
       if (result.success && result.name) {
-        setFormData((prev) => ({ ...prev, fullName: result.name }));
+        // Handle different ID types with their specific fields
+        const updateData = { 
+          fullName: result.name,
+          idType: selectedIDType,
+          idNumber: result.idNumber || ''
+        };
+        
+        // PhilHealth: populate name, sex, birthday, and address
+        if (selectedIDType === 'philhealth') {
+          if (result.sex) {
+            updateData.sex = result.sex;
+          }
+          if (result.birthday) {
+            updateData.birthday = result.birthday;
+            updateData.age = calculateAge(result.birthday);
+          }
+          if (result.address) {
+            updateData.address = result.address;
+          }
+        }
+        // Driver's License: populate name, sex, birthday, and address
+        else if (selectedIDType === 'drivers_license') {
+          if (result.sex) {
+            updateData.sex = result.sex;
+          }
+          if (result.birthday) {
+            updateData.birthday = result.birthday;
+            updateData.age = calculateAge(result.birthday);
+          }
+          if (result.address) {
+            updateData.address = result.address;
+          }
+        }
+        // UMID: populate sex, birthday, and address
+        else if (selectedIDType === 'umid') {
+          if (result.sex) {
+            updateData.sex = result.sex;
+          }
+          if (result.birthday) {
+            updateData.birthday = result.birthday;
+            updateData.age = calculateAge(result.birthday);
+          }
+          if (result.address) {
+            updateData.address = result.address;
+          }
+        }
+        // PhilSys or Postal ID: populate birthday and address
+        else if (selectedIDType === 'philsys' || selectedIDType === 'postal') {
+          if (result.birthday) {
+            updateData.birthday = result.birthday;
+            updateData.age = calculateAge(result.birthday);
+          }
+          if (result.address) {
+            updateData.address = result.address;
+          }
+        }
+        
+        setFormData((prev) => ({ 
+          ...prev, 
+          ...updateData
+        }));
+        
+        setCapturedIDImage(imageData);
+        
         setShowCameraModal(false);
         setError('');
-        showToastNotification('ID scanned successfully! Name auto-filled.', 'success');
+        
+        // Show appropriate success message for each ID type
+        let successMessage = `${ID_TYPES.find(t => t.value === selectedIDType)?.label} scanned successfully!`;
+        
+        if (selectedIDType === 'philhealth' && result.sex && result.birthday && result.address) {
+          successMessage += ' Name, sex, birthday, and address extracted.';
+        } else if (selectedIDType === 'philhealth' && (result.sex || result.birthday || result.address)) {
+          const extracted = [];
+          if (result.sex) extracted.push('sex');
+          if (result.birthday) extracted.push('birthday');
+          if (result.address) extracted.push('address');
+          successMessage += ` Name and ${extracted.join(', ')} extracted.`;
+        } else if (selectedIDType === 'drivers_license' && result.sex && result.birthday && result.address) {
+          successMessage += ' Name, sex, birthday, and address extracted.';
+        } else if (selectedIDType === 'drivers_license' && (result.sex || result.birthday || result.address)) {
+          const extracted = [];
+          if (result.sex) extracted.push('sex');
+          if (result.birthday) extracted.push('birthday');
+          if (result.address) extracted.push('address');
+          successMessage += ` Name and ${extracted.join(', ')} extracted.`;
+        } else if (selectedIDType === 'umid' && result.sex && result.birthday && result.address) {
+          successMessage += ' Name, sex, birthday, and address extracted.';
+        } else if (selectedIDType === 'umid' && (result.sex || result.birthday || result.address)) {
+          const extracted = [];
+          if (result.sex) extracted.push('sex');
+          if (result.birthday) extracted.push('birthday');
+          if (result.address) extracted.push('address');
+          successMessage += ` Name and ${extracted.join(', ')} extracted.`;
+        } else if ((selectedIDType === 'philsys' || selectedIDType === 'postal') && result.birthday && result.address) {
+          successMessage += ' Name, birthday, and address extracted.';
+        } else if ((selectedIDType === 'philsys' || selectedIDType === 'postal') && (result.birthday || result.address)) {
+          successMessage += ' Name and ' + (result.birthday ? 'birthday' : 'address') + ' extracted.';
+        } else if (selectedIDType === 'pagibig') {
+          successMessage += ' Name extracted.';
+        } else if (selectedIDType === 'drivers_license') {
+          successMessage += ' Name extracted.';
+        }
+        
+        showToastNotification(successMessage, 'success');
       } else {
-        setCameraError(result.message || 'Failed to extract name from ID');
+        setCameraError(result.message || 'Failed to extract information from ID');
       }
     } catch (err) {
       setCameraError('Failed to process ID image. Please try again.');
     } finally {
       setOcrProcessing(false);
+    }
+  };
+
+  const uploadIDImage = async (imageData, patientId, idType) => {
+    try {
+      // Convert base64 to blob
+      const base64Data = imageData.split(',')[1];
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/jpeg' });
+      
+      // Create filename: patientId_idType_timestamp.jpg
+      const timestamp = Date.now();
+      const fileName = `${patientId}_${idType}_${timestamp}.jpg`;
+      
+      // Upload to Supabase
+      const formData = new FormData();
+      formData.append('file', blob, fileName);
+      formData.append('patientId', patientId);
+      formData.append('idType', idType);
+      
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload-id-image`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log('✅ ID image uploaded successfully:', result.publicUrl);
+        return result.publicUrl;
+      } else {
+        console.error('❌ ID image upload failed:', result.error);
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ ID image upload error:', error);
+      return null;
     }
   };
 
@@ -1526,6 +1683,23 @@ const KioskRegistration = () => {
         console.log('📤 Submitting registration with temp_id:', registrationData.temp_id);
         
         result = await registerNewPatient(registrationData);
+        
+        // ✅ FIX: Upload ID image after successful registration
+        // Use result.patient.patient_id which is returned from the API
+        if (capturedIDImage && result.patient?.patient_id) {
+          console.log('📤 Uploading ID image for patient:', result.patient.patient_id);
+          const idImageUrl = await uploadIDImage(
+            capturedIDImage,
+            result.patient.patient_id,  // ✅ Use patient_id from result
+            selectedIDType
+          );
+          
+          if (idImageUrl) {
+            console.log('✅ ID image stored:', idImageUrl);
+          } else {
+            console.warn('⚠️ ID image upload failed, continuing anyway');
+          }
+        }
       }
 
       // Clear localStorage after successful registration
@@ -1813,19 +1987,40 @@ const renderProgressBar = () => {
 
       {renderQRCodeButton()}
 
-      <div className="kioskreg-input-group">
-        <label>Scan ID</label>
-        <div className="kioskreg-scan-helper">Optional: a shortcut to speed up typing your full name</div>
-        <div className="kioskreg-id-scan">
-          <img src={sampleID} alt="Sample ID" className="sampleID" />
+      <div className="kiosk-input-group">
+        <label>ID Type</label>
+        <select
+          value={selectedIDType}
+          onChange={(e) => setSelectedIDType(e.target.value)}
+          className="kiosk-reg-form-input"
+          required
+        >
+          <option value="">Select ID Type</option>
+          {ID_TYPES.map(type => (
+            <option key={type.value} value={type.value}>
+              {type.label}
+            </option>
+          ))}
+        </select>
+        {!selectedIDType && (
+          <small className="input-reminder">Select ID type before scanning</small>
+        )}
+      </div>
+
+      <div className="kiosk-input-group">
+        <label>Scan ID (Optional)</label>
+        <div className="kiosk-scan-helper">Scan your {selectedIDType ? ID_TYPES.find(t => t.value === selectedIDType)?.label : 'ID'} for faster registration</div>
+        <div className="kiosk-id-scan">
+          <img src={sampleID} alt="Sample ID" className="sampleID"/>
           <button
             onClick={handleIDScanClick}
-            disabled={ocrProcessing || !isCameraAvailable()}
-            className="kioskreg-id-scan-btn"
+            disabled={!selectedIDType || ocrProcessing || !isCameraAvailable()}
+            className="kiosk-id-scan-btn"
           >
-            {!isCameraAvailable() ? 'Camera Not Available (HTTPS Required)' :
-              ocrProcessing ? (<><span className="kioskreg-loading-spinner"></span>Scanning ID...</>) : 
-              (<><Camera size={16} />Scan ID</>)}
+            {!isCameraAvailable() ? 'Camera Not Available' :
+              !selectedIDType ? 'Select ID Type First' :
+              ocrProcessing ? (<><span className="kiosk-loading-spinner"></span>Scanning...</>) : 
+              `Scan ${ID_TYPES.find(t => t.value === selectedIDType)?.label}`}
           </button>
         </div>
       </div>

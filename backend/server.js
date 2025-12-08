@@ -55,10 +55,9 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ✅ Brevo SMTP Configuration
-// ✅ Brevo API Configuration (replaces SMTP)
 const brevo = require('@getbrevo/brevo');
 
-let brevoApiInstance = null;
+let brevoApiInstance = null;  
 if (process.env.BREVO_API_KEY) {
   brevoApiInstance = new brevo.TransactionalEmailsApi();
   brevoApiInstance.setApiKey(
@@ -798,6 +797,88 @@ const sendLabDeclinedEmail = async (email, patientName, labRequestData, declineR
   }
 };
 
+// Send notification email to doctor
+const sendLabSubmissionNotification = async (staffEmail, staffName, patientName, testName, isResubmission = false) => {
+  try {
+    if (!brevoApiInstance) {
+      console.warn('Brevo API not configured - skipping notification email');
+      return { success: false };
+    }
+    
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    
+    sendSmtpEmail.sender = {
+      name: emailConfig.from.name,
+      email: emailConfig.from.email
+    };
+    
+    sendSmtpEmail.to = [{ email: staffEmail, name: staffName }];
+    sendSmtpEmail.subject = isResubmission 
+      ? 'CliCare - Lab Result Resubmitted' 
+      : 'CliCare - New Lab Result Submitted';
+    
+    sendSmtpEmail.htmlContent = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
+          
+          <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 2px 0;">
+            Hello Dr. ${staffName},
+          </p>
+          
+          <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
+            ${isResubmission 
+              ? 'A patient has resubmitted laboratory test results for your review.' 
+              : 'A patient has submitted new laboratory test results for your review.'}
+          </p>
+
+          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
+              <strong style="color: #27371f;">Patient:</strong> ${patientName}<br>
+              <strong style="color: #27371f;">Test:</strong> ${testName}<br>
+              <strong style="color: #27371f;">Status:</strong> <span style="color: ${isResubmission ? '#f59e0b' : '#059669'}; font-weight: 500;">${isResubmission ? 'Resubmitted' : 'New Submission'}</span><br>
+              <strong style="color: #27371f;">Submitted:</strong> ${new Date().toLocaleString()}
+            </p>
+          </div>
+
+          <p style="color: #27371f; font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">
+            Action Required:
+          </p>
+          
+          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
+            <p style="color: #6b7280; font-size: 14px; margin: 0; line-height: 1.7;">
+              Please log in to your CliCare dashboard to review and ${isResubmission ? 'accept or decline the resubmitted' : 'process the'} laboratory results.
+            </p>
+          </div>
+
+          <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+            <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+              CliCare Hospital Management System<br>
+              This is an automated message. Please do not reply.
+            </p>
+          </div>
+
+        </div>
+      </body>
+      </html>
+    `;
+
+    const result = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
+    console.log('✅ Lab notification email sent to doctor');
+    return { success: true };
+  
+  } catch (error) {
+    console.error('❌ Lab notification email failed:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 // SMS Service
 const sendSMSOTP = async (phoneNumber, otp, patientName) => {
   try {
@@ -1108,6 +1189,68 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
+
+// Get unread lab notification count for staff
+app.get('/api/healthcare/lab-notifications/count', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.type !== 'healthcare') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { count } = await supabase
+      .from('lab_notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('staff_id', req.user.id)
+      .eq('is_read', false);
+
+    res.json({
+      success: true,
+      unreadCount: count || 0
+    });
+
+  } catch (error) {
+    console.error('Get notification count error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Mark lab notifications as read when viewing Lab Orders page
+app.post('/api/healthcare/lab-notifications/mark-read', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.type !== 'healthcare') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { error } = await supabase
+      .from('lab_notifications')
+      .update({ is_read: true })
+      .eq('staff_id', req.user.id)
+      .eq('is_read', false);
+
+    if (error) {
+      console.error('Mark notifications read error:', error);
+      return res.status(500).json({ error: 'Failed to mark notifications as read' });
+    }
+
+    // Update staff table notification count
+    await supabase
+      .from('staff')
+      .update({ 
+        lab_notifications: 0,
+        last_notification_check: new Date().toISOString()
+      })
+      .eq('id', req.user.id);
+
+    res.json({
+      success: true,
+      message: 'Notifications marked as read'
+    });
+
+  } catch (error) {
+    console.error('Mark notifications read error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 app.get('/api/print/printers', async (req, res) => {
   try {
@@ -2040,292 +2183,573 @@ app.get('/api/admin/time-series-stats', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/admin/analyze-data', authenticateToken, async (req, res) => {
-try {
-  if (req.user.type !== 'admin') {
-    return res.status(403).json({ error: 'Access denied' });
-  }
-
-  const { query } = req.body;
-  const today = new Date().toISOString().split('T')[0];
-  const oneWeekAgo = new Date();
-  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-  const weekAgoStr = oneWeekAgo.toISOString().split('T')[0];
-  
-  console.log('📊 Fetching optimized hospital data...');
-  const startTime = Date.now();
-  
-  // ============================================================================
-  // ✅ DECLARE OUTSIDE TRY BLOCK
-  // ============================================================================
-  let contextData = {
-    core: {
-      totalPatients: 0,
-      todayVisits: 0,
-      newThisWeek: 0,
-      appointments: 0,
-      activeDoctors: 0,
-      checkedIn: 0,
-      completed: 0
-    },
-    departments: {},
-    queue: { waiting: 0, inProgress: 0, completed: 0 },
-    symptoms: [],
-    avgWaitTime: 0
-  };
-  
-  // ============================================================================
-  // ✅ OPTIMIZED: Single Promise.all instead of sequential queries
-  // ============================================================================
   try {
-    const [
-      { count: totalPatients },
-      { count: todayVisits },
-      { count: newThisWeek },
-      { count: todayAppointments },
-      { count: activeDoctors },
-      { data: queueData },
-      { data: symptomData },
-      { data: visitData }
-    ] = await Promise.all([
-      supabase.from('outpatient').select('*', { count: 'exact', head: true }),
-      supabase.from('visit').select('*', { count: 'exact', head: true }).eq('visit_date', today),
-      supabase.from('outpatient').select('*', { count: 'exact', head: true }).gte('registration_date', weekAgoStr),
-      supabase.from('pre_registration').select('*', { count: 'exact', head: true }).eq('scheduled_date', today).in('status', ['pending', 'completed']),
-      supabase.from('staff').select('*', { count: 'exact', head: true }).eq('role', 'Doctor').eq('is_online', true),
-      supabase.from('queue').select('queue_id, status, department:department_id(name), created_time, updated_at').eq('scheduled_date', today),
-      supabase.from('visit').select('symptoms').eq('visit_date', today).not('symptoms', 'is', null).limit(50),
-      supabase.from('visit').select('symptoms, queue(department:department_id(name))').eq('visit_date', today).not('symptoms', 'is', null).limit(100)
-    ]);
+    if (req.user.type !== 'admin') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { query } = req.body;
+    const today = new Date().toISOString().split('T')[0];
     
-    console.log(`✅ All data fetched in ${Date.now() - startTime}ms`);
+    // Calculate date ranges
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const weekAgoStr = oneWeekAgo.toISOString().split('T')[0];
     
-    // ============================================================================
-    // ✅ SIMPLIFIED DATA PROCESSING
-    // ============================================================================
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    const monthAgoStr = oneMonthAgo.toISOString().split('T')[0];
     
-    // Process department data
-    const deptSummary = {};
-    const queueSummary = { waiting: 0, inProgress: 0, completed: 0 };
-    const waitTimes = [];
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const yearAgoStr = oneYearAgo.toISOString().split('T')[0];
     
-    (queueData || []).forEach(q => {
-      const dept = q.department?.name || 'Unknown';
-      deptSummary[dept] = (deptSummary[dept] || 0) + 1;
-      
-      if (q.status === 'waiting') queueSummary.waiting++;
-      else if (q.status === 'in_progress') queueSummary.inProgress++;
-      else if (q.status === 'completed') queueSummary.completed++;
-      
-      // Calculate wait time
-      if (q.created_time) {
-        const created = new Date(q.created_time);
-        const updated = q.updated_at ? new Date(q.updated_at) : new Date();
-        const waitMinutes = Math.floor((updated - created) / 60000);
-        if (waitMinutes >= 0) waitTimes.push(waitMinutes);
+    console.log('📊 Fetching comprehensive hospital data...');
+    console.log('📝 User query:', query);
+    const startTime = Date.now();
+    
+    let contextData = {
+      core: {
+        totalPatients: 0,
+        todayVisits: 0,
+        newThisWeek: 0,
+        appointments: 0,
+        activeDoctors: 0,
+        checkedIn: 0,
+        completed: 0
+      },
+      departments: {},
+      departmentStats: {},
+      queue: { waiting: 0, inProgress: 0, completed: 0 },
+      symptoms: [],
+      departmentSymptoms: {},
+      avgWaitTime: 0,
+      timeData: {
+        hourlyRegistrations: {},
+        dailyRegistrations: {},
+        weeklyRegistrations: {},
+        monthlyRegistrations: {},
+        departmentByDay: {},
+        departmentByHour: {}
       }
-    });
+    };
     
-    // Process symptoms (simplified)
-    const symptomCounts = {};
-    (symptomData || []).forEach(v => {
-      if (v.symptoms) {
+    try {
+      // ============================================================================
+      // ENHANCED DATA FETCHING WITH TIME-SERIES
+      // ============================================================================
+      const [
+        { count: totalPatients },
+        { count: todayVisits },
+        { count: newThisWeek },
+        { count: todayAppointments },
+        { count: activeDoctors },
+        { data: queueData },
+        { data: symptomData },
+        { data: visitData },
+        { data: allDepartments },
+        { data: departmentQueueStats },
+        // NEW: Historical registration data
+        { data: allRegistrations },
+        { data: allVisits },
+        { data: hourlyQueueData }
+      ] = await Promise.all([
+        supabase.from('outpatient').select('*', { count: 'exact', head: true }),
+        supabase.from('visit').select('*', { count: 'exact', head: true }).eq('visit_date', today),
+        supabase.from('outpatient').select('*', { count: 'exact', head: true }).gte('registration_date', weekAgoStr),
+        supabase.from('pre_registration').select('*', { count: 'exact', head: true }).eq('scheduled_date', today).in('status', ['pending', 'completed']),
+        supabase.from('staff').select('*', { count: 'exact', head: true }).eq('role', 'Doctor').eq('is_online', true),
+        supabase.from('queue').select('queue_id, status, department:department_id(name), created_time, updated_at, scheduled_date').eq('scheduled_date', today),
+        supabase.from('visit').select('symptoms').eq('visit_date', today).not('symptoms', 'is', null).limit(50),
+        supabase.from('visit').select('symptoms, visit_date, queue(department:department_id(name))').not('symptoms', 'is', null).limit(200),
+        supabase.from('department').select('department_id, name').eq('status', 'active'),
+        supabase.from('queue').select('department_id, status, created_time, scheduled_date, department!inner(name)').order('created_time', { ascending: false }).limit(500),
+        // NEW: Get ALL patient registrations with timestamps
+        supabase.from('outpatient').select('registration_date, created_at').gte('registration_date', yearAgoStr).order('registration_date', { ascending: true }),
+        // NEW: Get ALL visits with department and timestamp
+        supabase.from('visit').select('visit_id, visit_date, visit_time, queue(department_id, department!inner(name))').gte('visit_date', yearAgoStr).order('visit_date', { ascending: true }),
+        // NEW: Queue data with timestamps for hourly analysis
+        supabase.from('queue').select('created_time, scheduled_date, department_id, department!inner(name)').gte('scheduled_date', monthAgoStr)
+      ]);
+      
+      console.log(`✅ All data fetched in ${Date.now() - startTime}ms`);
+      
+      // ============================================================================
+      // EXISTING DATA PROCESSING (Keep your current logic)
+      // ============================================================================
+      
+      // Process department data with queue counts
+      const deptSummary = {};
+      const deptQueueCounts = {};
+      const queueSummary = { waiting: 0, inProgress: 0, completed: 0 };
+      const waitTimes = [];
+      
+      (queueData || []).forEach(q => {
+        const dept = q.department?.name || 'Unknown';
+        deptSummary[dept] = (deptSummary[dept] || 0) + 1;
+        
+        if (q.status === 'waiting') queueSummary.waiting++;
+        else if (q.status === 'in_progress') queueSummary.inProgress++;
+        else if (q.status === 'completed') queueSummary.completed++;
+        
+        if (q.created_time) {
+          const created = new Date(q.created_time);
+          const updated = q.updated_at ? new Date(q.updated_at) : new Date();
+          const waitMinutes = Math.floor((updated - created) / 60000);
+          if (waitMinutes >= 0) waitTimes.push(waitMinutes);
+        }
+      });
+
+      (allDepartments || []).forEach(dept => {
+        const deptQueues = (departmentQueueStats || []).filter(q => q.department_id === dept.department_id);
+        deptQueueCounts[dept.name] = {
+          total: deptQueues.length,
+          waiting: deptQueues.filter(q => q.status === 'waiting').length,
+          completed: deptQueues.filter(q => q.status === 'completed').length
+        };
+      });
+      
+      // Process symptoms
+      const symptomCounts = {};
+      (symptomData || []).forEach(v => {
+        if (v.symptoms) {
+          v.symptoms.split(',').forEach(symptom => {
+            const clean = symptom.trim();
+            if (clean && !clean.toLowerCase().includes('lab') && !clean.toLowerCase().includes('test') && clean.length > 2) {
+              symptomCounts[clean] = (symptomCounts[clean] || 0) + 1;
+            }
+          });
+        }
+      });
+      
+      const topSymptoms = Object.entries(symptomCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
+
+      // Department-specific symptoms
+      const deptSymptoms = {};
+      (visitData || []).forEach(v => {
+        if (!v.symptoms) return;
+        
+        let deptName = null;
+        if (Array.isArray(v.queue)) {
+          if (v.queue.length > 0 && v.queue[0]?.department?.name) {
+            deptName = v.queue[0].department.name;
+          }
+        } else if (v.queue?.department?.name) {
+          deptName = v.queue.department.name;
+        }
+      
+        if (!deptName) return;
+        
+        if (!deptSymptoms[deptName]) deptSymptoms[deptName] = {};
+        
         v.symptoms.split(',').forEach(symptom => {
           const clean = symptom.trim();
           if (clean && !clean.toLowerCase().includes('lab') && !clean.toLowerCase().includes('test') && clean.length > 2) {
-            symptomCounts[clean] = (symptomCounts[clean] || 0) + 1;
+            deptSymptoms[deptName][clean] = (deptSymptoms[deptName][clean] || 0) + 1;
           }
         });
-      }
-    });
-    
-    const topSymptoms = Object.entries(symptomCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
+      });
 
-    const deptSymptoms = {};
-    (visitData || []).forEach(v => {
-      if (!v.symptoms) return;
+      // ============================================================================
+      // NEW: COMPREHENSIVE TIME-SERIES ANALYSIS
+      // ============================================================================
       
-      let deptName = null;
-      
-      if (Array.isArray(v.queue)) {
-        if (v.queue.length > 0 && v.queue[0]?.department?.name) {
-          deptName = v.queue[0].department.name;
-        }
-      } else if (v.queue?.department?.name) {
-        deptName = v.queue.department.name;
-      }
-    
-      if (!deptName) return;
-      
-      if (!deptSymptoms[deptName]) deptSymptoms[deptName] = {};
-      
-      v.symptoms.split(',').forEach(symptom => {
-        const clean = symptom.trim();
-        if (clean && !clean.toLowerCase().includes('lab') && !clean.toLowerCase().includes('test') && clean.length > 2) {
-          deptSymptoms[deptName][clean] = (deptSymptoms[deptName] || 0) + 1;
+      // 1. HOURLY REGISTRATION PATTERN (All time)
+      const hourlyStats = {};
+      (allRegistrations || []).forEach(patient => {
+        if (patient.created_at) {
+          const hour = new Date(patient.created_at).getHours();
+          hourlyStats[hour] = (hourlyStats[hour] || 0) + 1;
         }
       });
-    });
-            
-    // ============================================================================
-    // ✅ UPDATE CONTEXT DATA
-    // ============================================================================
-    contextData = {
-      core: {
-        totalPatients: totalPatients || 0,
-        todayVisits: todayVisits || 0,
-        newThisWeek: newThisWeek || 0,
-        appointments: todayAppointments || 0,
-        activeDoctors: activeDoctors || 0,
-        checkedIn: queueSummary.waiting + queueSummary.inProgress,
-        completed: queueSummary.completed
-      },
-      departments: deptSummary,
-      queue: queueSummary,
-      symptoms: topSymptoms,
-      departmentSymptoms: deptSymptoms,
-      avgWaitTime: waitTimes.length > 0 ? Math.round(waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length) : 0
-    };
+      
+      // 2. DAILY REGISTRATIONS (Last 30 days)
+      const dailyStats = {};
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      (allRegistrations || []).forEach(patient => {
+        const regDate = new Date(patient.registration_date);
+        if (regDate >= thirtyDaysAgo) {
+          const dateKey = patient.registration_date;
+          dailyStats[dateKey] = (dailyStats[dateKey] || 0) + 1;
+        }
+      });
+      
+      // 3. WEEKLY PATTERN (Day of week analysis)
+      const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const weeklyStats = {};
+      daysOfWeek.forEach(day => {
+        weeklyStats[day] = { total: 0, departments: {} };
+      });
+      
+      (allVisits || []).forEach(visit => {
+        const dayOfWeek = new Date(visit.visit_date).getDay();
+        const dayName = daysOfWeek[dayOfWeek];
+        
+        weeklyStats[dayName].total++;
+        
+        // Track by department
+        let deptName = null;
+        if (Array.isArray(visit.queue)) {
+          if (visit.queue.length > 0 && visit.queue[0]?.department?.name) {
+            deptName = visit.queue[0].department.name;
+          }
+        } else if (visit.queue?.department?.name) {
+          deptName = visit.queue.department.name;
+        }
+        
+        if (deptName) {
+          if (!weeklyStats[dayName].departments[deptName]) {
+            weeklyStats[dayName].departments[deptName] = 0;
+          }
+          weeklyStats[dayName].departments[deptName]++;
+        }
+      });
+      
+      // 4. MONTHLY PATTERN (Last 12 months)
+      const monthlyStats = {};
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+      
+      (allRegistrations || []).forEach(patient => {
+        const date = new Date(patient.registration_date);
+        const monthKey = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
+        monthlyStats[monthKey] = (monthlyStats[monthKey] || 0) + 1;
+      });
+      
+      // 5. DEPARTMENT BY DAY OF WEEK
+      const departmentByDay = {};
+      (allVisits || []).forEach(visit => {
+        const dayOfWeek = daysOfWeek[new Date(visit.visit_date).getDay()];
+        
+        let deptName = null;
+        if (Array.isArray(visit.queue)) {
+          if (visit.queue.length > 0 && visit.queue[0]?.department?.name) {
+            deptName = visit.queue[0].department.name;
+          }
+        } else if (visit.queue?.department?.name) {
+          deptName = visit.queue.department.name;
+        }
+        
+        if (deptName) {
+          if (!departmentByDay[deptName]) {
+            departmentByDay[deptName] = {};
+            daysOfWeek.forEach(day => departmentByDay[deptName][day] = 0);
+          }
+          departmentByDay[deptName][dayOfWeek]++;
+        }
+      });
+      
+      // 6. DEPARTMENT BY HOUR OF DAY
+      const departmentByHour = {};
+      (hourlyQueueData || []).forEach(queue => {
+        if (queue.created_time && queue.department?.name) {
+          const hour = new Date(queue.created_time).getHours();
+          const deptName = queue.department.name;
+          
+          if (!departmentByHour[deptName]) {
+            departmentByHour[deptName] = {};
+          }
+          departmentByHour[deptName][hour] = (departmentByHour[deptName][hour] || 0) + 1;
+        }
+      });
+      
+      // ============================================================================
+      // UPDATE CONTEXT DATA
+      // ============================================================================
+      contextData = {
+        core: {
+          totalPatients: totalPatients || 0,
+          todayVisits: todayVisits || 0,
+          newThisWeek: newThisWeek || 0,
+          appointments: todayAppointments || 0,
+          activeDoctors: activeDoctors || 0,
+          checkedIn: queueSummary.waiting + queueSummary.inProgress,
+          completed: queueSummary.completed
+        },
+        departments: deptSummary,
+        departmentStats: deptQueueCounts,
+        queue: queueSummary,
+        symptoms: topSymptoms,
+        departmentSymptoms: deptSymptoms,
+        avgWaitTime: waitTimes.length > 0 ? Math.round(waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length) : 0,
+        // NEW: Time-series data
+        timeData: {
+          hourlyRegistrations: hourlyStats,
+          dailyRegistrations: dailyStats,
+          weeklyPattern: weeklyStats,
+          monthlyRegistrations: monthlyStats,
+          departmentByDay: departmentByDay,
+          departmentByHour: departmentByHour
+        }
+      };
+      
+    } catch (error) {
+      console.error('❌ Database error:', error);
+      return res.status(500).json({ error: 'Database query failed' });
+    }
     
-  } catch (error) {
-    console.error('❌ Database error:', error);
-    return res.status(500).json({ error: 'Database query failed' });
-  }
-  
-  // ============================================================================
-  // ✅ PRE-CHECK FOR PII REQUESTS
-  // ============================================================================
-  const lowerQuery = query.toLowerCase();
-  const piiKeywords = [
-    'patient id', 'patient name', 'patient contact', 'phone number', 
-    'email address', 'list of patients', 'who are the patients',
-    'patient details', 'contact info', 'personal information',
-    'give me the', 'show me the', 'list all'
-  ];
-
-  const isPIIRequest = piiKeywords.some(keyword => lowerQuery.includes(keyword));
-
-  if (isPIIRequest) {
-    console.log('🚫 PII request detected, blocking');
-    return res.json({
-      textResponse: "I can't provide individual patient information due to RA 10173. Instead, I can help you with: aggregate statistics, department summaries, symptom trends, or wait times. What would you like to know?",
-      chartType: null,
-      chartData: [],
-      chartTitle: null
-    });
-  }
-  
-  // ============================================================================
-  // ✅ OPTIMIZED GEMINI PROMPT - MUCH SHORTER
-  // ============================================================================
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
-
-  const context = `Hospital admin assistant. Today: ${today}
-
-DATA:
-- Total Patients: ${contextData.core.totalPatients}
-- Today's Visits: ${contextData.core.todayVisits}  
-- Checked In: ${contextData.core.checkedIn}
-- Active Doctors: ${contextData.core.activeDoctors}
-- Departments: ${JSON.stringify(contextData.departments)}
-- Top Symptoms: ${JSON.stringify(contextData.symptoms)}
-- Department Symptoms: ${JSON.stringify(contextData.departmentSymptoms)}
-- Avg Wait: ${contextData.avgWaitTime} min
-
-QUESTION: "${query}"
-
-RULES:
-1. Be friendly, conversational - you're helping a hospital admin
-2. For symptom questions: provide both current data
-3. Share aggregate statistics freely, never individual patient data
-4. Always include chart (bar/pie/line)
-5. **CRITICAL: If asked for individual patient data (names, IDs, contact info):**
-- Respond ONLY: "I can't provide individual patient information due to RA 10173."
-- Then suggest: "Instead, I can help you with: aggregate statistics, department summaries, symptom trends, or wait times. What would you like to know?"
-- DO NOT provide any other hospital data
-- DO NOT show charts
-- Stop immediately after the suggestion
-
-RESPOND JSON ONLY:
-{
-"textResponse": "helpful response with data + medical insights",
-"chartType": "bar|pie|line",
-"chartData": [{"name": "X", "value": Y}],
-"chartTitle": "title"
-}`;
-
-  const geminiStart = Date.now();
-  const result = await model.generateContent(context);
-  console.log(`✅ Gemini responded in ${Date.now() - geminiStart}ms`);
-  
-  const response = await result.response;
-  let text = response.text().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  
-  let parsedResponse;
-  try {
-    parsedResponse = JSON.parse(text);
-  } catch (parseError) {
-    console.error('❌ Parse error:', parseError);
-    return res.json({
-      textResponse: `Here's your hospital overview: ${contextData.core.todayVisits} visits today, ${contextData.core.totalPatients} total patients.`,
-      chartType: "bar",
-      chartData: [
-        {"name": "Today's Visits", "value": contextData.core.todayVisits},
-        {"name": "Total Patients", "value": contextData.core.totalPatients},
-        {"name": "Checked In", "value": contextData.core.checkedIn}
-      ],
-      chartTitle: "Hospital Overview"
-    });
-  }
-
-  // ============================================================================
-  // ✅ QUICK PII CHECK
-  // ============================================================================
-  const responseText = parsedResponse.textResponse || '';
-  if (/\bPAT\d{9}\b|\b09\d{9}\b|@[a-z]+\.[a-z]+/i.test(responseText)) {
-    return res.json({
-      textResponse: "I can't provide individual patient information due to RA 10173. Instead, I can help you with: aggregate statistics, department summaries, symptom trends, or wait times. What would you like to know?",
-      chartType: null,
-      chartData: [],
-      chartTitle: null
-    });
-  }
-
-  // ============================================================================
-  // ✅ ENSURE CHART EXISTS (WITH PRIVACY CHECK)
-  // ============================================================================
-  const isPrivacyResponse = responseText.includes('RA 10173') || 
-                            responseText.includes('individual patient information') ||
-                            responseText.includes("can't provide individual");
-
-  if (isPrivacyResponse) {
-    parsedResponse.chartType = null;
-    parsedResponse.chartData = [];
-    parsedResponse.chartTitle = null;
-  } else if (!parsedResponse.chartData || parsedResponse.chartData.length === 0) {
-    parsedResponse.chartType = 'bar';
-    parsedResponse.chartData = [
-      {"name": "Today's Visits", "value": contextData.core.todayVisits},
-      {"name": "Total Patients", "value": contextData.core.totalPatients},
-      {"name": "Checked In", "value": contextData.core.checkedIn}
+    // ============================================================================
+    // PII CHECK (Keep your existing logic)
+    // ============================================================================
+    const lowerQuery = query.toLowerCase();
+    
+    const strictPIIPatterns = [
+      /\bpatient\s+(id|name|contact|phone|email|address)\b/,
+      /\bwho\s+is\s+patient\b/,
+      /\blist\s+(of|all)\s+patient/,
+      /\bshow\s+me\s+patient\s+(details|info|data|names|contacts)/,
+      /\bgive\s+me\s+(patient|name|contact|phone|email)/,
+      /\bpatient\s+named\b/,
+      /\bname\s+of\s+patient/,
+      /\bcontact\s+(info|details|number)\s+of\s+patient/
     ];
-    parsedResponse.chartTitle = "Hospital Overview";
+
+    const isPIIRequest = strictPIIPatterns.some(pattern => pattern.test(lowerQuery));
+
+    const isStatisticalQuery = 
+      lowerQuery.includes('how many') ||
+      lowerQuery.includes('total') ||
+      lowerQuery.includes('count') ||
+      lowerQuery.includes('number of') ||
+      lowerQuery.includes('top') ||
+      lowerQuery.includes('compare') ||
+      lowerQuery.includes('busiest') ||
+      lowerQuery.includes('highest') ||
+      lowerQuery.includes('lowest') ||
+      lowerQuery.includes('average') ||
+      lowerQuery.includes('statistics') ||
+      lowerQuery.includes('department') ||
+      lowerQuery.includes('symptom') ||
+      lowerQuery.includes('queue');
+
+    if (isPIIRequest && !isStatisticalQuery) {
+      console.log('🚫 PII request detected, blocking');
+      return res.json({
+        textResponse: "I can't provide individual patient information due to RA 10173 (Data Privacy Act). Instead, I can help you with:\n\n" +
+          "Aggregate statistics (total patients, visit counts)\n" +
+          "Department comparisons and performance\n" +
+          "Symptom trends and patterns\n" +
+          "Queue analytics and wait times\n" +
+          "Peak hours and busiest days\n\n" +
+          "What statistical insights would you like to see?",
+        chartType: null,
+        chartData: [],
+        chartTitle: null
+      });
+    }
+    
+    // ============================================================================
+    // ENHANCED GEMINI PROMPT WITH TIME DATA
+    // ============================================================================
+    const model = genAI.getGenerativeModel({ model: "gemini-3.0-flash" });
+
+    // Find peak hour and busiest day
+    const peakHour = Object.entries(contextData.timeData.hourlyRegistrations)
+      .sort((a, b) => b[1] - a[1])[0];
+    
+    const busiestDay = Object.entries(contextData.timeData.weeklyPattern)
+      .sort((a, b) => b[1].total - a[1].total)[0];
+    
+    // Top departments by queue
+    const topDepartmentsByQueue = Object.entries(contextData.departmentStats)
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 5);
+
+    const context = `You are a hospital analytics assistant. Today: ${today}
+
+  CURRENT STATISTICS:
+  ━━━━━━━━━━━━━━━━━
+  📊 PATIENT METRICS:
+  - Total Registered: ${contextData.core.totalPatients}
+  - Today's Visits: ${contextData.core.todayVisits}
+  - This Week: ${contextData.core.newThisWeek}
+  - Currently Checked In: ${contextData.core.checkedIn}
+  - Completed Today: ${contextData.core.completed}
+
+  🏥 DEPARTMENT STATS:
+  ${Object.entries(contextData.departmentStats).map(([dept, stats]) => 
+    `• ${dept}: ${stats.total} total (${stats.waiting} waiting, ${stats.completed} completed)`
+  ).join('\n')}
+
+  📋 TOP DEPARTMENTS BY QUEUE:
+  ${topDepartmentsByQueue.map(([dept, stats], i) => `${i+1}. ${dept}: ${stats.total} patients`).join('\n')}
+
+  🩺 TOP SYMPTOMS:
+  ${contextData.symptoms.slice(0, 5).map(([symptom, count], i) => `${i+1}. ${symptom}: ${count} cases`).join('\n')}
+
+  ⏰ PEAK REGISTRATION TIME: ${peakHour ? `${peakHour[0]}:00 (${peakHour[1]} registrations)` : 'No data'}
+
+  📅 BUSIEST DAY: ${busiestDay ? `${busiestDay[0]} (${busiestDay[1].total} visits)` : 'No data'}
+
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  📈 TIME-SERIES DATA AVAILABLE:
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  🕐 HOURLY PATTERN (All registrations by hour):
+  ${Object.entries(contextData.timeData.hourlyRegistrations)
+    .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+    .map(([hour, count]) => `${hour}:00 - ${count} registrations`)
+    .join(', ')}
+
+  📅 DAILY REGISTRATIONS (Last 30 days):
+  ${Object.entries(contextData.timeData.dailyRegistrations)
+    .slice(-7)
+    .map(([date, count]) => `${date}: ${count}`)
+    .join(', ')}
+  ... and ${Object.keys(contextData.timeData.dailyRegistrations).length} more days available
+
+  📊 WEEKLY PATTERN (By day of week):
+  ${Object.entries(contextData.timeData.weeklyPattern)
+    .map(([day, data]) => `${day}: ${data.total} visits`)
+    .join('\n')}
+
+  📈 DEPARTMENT BUSIEST DAYS:
+  ${Object.entries(contextData.timeData.departmentByDay)
+    .slice(0, 3)
+    .map(([dept, days]) => {
+      const busiestDayForDept = Object.entries(days).sort((a, b) => b[1] - a[1])[0];
+      return `${dept}: Busiest on ${busiestDayForDept[0]} (${busiestDayForDept[1]} visits)`;
+    })
+    .join('\n')}
+
+  ⏰ DEPARTMENT PEAK HOURS:
+  ${Object.entries(contextData.timeData.departmentByHour)
+    .slice(0, 3)
+    .map(([dept, hours]) => {
+      const peakHourForDept = Object.entries(hours).sort((a, b) => b[1] - a[1])[0];
+      return `${dept}: Peak at ${peakHourForDept[0]}:00 (${peakHourForDept[1]} visits)`;
+    })
+    .join('\n')}
+
+  USER QUESTION: "${query}"
+
+  RESPONSE RULES:
+  ✅ ANSWER THESE FREELY (aggregate statistics):
+  - Total patient counts by date/month/year
+  - Department comparisons
+  - Symptom trends  
+  - Queue statistics
+  - Busiest times/days for ANY department
+  - Peak registration hours
+  - Wait times
+  - Historical trends
+
+  ❌ NEVER PROVIDE:
+  - Individual patient names, IDs, or contact info
+  - Specific personal health details
+
+  RESPONSE FORMAT (JSON):
+  {
+    "textResponse": "Direct answer with relevant statistics and insights",
+    "chartType": "bar|pie|line",
+    "chartData": [{"name": "X", "value": Y}],
+    "chartTitle": "Descriptive title"
   }
 
-  console.log(`✅ Total request time: ${Date.now() - startTime}ms`);
-  return res.json(parsedResponse);
+  EXAMPLES:
 
-} catch (error) {
-  console.error('❌ API Error:', error);
-  res.status(500).json({ 
-    textResponse: "System error occurred. Please try again.",
-    chartType: "bar",
-    chartData: [{"name": "System Status", "value": 0}],
-    chartTitle: "Error Status"
-  });
-}
-});
+  Q: "Busiest day of the week for Internal Medicine"
+  A: Look at departmentByDay for Internal Medicine, find highest value, create bar chart
+
+  Q: "How many patients in November 2024?"
+  A: Sum all monthlyRegistrations entries for "November 2024"
+
+  Q: "What time do most patients register?"
+  A: Look at hourlyRegistrations, find peak hour, create line chart
+
+  Q: "Compare Surgery vs Pediatrics by day of week"
+  A: Use departmentByDay data for both, create comparison bar chart
+
+  Be conversational but data-driven. Always include relevant charts with actual data.`;
+
+    const geminiStart = Date.now();
+    const result = await model.generateContent(context);
+    console.log(`✅ Gemini responded in ${Date.now() - geminiStart}ms`);
+    
+    const response = await result.response;
+    let text = response.text().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    let parsedResponse;
+    try {
+      parsedResponse = JSON.parse(text);
+    } catch (parseError) {
+      console.error('❌ Parse error:', parseError);
+      
+      return res.json({
+        textResponse: `Here's your hospital overview for ${today}:\n\n` +
+          `• Total Patients: ${contextData.core.totalPatients}\n` +
+          `• Today's Visits: ${contextData.core.todayVisits}\n` +
+          `• Peak Hour: ${peakHour ? `${peakHour[0]}:00` : 'N/A'}\n` +
+          `• Busiest Day: ${busiestDay ? busiestDay[0] : 'N/A'}`,
+        chartType: "bar",
+        chartData: [
+          {"name": "Today", "value": contextData.core.todayVisits},
+          {"name": "This Week", "value": contextData.core.newThisWeek},
+          {"name": "Total", "value": contextData.core.totalPatients}
+        ],
+        chartTitle: "Hospital Overview"
+      });
+    }
+
+    // PII check in response
+    const responseText = parsedResponse.textResponse || '';
+    if (/\bPAT\d{9}\b|\b09\d{9}\b|@[a-z]+\.[a-z]+/i.test(responseText)) {
+      return res.json({
+        textResponse: "I can't provide individual patient information due to RA 10173.",
+        chartType: null,
+        chartData: [],
+        chartTitle: null
+      });
+    }
+
+    // Ensure chart exists
+    const isPrivacyResponse = responseText.includes('RA 10173') || 
+                              responseText.includes('individual patient information');
+
+    if (isPrivacyResponse) {
+      parsedResponse.chartType = null;
+      parsedResponse.chartData = [];
+      parsedResponse.chartTitle = null;
+    } else if (!parsedResponse.chartData || parsedResponse.chartData.length === 0) {
+      // Intelligent fallback
+      if (lowerQuery.includes('hour')) {
+        parsedResponse.chartType = 'line';
+        parsedResponse.chartData = Object.entries(contextData.timeData.hourlyRegistrations)
+          .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+          .map(([hour, count]) => ({ name: `${hour}:00`, value: count }));
+        parsedResponse.chartTitle = 'Hourly Registration Distribution';
+      } else if (lowerQuery.includes('day') || lowerQuery.includes('week')) {
+        parsedResponse.chartType = 'bar';
+        parsedResponse.chartData = Object.entries(contextData.timeData.weeklyPattern)
+          .map(([day, stats]) => ({ name: day, value: stats.total }));
+        parsedResponse.chartTitle = 'Weekly Visit Distribution';
+      } else {
+        parsedResponse.chartType = 'bar';
+        parsedResponse.chartData = [
+          {"name": "Today", "value": contextData.core.todayVisits},
+          {"name": "Total", "value": contextData.core.totalPatients}
+        ];
+        parsedResponse.chartTitle = "Hospital Overview";
+      }
+    }
+
+    console.log(`✅ Total request time: ${Date.now() - startTime}ms`);
+    return res.json(parsedResponse);
+
+  } catch (error) {
+    console.error('❌ API Error:', error);
+    res.status(500).json({ 
+      textResponse: "System error occurred. Please try again.",
+      chartType: null,
+      chartData: [],
+      chartTitle: null
+    });
+  }
+}); 
 
 // Get All Staff (with search by staff_id)
 app.get('/api/admin/staff', authenticateToken, async (req, res) => {
@@ -6504,111 +6928,115 @@ app.get('/api/healthcare/lab-results', authenticateToken, async (req, res) => {
   }
 });
 
-  app.get('/api/patient/lab-requests/:patientId', authenticateToken, async (req, res) => {
-    try {
-      if (req.user.type !== 'outpatient') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
+app.get('/api/patient/lab-requests/:patientId', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.type !== 'outpatient') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
-      const { patientId } = req.params;
+    const { patientId } = req.params;
 
-      if (req.user.patientId !== patientId) {
-        return res.status(403).json({ error: 'Access denied to other patient data' });
-      }
+    if (req.user.patientId !== patientId) {
+      return res.status(403).json({ error: 'Access denied to other patient data' });
+    }
 
-      const { data: patientData } = await supabase
-        .from('outpatient')
-        .select('id, patient_id, name')
-        .eq('patient_id', patientId)
-        .single();
+    const { data: patientData } = await supabase
+      .from('outpatient')
+      .select('id, patient_id, name')
+      .eq('patient_id', patientId)
+      .single();
 
-      if (!patientData) {
-        return res.status(404).json({ error: 'Patient not found' });
-      }
+    if (!patientData) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
 
-      const { data: visits } = await supabase
-        .from('visit')
-        .select('visit_id')
-        .eq('patient_id', patientData.id);
+    const { data: visits } = await supabase
+      .from('visit')
+      .select('visit_id')
+      .eq('patient_id', patientData.id);
 
-      if (!visits || visits.length === 0) {
-        return res.status(200).json({
-          success: true,
-          labRequests: []
-        });
-      }
-
-      const visitIds = visits.map(v => v.visit_id);
-
-      // FIXED: Show requests that are NOT completed (pending, submitted, declined)
-      const { data: labRequests, error: labRequestsError } = await supabase
-        .from('lab_request')
-        .select(`
-          *,
-          visit!inner(visit_id, visit_date),
-          staff!lab_request_staff_id_fkey(name, specialization)
-        `)
-        .in('visit_id', visitIds)
-        .in('status', ['pending', 'submitted', 'declined'])
-        .order('request_id', { ascending: false });
-
-      if (labRequestsError) {
-        console.error('Patient lab requests fetch error:', labRequestsError);
-        return res.status(500).json({ error: 'Failed to fetch lab requests' });
-      }
-
-      const labRequestIds = labRequests.map(req => req.request_id);
-      let labResults = [];
-      
-      if (labRequestIds.length > 0) {
-        const { data: resultsData } = await supabase
-          .from('lab_result')
-          .select('*')
-          .eq('patient_id', patientData.id)
-          .in('request_id', labRequestIds);
-        
-        labResults = resultsData || [];
-      }
-
-      const formattedRequests = labRequests.map(request => {
-        const labResult = labResults.find(result => result.request_id === request.request_id);
-        
-        return {
-          request_id: request.request_id,
-          test_name: request.test_type,
-          test_type: request.test_type,
-          priority: 'normal',
-          status: request.status,
-          instructions: '',
-          due_date: request.due_date,
-          created_at: request.visit.visit_date,
-          doctor: {
-            name: request.staff.name,
-            department: request.staff.specialization
-          },
-          labResult: labResult ? {
-            result_id: labResult.result_id,
-            file_name: labResult.file_path ? labResult.file_path.split('/').pop() : 'Uploaded File',
-            file_url: labResult.file_path,
-            upload_date: labResult.upload_date,
-            results: labResult.results
-          } : null
-        };
-      });
-
-      res.status(200).json({
+    if (!visits || visits.length === 0) {
+      return res.status(200).json({
         success: true,
-        labRequests: formattedRequests
-      });
-
-    } catch (error) {
-      console.error('Get patient lab requests error:', error);
-      res.status(500).json({ 
-        error: 'Internal server error',
-        details: error.message 
+        labRequests: []
       });
     }
-  });
+
+    const visitIds = visits.map(v => v.visit_id);
+
+    // MODIFIED: Show requests that are NOT completed (pending, submitted, declined)
+    const { data: labRequests, error: labRequestsError } = await supabase
+      .from('lab_request')
+      .select(`
+        *,
+        visit!inner(visit_id, visit_date),
+        staff!lab_request_staff_id_fkey(name, specialization)
+      `)
+      .in('visit_id', visitIds)
+      .in('status', ['pending', 'submitted', 'declined'])
+      .order('request_id', { ascending: false });
+
+    if (labRequestsError) {
+      console.error('Patient lab requests fetch error:', labRequestsError);
+      return res.status(500).json({ error: 'Failed to fetch lab requests' });
+    }
+
+    const labRequestIds = labRequests.map(req => req.request_id);
+    let labResults = [];
+    
+    if (labRequestIds.length > 0) {
+      const { data: resultsData } = await supabase
+        .from('lab_result')
+        .select('*')
+        .eq('patient_id', patientData.id)
+        .in('request_id', labRequestIds);
+      
+      labResults = resultsData || [];
+    }
+
+    const formattedRequests = labRequests.map(request => {
+      const labResult = labResults.find(result => result.request_id === request.request_id);
+      
+      return {
+        request_id: request.request_id,
+        test_name: request.test_type,
+        test_type: request.test_type,
+        priority: 'normal',
+        status: request.status,
+        instructions: '',
+        due_date: request.due_date,
+        created_at: request.visit.visit_date,
+        doctor: {
+          name: request.staff.name,
+          department: request.staff.specialization
+        },
+        // ✅ NEW: Include doctor's notes from lab_request table
+        doctor_notes: request.review_notes || null,
+        decline_reason: request.decline_reason || null,
+        reviewed_at: request.reviewed_at || null,
+        labResult: labResult ? {
+          result_id: labResult.result_id,
+          file_name: labResult.file_path ? labResult.file_path.split('/').pop() : 'Uploaded File',
+          file_url: labResult.file_path,
+          upload_date: labResult.upload_date,
+          results: labResult.results
+        } : null
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      labRequests: formattedRequests
+    });
+
+  } catch (error) {
+    console.error('Get patient lab requests error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    });
+  }
+});
 
 app.post('/api/patient/upload-lab-result', authenticateToken, upload.single('labResultFile'), async (req, res) => {
   try {
@@ -6800,145 +7228,195 @@ app.post('/api/healthcare/patient-visit', authenticateToken, async (req, res) =>
   }
 });
 
-// Upload lab result by test (Patient side)
+// MODIFIED: Upload lab result by test (Patient side)
 app.post('/api/patient/upload-lab-result-by-test', authenticateToken, upload.single('labResultFile'), async (req, res) => {
-    try {
-      if (req.user.type !== 'outpatient') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
-
-      const { labRequestId, patientId, testName } = req.body;
-      const file = req.file;
-
-      if (!file || !labRequestId || !patientId || !testName) {
-        return res.status(400).json({ error: 'File, lab request ID, patient ID, and test name are required' });
-      }
-
-      if (req.user.patientId !== patientId) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
-
-      const { data: patientData } = await supabase
-        .from('outpatient')
-        .select('id, patient_id')
-        .eq('patient_id', patientId)
-        .single();
-
-      if (!patientData) {
-        return res.status(404).json({ error: 'Patient not found' });
-      }
-
-      const { data: labRequestData } = await supabase
-        .from('lab_request')
-        .select('request_id, visit_id, status, test_type')
-        .eq('request_id', labRequestId)
-        .single();
-
-      if (!labRequestData) {
-        return res.status(404).json({ error: 'Lab request not found' });
-      }
-
-      // Upload to Supabase Storage
-      const timestamp = Date.now();
-      const fileExt = path.extname(file.originalname);
-      const sanitizedTestName = testName.replace(/[^a-zA-Z0-9]/g, '_');
-      const fileName = `${patientId}_${labRequestId}_${sanitizedTestName}_${timestamp}${fileExt}`;
-
-      const uploadResult = await uploadToSupabaseStorage(file.buffer, fileName, 'lab-results');
-
-      // Get staff_id from the lab request
-      const { data: requestInfo } = await supabase
-        .from('lab_request')
-        .select('staff_id')
-        .eq('request_id', labRequestId)
-        .single();
-
-      const { data: labResultData, error: labResultError } = await supabase
-        .from('lab_result')
-        .insert({
-          request_id: parseInt(labRequestId),
-          patient_id: patientData.id,
-          staff_id: requestInfo?.staff_id || null,
-          file_path: uploadResult.publicUrl, // Store public URL
-          upload_date: new Date().toISOString().split('T')[0],
-          results: JSON.stringify({
-            originalName: file.originalname,
-            size: file.size,
-            mimeType: file.mimetype,
-            testName: testName,
-            storagePath: uploadResult.path
-          })
-        })
-        .select()
-        .single();
-
-      if (labResultError) {
-        console.error('Lab result save error:', labResultError);
-        return res.status(500).json({ error: 'Failed to save lab result' });
-      }
-
-      const testTypes = labRequestData.test_type.split(', ');
-      const { data: uploadedResults } = await supabase
-        .from('lab_result')
-        .select('results')
-        .eq('request_id', labRequestId);
-
-      const uploadedTestNames = uploadedResults?.map(result => {
-        try {
-          return JSON.parse(result.results).testName;
-        } catch {
-          return null;
-        }
-      }).filter(Boolean) || [];
-
-      if (uploadedTestNames.length >= testTypes.length) {
-        await supabase
-          .from('lab_request')
-          .update({ status: 'submitted' })
-          .eq('request_id', labRequestId);
-      }
-
-      const { data: existingMedicalRecord } = await supabase
-        .from('medical_record')
-        .select('record_id')
-        .eq('patient_id', patientData.id)
-        .eq('visit_id', labRequestData.visit_id)
-        .single();
-
-      if (existingMedicalRecord) {
-        await supabase
-          .from('medical_record')
-          .update({ 
-            result_id: labResultData.result_id,
-            updated_at: new Date().toISOString()
-          })
-          .eq('record_id', existingMedicalRecord.record_id);
-      } else {
-        await supabase
-          .from('medical_record')
-          .insert({
-            patient_id: patientData.id,
-            visit_id: labRequestData.visit_id,
-            result_id: labResultData.result_id
-          });
-      }
-
-      res.status(201).json({
-        success: true,
-        labResult: {
-          result_id: labResultData.result_id,
-          file_name: file.originalname,
-          file_url: uploadResult.publicUrl, // Return public URL
-          upload_date: labResultData.upload_date,
-          testName: testName
-        },
-        message: `Lab result for ${testName} uploaded successfully`
-      });
-
-    } catch (error) {
-      console.error('Upload lab result by test error:', error);
-      res.status(500).json({ error: 'Internal server error during file upload' });
+  try {
+    if (req.user.type !== 'outpatient') {
+      return res.status(403).json({ error: 'Access denied' });
     }
+
+    const { labRequestId, patientId, testName } = req.body;
+    const file = req.file;
+
+    if (!file || !labRequestId || !patientId || !testName) {
+      return res.status(400).json({ error: 'File, lab request ID, patient ID, and test name are required' });
+    }
+
+    if (req.user.patientId !== patientId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { data: patientData } = await supabase
+      .from('outpatient')
+      .select('id, patient_id, name')
+      .eq('patient_id', patientId)
+      .single();
+
+    if (!patientData) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+
+    const { data: labRequestData } = await supabase
+      .from('lab_request')
+      .select('request_id, visit_id, status, test_type, staff_id')
+      .eq('request_id', labRequestId)
+      .single();
+
+    if (!labRequestData) {
+      return res.status(404).json({ error: 'Lab request not found' });
+    }
+
+    // Check if this is a resubmission (status was 'declined')
+    const isResubmission = labRequestData.status === 'declined';
+
+    // Upload to Supabase Storage
+    const timestamp = Date.now();
+    const fileExt = path.extname(file.originalname);
+    const sanitizedTestName = testName.replace(/[^a-zA-Z0-9]/g, '_');
+    const fileName = `${patientId}_${labRequestId}_${sanitizedTestName}_${timestamp}${fileExt}`;
+
+    const uploadResult = await uploadToSupabaseStorage(file.buffer, fileName, 'lab-results');
+
+    const { data: requestInfo } = await supabase
+      .from('lab_request')
+      .select('staff_id')
+      .eq('request_id', labRequestId)
+      .single();
+
+    const { data: labResultData, error: labResultError } = await supabase
+      .from('lab_result')
+      .insert({
+        request_id: parseInt(labRequestId),
+        patient_id: patientData.id,
+        staff_id: requestInfo?.staff_id || null,
+        file_path: uploadResult.publicUrl,
+        upload_date: new Date().toISOString().split('T')[0],
+        results: JSON.stringify({
+          originalName: file.originalname,
+          size: file.size,
+          mimeType: file.mimetype,
+          testName: testName,
+          storagePath: uploadResult.path
+        })
+      })
+      .select()
+      .single();
+
+    if (labResultError) {
+      console.error('Lab result save error:', labResultError);
+      return res.status(500).json({ error: 'Failed to save lab result' });
+    }
+
+    const testTypes = labRequestData.test_type.split(', ');
+    const { data: uploadedResults } = await supabase
+      .from('lab_result')
+      .select('results')
+      .eq('request_id', labRequestId);
+
+    const uploadedTestNames = uploadedResults?.map(result => {
+      try {
+        return JSON.parse(result.results).testName;
+      } catch {
+        return null;
+      }
+    }).filter(Boolean) || [];
+
+    if (uploadedTestNames.length >= testTypes.length) {
+      await supabase
+        .from('lab_request')
+        .update({ status: 'submitted' })
+        .eq('request_id', labRequestId);
+    }
+
+    const { data: existingMedicalRecord } = await supabase
+      .from('medical_record')
+      .select('record_id')
+      .eq('patient_id', patientData.id)
+      .eq('visit_id', labRequestData.visit_id)
+      .single();
+
+    if (existingMedicalRecord) {
+      await supabase
+        .from('medical_record')
+        .update({ 
+          result_id: labResultData.result_id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('record_id', existingMedicalRecord.record_id);
+    } else {
+      await supabase
+        .from('medical_record')
+        .insert({
+          patient_id: patientData.id,
+          visit_id: labRequestData.visit_id,
+          result_id: labResultData.result_id
+        });
+    }
+
+    // ✅ CREATE NOTIFICATION FOR DOCTOR
+    if (labRequestData.staff_id) {
+      try {
+        // Insert notification record
+        await supabase
+          .from('lab_notifications')
+          .insert({
+            staff_id: labRequestData.staff_id,
+            request_id: labRequestId,
+            patient_id: patientData.id,
+            notification_type: isResubmission ? 'resubmission' : 'new_submission',
+            test_name: testName,
+            is_read: false
+          });
+
+        // Update staff notification counter
+        const { data: staffData } = await supabase
+          .from('staff')
+          .select('lab_notifications, email, name')
+          .eq('id', labRequestData.staff_id)
+          .single();
+
+        if (staffData) {
+          await supabase
+            .from('staff')
+            .update({ 
+              lab_notifications: (staffData.lab_notifications || 0) + 1 
+            })
+            .eq('id', labRequestData.staff_id);
+
+          // Send email notification to doctor
+          if (staffData.email) {
+            await sendLabSubmissionNotification(
+              staffData.email,
+              staffData.name,
+              patientData.name,
+              testName,
+              isResubmission
+            );
+          }
+        }
+
+        console.log(`✅ Notification created for doctor (staff_id: ${labRequestData.staff_id})`);
+      } catch (notifError) {
+        console.error('⚠️ Failed to create notification (non-critical):', notifError);
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      labResult: {
+        result_id: labResultData.result_id,
+        file_name: file.originalname,
+        file_url: uploadResult.publicUrl,
+        upload_date: labResultData.upload_date,
+        testName: testName
+      },
+      message: `Lab result for ${testName} uploaded successfully`
+    });
+
+  } catch (error) {
+    console.error('Upload lab result by test error:', error);
+    res.status(500).json({ error: 'Internal server error during file upload' });
+  }
 });
 
 app.post('/api/healthcare/lab-result/accept', authenticateToken, async (req, res) => {
@@ -8010,6 +8488,61 @@ app.get('/api/queue/by-date/:departmentId/:date', async (req, res) => {
   } catch (error) {
     console.error('Queue fetch error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Upload ID image to Supabase Storage
+app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
+  try {
+    const { patientId, idType, idNumber } = req.body;
+    const file = req.file;
+
+    if (!file || !patientId || !idType) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'File, patient ID, and ID type are required' 
+      });
+    }
+
+    // Create organized filename: patientId_idType_timestamp.jpg
+    const timestamp = Date.now();
+    const fileExt = path.extname(file.originalname);
+    const fileName = `${patientId}/${idType}_${timestamp}${fileExt}`;
+
+    // Upload to Supabase Storage bucket 'outpatient_id'
+    const uploadResult = await uploadToSupabaseStorage(
+      file.buffer, 
+      fileName, 
+      'outpatient_id'
+    );
+
+    // Optional: Save ID metadata to database
+    const { data: idRecord, error: dbError } = await supabase
+      .from('outpatient_id_records')
+      .insert({
+        patient_id: patientId,
+        id_type: idType,
+        id_number: idNumber || null,
+        image_url: uploadResult.publicUrl,
+        uploaded_at: new Date().toISOString()
+      });
+
+    if (dbError) {
+      console.warn('⚠️ Failed to save ID metadata to database:', dbError);
+    }
+
+    res.json({
+      success: true,
+      publicUrl: uploadResult.publicUrl,
+      message: 'ID image uploaded successfully'
+    });
+
+  } catch (error) {
+    console.error('Upload ID image error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to upload ID image' 
+    });
   }
 });
 

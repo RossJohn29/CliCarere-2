@@ -2696,3 +2696,271 @@
   background: var(--staffmain-green-bg);
   color: var(--staffmain-success);
 }
+
+/* ============================================================================
+   LAB NOTIFICATION BADGE
+   ============================================================================ */
+
+.staffmain-notification-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  margin-left: 8px;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 10px;
+  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
+  animation: pulse-badge 2s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 4px 8px rgba(239, 68, 68, 0.5);
+  }
+}
+
+.staffmain-nav-item.active .staffmain-notification-badge {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  animation: none;
+}
+
+.staffmain-nav-item:hover .staffmain-notification-badge {
+  transform: scale(1.1);
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .staffmain-notification-badge {
+    min-width: 18px;
+    height: 18px;
+    font-size: 10px;
+    margin-left: 6px;
+  }
+}
+
+
+.staffmain-lab-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--staffmain-gray-200);
+}
+
+.lab-breakdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.65em;
+  font-weight: 400;
+  padding: 2px 0;
+}
+
+.lab-breakdown-label {
+  color: var(--staffmain-text-light);
+}
+
+.lab-breakdown-value {
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* Status-specific colors */
+.lab-breakdown-item.completed .lab-breakdown-value {
+  background: var(--staffmain-green-light);
+  color: var(--staffmain-success);
+}
+
+.lab-breakdown-item.submitted .lab-breakdown-value {
+  background: var(--staffmain-blue-bg);
+  color: var(--staffmain-blue-text);
+}
+
+.lab-breakdown-item.declined .lab-breakdown-value {
+  background: var(--staffmain-red-bg);
+  color: var(--staffmain-error);
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .staffmain-lab-breakdown {
+    gap: 3px;
+  }
+  
+  .lab-breakdown-item {
+    font-size: 0.6em;
+  }
+}
+
+/* ============================================================================
+   LAB RESULTS BREAKDOWN SUB-LIST
+   ============================================================================ */
+
+.staffmain-lab-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 1px;
+  padding-top: 8px;
+  border-top: 1px solid var(--staffmain-gray-200);
+}
+
+.lab-breakdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 8px;
+  font-weight: 400;
+  padding: 2px 0;
+}
+
+.lab-breakdown-label {
+  color: var(--staffmain-text-light);
+}
+
+.lab-breakdown-value {
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* Status-specific colors */
+.lab-breakdown-item.completed .lab-breakdown-value {
+  background: var(--staffmain-green-light);
+  color: var(--staffmain-success);
+}
+
+.lab-breakdown-item.submitted .lab-breakdown-value {
+  background: var(--staffmain-blue-bg);
+  color: var(--staffmain-blue-text);
+}
+
+.lab-breakdown-item.declined .lab-breakdown-value {
+  background: var(--staffmain-red-bg);
+  color: var(--staffmain-error);
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .staffmain-lab-breakdown {
+    gap: 3px;
+  }
+  
+  .lab-breakdown-item {
+    font-size: 0.6em;
+  }
+}
+
+/* ============================================================================
+   LAB RESULT NOTES SECTION - Add this to staffmain.css
+   ============================================================================ */
+
+.staffmain-lab-notes-section {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 2px solid #e5e7eb;
+}
+
+.staffmain-lab-notes-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #27371f;
+  font-weight: 500;
+  font-size: 0.8em;
+  font-family: 'Poppins', sans-serif;
+}
+
+.staffmain-lab-notes-label .required-indicator {
+  color: #dc2626;
+  margin-left: 4px;
+}
+
+.staffmain-lab-notes-textarea {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.8em;
+  font-family: 'Poppins', sans-serif;
+  font-weight: 400;
+  color: #27371f;
+  background: #ffffff;
+  resize: vertical;
+  min-height: 100px;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.staffmain-lab-notes-textarea:focus {
+  outline: none;
+  border-color: #1a672a;
+  box-shadow: 0 0 0 3px rgba(26, 103, 42, 0.08);
+  background: #ffffff;
+}
+
+.staffmain-lab-notes-textarea::placeholder {
+  color: #9ca3af;
+  font-weight: 300;
+}
+
+.staffmain-lab-notes-hint {
+  margin: 8px 0 0 0;
+  color: #6b7280;
+  font-size: 0.7em;
+  font-weight: 300;
+  line-height: 1.4;
+  font-family: 'Poppins', sans-serif;
+}
+
+/* Disabled state for buttons when notes are empty */
+.staffmain-accept-btn:disabled,
+.staffmain-decline-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .staffmain-lab-notes-section {
+    padding: 16px;
+    margin-top: 16px;
+  }
+
+  .staffmain-lab-notes-textarea {
+    font-size: 0.75em;
+    padding: 10px;
+  }
+
+  .staffmain-lab-notes-hint {
+    font-size: 0.65em;
+  }
+}
+
+@media (max-width: 480px) {
+  .staffmain-lab-notes-section {
+    padding: 12px;
+  }
+
+  .staffmain-lab-notes-label {
+    font-size: 0.75em;
+  }
+
+  .staffmain-lab-notes-textarea {
+    font-size: 0.7em;
+    min-height: 80px;
+  }
+}
