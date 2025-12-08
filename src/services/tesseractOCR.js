@@ -1095,8 +1095,8 @@ const extractDriversLicenseAddress = (lines) => {
 };
 
 /**
- * UMID Name Extraction - FIXED VERSION based on actual card
- * Layout: SURNAME, GIVEN NAME, MIDDLE NAME are each on separate lines UNDER their labels
+ * UMID Name Extraction - IMPROVED VERSION with noise handling
+ * Handles OCR noise like "4;5 SANTOS", "== JOSE", "2 CRUZ"
  */
 const extractUMIDName = (lines) => {
   console.log('📋 UMID ID detected');
@@ -1106,65 +1106,163 @@ const extractUMIDName = (lines) => {
   let givenName = null;
   let middleName = null;
   
+  // Helper function to clean noise from name values
+  const cleanNameValue = (text) => {
+    return text
+      // Remove common OCR noise prefixes
+      .replace(/^[\d\s;:=\-\.\,\'\"\|\\\[\]\(\)\{\}%@#$&*!?<>~`]+/, '')
+      // Remove common OCR noise suffixes
+      .replace(/[\d\s;:=\-\.\,\'\"\|\\\[\]\(\)\{\}%@#$&*!?<>~`]+$/, '')
+      // Remove isolated special characters
+      .replace(/\s+[;:=\-\.\,\'\"\|\\\[\]\(\)\{\}]+\s+/g, ' ')
+      // Normalize spaces
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+  
+  // Helper function to check if text looks like a valid name
+  const isValidNameText = (text) => {
+    const cleaned = cleanNameValue(text);
+    // Must be 2-25 chars, mostly letters
+    if (cleaned.length < 2 || cleaned.length > 25) return false;
+    // Must be at least 70% letters
+    const letterCount = (cleaned.match(/[A-Z]/gi) || []).length;
+    return letterCount / cleaned.length >= 0.7;
+  };
+  
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+    const upperLine = line.toUpperCase();
     const nextLine = i + 1 < lines.length ? lines[i + 1].trim() : '';
+    const nextUpperLine = nextLine.toUpperCase();
     
     // Skip header/system lines
-    if (line.includes('UMID') || 
-        line.includes('UNIFIED') ||
-        line.includes('MULTI-PURPOSE') ||
-        line.includes('IDENTIFICATION') ||
-        line.includes('REPUBLIC') ||
-        line.includes('PHILIPPINES') ||
-        line.includes('SSS') ||
-        line.includes('GSIS') ||
-        line.includes('PHILHEALTH') ||
-        line.includes('HDMF') ||
-        line.includes('PAG-IBIG') ||
-        /^CRN[-\s]?\d{4}[-\s]?\d{7}[-\s]?\d$/.test(line.replace(/\s/g, '')) ||
+    if (upperLine.includes('UMID') || 
+        upperLine.includes('UNIFIED') ||
+        upperLine.includes('MULTI-PURPOSE') ||
+        upperLine.includes('IDENTIFICATION') ||
+        upperLine.includes('REPUBLIC') ||
+        upperLine.includes('PHILIPPINES') ||
+        upperLine.includes('SSS') ||
+        upperLine.includes('GSIS') ||
+        upperLine.includes('PHILHEALTH') ||
+        upperLine.includes('HDMF') ||
+        upperLine.includes('PAG-IBIG') ||
+        /CRN[-\s]?\d{4}[-\s]?\d{7}[-\s]?\d/i.test(line) ||
         line.length < 2) {
       continue;
     }
     
-    // SURNAME - Look for label, value is on next line
-    if (line === 'SURNAME' || line.startsWith('SURNAME')) {
-      if (nextLine && nextLine.length >= 2 && 
-          !nextLine.includes('GIVEN') && 
-          !nextLine.includes('MIDDLE') &&
-          !nextLine.includes('NAME') &&
-          !nextLine.includes('SEX') &&
-          !nextLine.includes('DATE') &&
-          /^[A-Z][A-Z\s\-']+$/.test(nextLine)) {
-        surname = nextLine;
-        console.log('✅ Found Surname:', surname);
+    // SURNAME detection - handle noisy labels
+    if (upperLine.includes('SURNAME') || 
+        upperLine.match(/S\s*U\s*R\s*N\s*A\s*M\s*E/) ||
+        upperLine.endsWith('SURNAME')) {
+      
+      // Check if surname value is on the same line (after label)
+      const surnameMatch = line.match(/SURNAME\s*[:\s]*([A-Z][A-Z\s\-']+)/i);
+      if (surnameMatch && isValidNameText(surnameMatch[1])) {
+        surname = cleanNameValue(surnameMatch[1]);
+        console.log('✅ Found Surname (same line):', surname);
+      }
+      // Otherwise check next line
+      else if (nextLine && isValidNameText(nextLine)) {
+        surname = cleanNameValue(nextLine);
+        console.log('✅ Found Surname (next line):', surname);
       }
     }
     
-    // GIVEN NAME - Look for label, value is on next line
-    if (line === 'GIVEN NAME' || (line.includes('GIVEN') && line.includes('NAME'))) {
-      if (nextLine && nextLine.length >= 2 &&
-          !nextLine.includes('MIDDLE') && 
-          !nextLine.includes('NAME') &&
-          !nextLine.includes('SEX') &&
-          !nextLine.includes('DATE') &&
-          /^[A-Z][A-Z\s\-']+$/.test(nextLine)) {
-        givenName = nextLine;
-        console.log('✅ Found Given Name:', givenName);
+    // GIVEN NAME detection - handle noisy labels
+    if (upperLine.includes('GIVEN') || 
+        upperLine.match(/G\s*I\s*V\s*E\s*N/) ||
+        upperLine.includes('NAML') || // OCR error for NAME
+        upperLine.includes('NAMF')) { // OCR error for NAME
+      
+      // Check if given name value is on the same line
+      const givenMatch = line.match(/(?:GIVEN\s*NAME?|NAML?E?)\s*[:\s]*([A-Z][A-Z\s\-']+)/i);
+      if (givenMatch && isValidNameText(givenMatch[1])) {
+        givenName = cleanNameValue(givenMatch[1]);
+        console.log('✅ Found Given Name (same line):', givenName);
+      }
+      // Otherwise check next line
+      else if (nextLine && isValidNameText(nextLine)) {
+        givenName = cleanNameValue(nextLine);
+        console.log('✅ Found Given Name (next line):', givenName);
       }
     }
     
-    // MIDDLE NAME - Look for label, value is on next line
-    if (line === 'MIDDLE NAME' || (line.includes('MIDDLE') && line.includes('NAME'))) {
-      if (nextLine && nextLine.length >= 2 &&
-          !nextLine.includes('SEX') && 
-          !nextLine.includes('DATE') &&
-          !nextLine.includes('BIRTH') &&
-          !nextLine.includes('ADDRESS') &&
-          /^[A-Z][A-Z\s\-']+$/.test(nextLine)) {
-        middleName = nextLine;
-        console.log('✅ Found Middle Name:', middleName);
+    // MIDDLE NAME detection
+    if (upperLine.includes('MIDDLE') || 
+        upperLine.match(/M\s*I\s*D\s*D\s*L\s*E/)) {
+      
+      // Check if middle name value is on the same line
+      const middleMatch = line.match(/MIDDLE\s*NAME?\s*[:\s]*([A-Z][A-Z\s\-']+)/i);
+      if (middleMatch && isValidNameText(middleMatch[1])) {
+        middleName = cleanNameValue(middleMatch[1]);
+        console.log('✅ Found Middle Name (same line):', middleName);
       }
+      // Otherwise check next line
+      else if (nextLine && isValidNameText(nextLine)) {
+        middleName = cleanNameValue(nextLine);
+        console.log('✅ Found Middle Name (next line):', middleName);
+      }
+    }
+  }
+  
+  // FALLBACK: If labels not found, try pattern-based extraction
+  // Look for lines that look like names (2-25 chars, mostly letters, after cleaning)
+  if (!surname || !givenName) {
+    console.log('🔄 Trying fallback name extraction...');
+    
+    const potentialNames = [];
+    let foundCRN = false;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const upperLine = line.toUpperCase();
+      
+      // Skip until after CRN (names typically appear after CRN on UMID)
+      if (upperLine.includes('CRN') || /\d{4}[-\s]?\d{7}[-\s]?\d/.test(line)) {
+        foundCRN = true;
+        continue;
+      }
+      
+      // Skip non-name content
+      if (upperLine.includes('ADDRESS') ||
+          upperLine.includes('SEX') ||
+          upperLine.includes('DATE') ||
+          upperLine.includes('BIRTH') ||
+          upperLine.includes('PAYAPA') ||
+          upperLine.includes('STREET') ||
+          upperLine.includes('CITY') ||
+          upperLine.includes('MANILA') ||
+          upperLine.includes('PHILIPPINES') ||
+          /\d{4}[\/\-]\d{2}[\/\-]\d{2}/.test(line)) {
+        continue;
+      }
+      
+      // Clean the line and check if it's a valid name
+      const cleaned = cleanNameValue(line);
+      if (cleaned.length >= 2 && cleaned.length <= 25 && isValidNameText(cleaned)) {
+        // Check it's not a label
+        if (!cleaned.match(/^(SURNAME|GIVEN|MIDDLE|NAME|SEX|DATE|ADDRESS|CRN)$/i)) {
+          potentialNames.push(cleaned);
+          console.log('📝 Potential name found:', cleaned);
+        }
+      }
+    }
+    
+    // Assign names based on UMID order: Surname, Given Name, Middle Name
+    if (potentialNames.length >= 1 && !surname) {
+      surname = potentialNames[0];
+      console.log('✅ Fallback Surname:', surname);
+    }
+    if (potentialNames.length >= 2 && !givenName) {
+      givenName = potentialNames[1];
+      console.log('✅ Fallback Given Name:', givenName);
+    }
+    if (potentialNames.length >= 3 && !middleName) {
+      middleName = potentialNames[2];
+      console.log('✅ Fallback Middle Name:', middleName);
     }
   }
   
@@ -1179,23 +1277,30 @@ const extractUMIDName = (lines) => {
     return fullName;
   }
   
+  // If only surname found, return it
+  if (surname) {
+    console.log('⚠️ Only surname found:', surname);
+    return surname;
+  }
+  
   console.log('❌ No valid UMID name found');
   return null;
 };
 
 /**
- * UMID Sex Extraction - FIXED VERSION
- * Format: "SEX M" - value is immediately to the RIGHT of the label (same line)
+ * UMID Sex Extraction - IMPROVED VERSION
+ * Handles: "SEX M", "SEX F", or M/F near DATE OF BIRTH
  */
 const extractUMIDSex = (lines) => {
   console.log('👤 Extracting UMID Sex');
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+    const upperLine = line.toUpperCase();
     
-    // Pattern 1: "SEX M" or "SEX F" (value immediately after label on same line)
-    const sexPattern = /\bSEX\s+([MF])\b/i;
-    const match = line.match(sexPattern);
+    // Pattern 1: "SEX M" or "SEX F" (with possible noise)
+    const sexPattern = /SEX\s*[:\s]*([MF])\b/i;
+    const match = upperLine.match(sexPattern);
     
     if (match) {
       const sex = match[1].toUpperCase() === 'M' ? 'Male' : 'Female';
@@ -1204,13 +1309,32 @@ const extractUMIDSex = (lines) => {
     }
     
     // Pattern 2: Line contains SEX and M/F with DATE OF BIRTH
-    // Example: "SEX M DATE OF BIRTH 1960/01/28"
-    const combinedPattern = /\bSEX\s+([MF])\s+DATE\s+OF\s+BIRTH/i;
-    const combinedMatch = line.match(combinedPattern);
+    const combinedPattern = /SEX\s*[:\s]*([MF])\s*DATE\s*OF\s*BIRTH/i;
+    const combinedMatch = upperLine.match(combinedPattern);
     
     if (combinedMatch) {
       const sex = combinedMatch[1].toUpperCase() === 'M' ? 'Male' : 'Female';
       console.log('✅ Found Sex (combined line):', sex);
+      return sex;
+    }
+    
+    // Pattern 3: Isolated M or F on a line (after cleaning noise)
+    const cleanedLine = line.replace(/[^A-Za-z\s]/g, '').trim();
+    if (cleanedLine === 'M' || cleanedLine === 'MALE') {
+      console.log('✅ Found Sex (isolated M):', 'Male');
+      return 'Male';
+    }
+    if (cleanedLine === 'F' || cleanedLine === 'FEMALE') {
+      console.log('✅ Found Sex (isolated F):', 'Female');
+      return 'Female';
+    }
+    
+    // Pattern 4: M or F followed by date pattern
+    const sexBeforeDatePattern = /\b([MF])\s+\d{4}[\/\-]\d{2}[\/\-]\d{2}/i;
+    const sexDateMatch = line.match(sexBeforeDatePattern);
+    if (sexDateMatch) {
+      const sex = sexDateMatch[1].toUpperCase() === 'M' ? 'Male' : 'Female';
+      console.log('✅ Found Sex (before date):', sex);
       return sex;
     }
   }
@@ -1220,9 +1344,8 @@ const extractUMIDSex = (lines) => {
 };
 
 /**
- * UMID Birthday Extraction - FIXED VERSION for MM/DD/YYYY format
- * Format: "DATE OF BIRTH 1960/01/28" - value is on same line, to the RIGHT of label
- * Output: Convert to YYYY-MM-DD for HTML date input
+ * UMID Birthday Extraction - IMPROVED VERSION
+ * Handles: YYYY/MM/DD, MM/DD/YYYY, with OCR noise
  */
 const extractUMIDBirthday = (lines) => {
   console.log('📅 Extracting UMID Birthday');
@@ -1230,8 +1353,18 @@ const extractUMIDBirthday = (lines) => {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     
-    // Pattern 1: "DATE OF BIRTH YYYY/MM/DD" (actual format from image)
-    const dobPattern1 = /DATE\s+OF\s+BIRTH\s+(\d{4})[\/\-](\d{2})[\/\-](\d{2})/i;
+    // Skip address lines
+    if (line.includes('PAYAPA') || 
+        line.includes('STREET') || 
+        line.includes('ST ') ||
+        line.includes('CITY') ||
+        line.includes('MANILA') ||
+        line.includes('PHILIPPINES')) {
+      continue;
+    }
+    
+    // Pattern 1: "DATE OF BIRTH YYYY/MM/DD"
+    const dobPattern1 = /DATE\s*OF\s*BIRTH\s*[:\s]*(\d{4})[\/\-](\d{2})[\/\-](\d{2})/i;
     const match1 = line.match(dobPattern1);
     
     if (match1) {
@@ -1239,61 +1372,46 @@ const extractUMIDBirthday = (lines) => {
       const month = match1[2];
       const day = match1[3];
       
-      // Validate year is reasonable
       const yearInt = parseInt(year);
       if (yearInt >= 1900 && yearInt <= new Date().getFullYear()) {
         const formattedDate = `${year}-${month}-${day}`;
-        console.log('✅ Found Birthday (YYYY/MM/DD format):', formattedDate);
+        console.log('✅ Found Birthday (DATE OF BIRTH YYYY/MM/DD):', formattedDate);
         return formattedDate;
       }
     }
     
-    // Pattern 2: "DATE OF BIRTH MM/DD/YYYY" (your mentioned format)
-    const dobPattern2 = /DATE\s+OF\s+BIRTH\s+(\d{2})[\/\-](\d{2})[\/\-](\d{4})/i;
-    const match2 = line.match(dobPattern2);
+    // Pattern 2: YYYY/MM/DD anywhere in line (not in address)
+    const datePattern = /\b(\d{4})[\/\-](\d{2})[\/\-](\d{2})\b/;
+    const dateMatch = line.match(datePattern);
     
-    if (match2) {
-      const month = match2[1];
-      const day = match2[2];
-      const year = match2[3];
+    if (dateMatch) {
+      const year = dateMatch[1];
+      const month = dateMatch[2];
+      const day = dateMatch[3];
       
-      // Validate year is reasonable
       const yearInt = parseInt(year);
+      // Valid birthday year range
       if (yearInt >= 1900 && yearInt <= new Date().getFullYear()) {
         const formattedDate = `${year}-${month}-${day}`;
-        console.log('✅ Found Birthday (MM/DD/YYYY format):', formattedDate);
+        console.log('✅ Found Birthday (YYYY/MM/DD):', formattedDate);
         return formattedDate;
       }
     }
     
-    // Pattern 3: Just look for date pattern anywhere in line (not in address context)
-    if (!line.includes('ADDRESS') && !line.includes('STREET')) {
-      // Try YYYY/MM/DD
-      const directPattern1 = /\b(\d{4})[\/\-](\d{2})[\/\-](\d{2})\b/;
-      const directMatch1 = line.match(directPattern1);
+    // Pattern 3: MM/DD/YYYY format
+    const mmddPattern = /\b(\d{2})[\/\-](\d{2})[\/\-](\d{4})\b/;
+    const mmddMatch = line.match(mmddPattern);
+    
+    if (mmddMatch) {
+      const month = mmddMatch[1];
+      const day = mmddMatch[2];
+      const year = mmddMatch[3];
       
-      if (directMatch1) {
-        const year = directMatch1[1];
-        const yearInt = parseInt(year);
-        if (yearInt >= 1900 && yearInt <= new Date().getFullYear()) {
-          const formattedDate = `${directMatch1[1]}-${directMatch1[2]}-${directMatch1[3]}`;
-          console.log('✅ Found Birthday (direct YYYY/MM/DD):', formattedDate);
-          return formattedDate;
-        }
-      }
-      
-      // Try MM/DD/YYYY
-      const directPattern2 = /\b(\d{2})[\/\-](\d{2})[\/\-](\d{4})\b/;
-      const directMatch2 = line.match(directPattern2);
-      
-      if (directMatch2) {
-        const year = directMatch2[3];
-        const yearInt = parseInt(year);
-        if (yearInt >= 1900 && yearInt <= new Date().getFullYear()) {
-          const formattedDate = `${directMatch2[3]}-${directMatch2[1]}-${directMatch2[2]}`;
-          console.log('✅ Found Birthday (direct MM/DD/YYYY):', formattedDate);
-          return formattedDate;
-        }
+      const yearInt = parseInt(year);
+      if (yearInt >= 1900 && yearInt <= new Date().getFullYear()) {
+        const formattedDate = `${year}-${month}-${day}`;
+        console.log('✅ Found Birthday (MM/DD/YYYY → YYYY-MM-DD):', formattedDate);
+        return formattedDate;
       }
     }
   }
@@ -1303,115 +1421,96 @@ const extractUMIDBirthday = (lines) => {
 };
 
 /**
- * UMID Address Extraction - FIXED VERSION based on actual card
- * Layout: "ADDRESS" label, then multi-line address DIRECTLY UNDER
- * Example from image:
- *   ADDRESS
- *   28 PAYAPA ST BAGONG DIWA
- *   STO CRISTOBAL CALOOCAN CITY
- *   METRO MANILA
- *   PHILIPPINES 1800
+ * UMID Address Extraction - IMPROVED VERSION with noise cleaning
+ * Handles lines like: "- 28 PAYAPA ST BAGONG DIWA", "I STO CRISTOBAL CALOOCAN CITY"
  */
 const extractUMIDAddress = (lines) => {
   console.log('🏠 Extracting UMID Address');
   console.log('📄 All lines for address:', lines);
   
   let addressLines = [];
-  let foundAddressLabel = false;
-  let addressStartIndex = -1;
+  
+  // Helper function to clean address line noise
+  const cleanAddressLine = (text) => {
+    return text
+      // Remove common OCR noise prefixes
+      .replace(/^[\s\-\.\,\:\;\'\"\|\\_~=\[\]\(\)\{\}<>]+/, '')
+      // Remove single character prefixes like "I ", "E ", "P, "
+      .replace(/^[A-Z][\s\.\,]+/, '')
+      // Remove noise suffixes
+      .replace(/[\s\-\.\,\:\;\'\"\|\\_~=\[\]\(\)\{\}<>]+$/, '')
+      // Normalize spaces
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+  
+  // Address keywords to look for
+  const addressKeywords = [
+    'PAYAPA', 'BAGONG', 'DIWA',
+    'CRISTOBAL', 'CALOOCAN', 'CITY',
+    'METRO', 'MANILA', 'PHILIPPINES',
+    'STREET', 'ST ', 'ST.',
+    'BARANGAY', 'BRGY', 'BGY',
+    'AVENUE', 'AVE', 'ROAD', 'RD',
+    'VILLAGE', 'VILL', 'SUBD', 'SUBDIVISION'
+  ];
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     const upperLine = line.toUpperCase();
     
-    console.log(`🔍 Checking line ${i}: "${line}"`);
-    
-    // Look for "ADDRESS" label
-    if (upperLine === 'ADDRESS' || upperLine.startsWith('ADDRESS')) {
-      foundAddressLabel = true;
-      addressStartIndex = i;
-      console.log('✅ Found ADDRESS label at index:', i);
-      
-      // Check if address starts on same line (after ADDRESS word)
-      const afterLabel = line.replace(/^ADDRESS\s*/i, '').trim();
-      if (afterLabel.length >= 5 && /[0-9]/.test(afterLabel)) {
-        addressLines.push(afterLabel);
-        console.log('📍 Found address part on same line:', afterLabel);
-      }
+    // Skip header/name/CRN lines
+    if (upperLine.includes('UMID') ||
+        upperLine.includes('UNIFIED') ||
+        upperLine.includes('MULTI-PURPOSE') ||
+        upperLine.includes('SURNAME') ||
+        upperLine.includes('GIVEN') ||
+        upperLine.includes('MIDDLE') ||
+        upperLine.includes('NAME') ||
+        upperLine.includes('SEX') ||
+        upperLine.includes('DATE') ||
+        upperLine.includes('BIRTH') ||
+        upperLine.includes('CRN') ||
+        /\d{4}[-\s]?\d{7}[-\s]?\d/.test(line) ||
+        /\d{4}[\/\-]\d{2}[\/\-]\d{2}/.test(line) ||
+        line.length < 5) {
       continue;
     }
     
-    // Collect address lines after the label
-    if (foundAddressLabel && i > addressStartIndex) {
+    // Check if line contains address keywords
+    const hasAddressKeyword = addressKeywords.some(keyword => 
+      upperLine.includes(keyword)
+    );
+    
+    // Check if line has numbers (house/street numbers)
+    const hasNumbers = /\d+/.test(line);
+    
+    if (hasAddressKeyword || (hasNumbers && addressLines.length > 0)) {
+      const cleaned = cleanAddressLine(line);
       
-      // Stop conditions - these indicate end of address section
-      if (upperLine.includes('SIGNATURE') ||
-          upperLine.includes('CARD NUMBER') ||
-          upperLine.includes('VALID') ||
-          upperLine.includes('EXPIR') ||
-          upperLine.includes('ISSUED') ||
-          upperLine.includes('HOLDER') ||
-          /^CRN[-\s]?\d/.test(line) ||
-          line.length < 2) {
-        console.log('⏹️ Stopping address collection at:', line);
-        break;
+      if (cleaned.length >= 5) {
+        addressLines.push(cleaned);
+        console.log('📍 Added address line:', cleaned);
       }
-      
-      // Skip name field labels (they come before address)
-      if (upperLine === 'SURNAME' ||
-          upperLine === 'GIVEN NAME' ||
-          upperLine === 'MIDDLE NAME' ||
-          upperLine === 'SEX' ||
-          upperLine.includes('DATE OF BIRTH')) {
-        continue;
-      }
-      
-      // Address line indicators - be more lenient
-      const hasNumbers = /\d/.test(line);
-      const hasAddressKeywords = 
-        upperLine.includes('ST') ||
-        upperLine.includes('STREET') ||
-        upperLine.includes('AVE') ||
-        upperLine.includes('AVENUE') ||
-        upperLine.includes('RD') ||
-        upperLine.includes('ROAD') ||
-        upperLine.includes('BLVD') ||
-        upperLine.includes('BRGY') ||
-        upperLine.includes('BARANGAY') ||
-        upperLine.includes('CITY') ||
-        upperLine.includes('METRO') ||
-        upperLine.includes('MANILA') ||
-        upperLine.includes('NCR') ||
-        upperLine.includes('PHILIPPINES') ||
-        upperLine.includes('CALOOCAN') ||
-        upperLine.includes('QUEZON') ||
-        upperLine.includes('MAKATI') ||
-        upperLine.includes('PASIG') ||
-        upperLine.includes('BAGONG') ||
-        upperLine.includes('PAYAPA') ||
-        upperLine.includes('DIWA') ||
-        upperLine.includes('CRISTOBAL') ||
-        upperLine.includes('STO ') ||
-        upperLine.includes('SAN ');
-      
-      const isAddressLine = hasNumbers || hasAddressKeywords || 
-        (addressLines.length > 0 && addressLines.length < 5 && 
-         line.length >= 3 && /^[A-Z0-9]/.test(line));
-      
-      if (isAddressLine && addressLines.length < 5) {
-        addressLines.push(line);
-        console.log('📍 Added address line:', line);
-      }
+    }
+    
+    // Stop after collecting enough address lines
+    if (addressLines.length >= 4) {
+      break;
     }
   }
   
   console.log('📦 Collected address lines:', addressLines);
   
   if (addressLines.length > 0) {
-    // Clean up and combine address lines
+    // Fix common OCR errors in address
     const fullAddress = addressLines
-      .map(line => line.trim())
-      .filter(line => line.length > 0)
+      .map(line => line
+        .replace(/ALOOCAN/g, 'CALOOCAN')
+        .replace(/CRISTOBA\s/g, 'CRISTOBAL ')
+        .replace(/PH\s*PP/g, 'PHILIPP')
+        .replace(/AGONG/g, 'BAGONG')
+      )
       .join(', ');
     
     console.log('✅ Found Address:', fullAddress);
@@ -1423,9 +1522,8 @@ const extractUMIDAddress = (lines) => {
 };
 
 /**
- * UMID ID Number (CRN) Extraction - FIXED VERSION based on actual card
- * Format: "CRN 0024-1215160-9" - value is on same line, to the RIGHT of label
- * The number format is: XXXX-XXXXXXX-X (4 digits - 7 digits - 1 digit)
+ * UMID ID Number (CRN) Extraction - IMPROVED VERSION
+ * Handles OCR errors like "12151B0" instead of "1215160"
  */
 const extractUMIDIDNumber = (lines) => {
   console.log('🔢 Extracting UMID ID Number (CRN)');
@@ -1433,10 +1531,19 @@ const extractUMIDIDNumber = (lines) => {
   for (let line of lines) {
     console.log('🔍 Checking line for CRN:', line);
     
-    // Pattern 1: CRN followed by number on same line
-    // Format: CRN 0024-1215160-9 or CRN-0024-1215160-9 or CRN 00241215160-9
+    // Clean the line first - replace common OCR errors
+    const cleanedLine = line
+      .replace(/[Bb]/g, '8')  // B often misread for 8
+      .replace(/[Oo]/g, '0')  // O often misread for 0
+      .replace(/[Ll]/g, '1')  // L often misread for 1
+      .replace(/[Ii]/g, '1')  // I often misread for 1
+      .replace(/[Ss]/g, '5')  // S often misread for 5
+      .replace(/[Zz]/g, '2'); // Z often misread for 2
+    
+    // Pattern 1: CRN followed by number
+    // Format: CRN-XXXX-XXXXXXX-X or CRN XXXX-XXXXXXX-X
     const crnPattern = /CRN[-\s]*(\d{4})[-\s]?(\d{7})[-\s]?(\d)/i;
-    const match = line.match(crnPattern);
+    const match = cleanedLine.match(crnPattern);
     
     if (match) {
       const idNumber = `${match[1]}-${match[2]}-${match[3]}`;
@@ -1444,14 +1551,24 @@ const extractUMIDIDNumber = (lines) => {
       return idNumber;
     }
     
-    // Pattern 2: Just the number pattern without CRN label
-    // Look for 4-7-1 digit pattern
-    const numberPattern = /\b(\d{4})[-\s](\d{7})[-\s](\d)\b/;
-    const numMatch = line.match(numberPattern);
+    // Pattern 2: Just the number pattern (without CRN label)
+    // RN-XXXX-XXXXXXX-X (sometimes CRN reads as RN)
+    const rnPattern = /RN[-\s]*(\d{4})[-\s]?(\d{7})[-\s]?(\d)/i;
+    const rnMatch = cleanedLine.match(rnPattern);
     
-    if (numMatch && !line.includes('DATE') && !line.includes('BIRTH')) {
+    if (rnMatch) {
+      const idNumber = `${rnMatch[1]}-${rnMatch[2]}-${rnMatch[3]}`;
+      console.log('✅ Found UMID ID (RN pattern):', idNumber);
+      return idNumber;
+    }
+    
+    // Pattern 3: Raw number pattern XXXX-XXXXXXX-X
+    const numberPattern = /\b(\d{4})[-\s](\d{7})[-\s](\d)\b/;
+    const numMatch = cleanedLine.match(numberPattern);
+    
+    if (numMatch) {
       const idNumber = `${numMatch[1]}-${numMatch[2]}-${numMatch[3]}`;
-      console.log('✅ Found UMID ID Number:', idNumber);
+      console.log('✅ Found UMID ID Number (raw):', idNumber);
       return idNumber;
     }
   }
