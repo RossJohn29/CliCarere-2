@@ -864,7 +864,7 @@
   };
 
 /**
- * Driver's License Sex Extraction - FIXED for single letter format
+ * Driver's License Sex Extraction - FIXED for M/F conversion
  */
 const extractDriversLicenseSex = (lines) => {
   console.log('👤 Extracting Driver\'s License Sex');
@@ -873,46 +873,84 @@ const extractDriversLicenseSex = (lines) => {
     const line = lines[i];
     const nextLine = i + 1 < lines.length ? lines[i + 1] : '';
     
-    // ✅ FIXED: Look for M or F in date line
-    // Pattern: "- M  2004,04/29" (sex before date)
+    console.log(`🔍 Checking line ${i}: "${line}"`); // Debug log
+    
+    // ✅ FIXED: Look for M or F in date line (most common pattern)
+    // Pattern: "- M  2004,04/29" or "- F  2004,04/29"
     const sexBeforeDatePattern = /[-\s]*([MF])\s+\d{4}[,\/\-]\d{2}[\/\-]\d{2}/i;
     const sexMatch = line.match(sexBeforeDatePattern);
     
     if (sexMatch) {
-      const sex = sexMatch[1].toUpperCase() === 'M' ? 'Male' : 'Female';
-      console.log('✅ Found Sex (before date):', sex);
+      const sexLetter = sexMatch[1].toUpperCase();
+      const sex = sexLetter === 'M' ? 'Male' : 'Female';
+      console.log(`✅ Found Sex (before date): ${sexLetter} → ${sex}`);
       return sex;
     }
     
-    // Look for "Sex" label
+    // ✅ Pattern 2: Look for isolated M or F near date/name context
+    // Check if line contains just M or F with some context
+    const isolatedSexPattern = /\b([MF])\b/gi;
+    const isolatedMatches = line.match(isolatedSexPattern);
+    
+    if (isolatedMatches) {
+      // Check if this line has date context (year pattern)
+      const hasDateContext = /\d{4}/.test(line);
+      
+      if (hasDateContext) {
+        const sexLetter = isolatedMatches[0].toUpperCase();
+        const sex = sexLetter === 'M' ? 'Male' : 'Female';
+        console.log(`✅ Found Sex (with date context): ${sexLetter} → ${sex}`);
+        return sex;
+      }
+    }
+    
+    // ✅ Pattern 3: Look for "SEX" label followed by M/F
     if (line.includes('SEX')) {
       // Check current line for M/F after "Sex"
       const labelSexMatch = line.match(/SEX[:\s]*([MF])/i);
       if (labelSexMatch) {
-        const sex = labelSexMatch[1].toUpperCase() === 'M' ? 'Male' : 'Female';
-        console.log('✅ Found Sex (after label):', sex);
+        const sexLetter = labelSexMatch[1].toUpperCase();
+        const sex = sexLetter === 'M' ? 'Male' : 'Female';
+        console.log(`✅ Found Sex (after SEX label): ${sexLetter} → ${sex}`);
         return sex;
       }
       
-      // Check next line
+      // Check next line for M/F
       if (nextLine) {
         const nextSexMatch = nextLine.match(/^([MF])$/i);
         if (nextSexMatch) {
-          const sex = nextSexMatch[1].toUpperCase() === 'M' ? 'Male' : 'Female';
-          console.log('✅ Found Sex (next line):', sex);
+          const sexLetter = nextSexMatch[1].toUpperCase();
+          const sex = sexLetter === 'M' ? 'Male' : 'Female';
+          console.log(`✅ Found Sex (next line after SEX): ${sexLetter} → ${sex}`);
           return sex;
         }
       }
     }
     
-    // Direct M or F pattern with context (nationality line)
-    // Format: "PHL     M     2004/04/29"
-    const contextPattern = /^(PHL|FILIPINO)\s+([MF])\s+\d{4}\/\d{2}\/\d{2}/i;
-    const contextMatch = line.match(contextPattern);
-    if (contextMatch) {
-      const sex = contextMatch[2].toUpperCase() === 'M' ? 'Male' : 'Female';
-      console.log('✅ Found Sex (context pattern):', sex);
+    // ✅ Pattern 4: Nationality line format
+    // Format: "PHL M 2004/04/29" or "FILIPINO M 2004/04/29"
+    const nationalityPattern = /^(PHL|FILIPINO)\s+([MF])\s+\d{4}[\/\-,]\d{2}[\/\-,]\d{2}/i;
+    const nationalityMatch = line.match(nationalityPattern);
+    if (nationalityMatch) {
+      const sexLetter = nationalityMatch[2].toUpperCase();
+      const sex = sexLetter === 'M' ? 'Male' : 'Female';
+      console.log(`✅ Found Sex (nationality pattern): ${sexLetter} → ${sex}`);
       return sex;
+    }
+    
+    // ✅ Pattern 5: Check for M/F in lines that contain name or after name
+    if (i > 0) {
+      const prevLine = lines[i - 1];
+      // If previous line had a name (comma pattern), check current line for M/F
+      if (prevLine.includes(',') && /^[-\s]*([MF])\s/.test(line)) {
+        const nameContextMatch = line.match(/^[-\s]*([MF])\s/);
+        if (nameContextMatch) {
+          const sexLetter = nameContextMatch[1].toUpperCase();
+          const sex = sexLetter === 'M' ? 'Male' : 'Female';
+          console.log(`✅ Found Sex (after name line): ${sexLetter} → ${sex}`);
+          return sex;
+        }
+      }
     }
   }
   
