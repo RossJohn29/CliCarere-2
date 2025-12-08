@@ -1184,22 +1184,27 @@ const extractUMIDName = (lines) => {
 };
 
 /**
- * UMID Sex Extraction - FIXED VERSION
+ * UMID Sex Extraction - FIXED VERSION with M→Male, F→Female conversion
  * Format: "SEX M" - value is immediately to the RIGHT of the label (same line)
  */
 const extractUMIDSex = (lines) => {
   console.log('👤 Extracting UMID Sex');
+  console.log('📄 All lines for sex:', lines);
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+    const upperLine = line.toUpperCase();
+    
+    console.log(`🔍 Checking line ${i} for sex: "${line}"`);
     
     // Pattern 1: "SEX M" or "SEX F" (value immediately after label on same line)
     const sexPattern = /\bSEX\s+([MF])\b/i;
     const match = line.match(sexPattern);
     
     if (match) {
-      const sex = match[1].toUpperCase() === 'M' ? 'Male' : 'Female';
-      console.log('✅ Found Sex:', sex);
+      const sexLetter = match[1].toUpperCase();
+      const sex = sexLetter === 'M' ? 'Male' : 'Female';
+      console.log(`✅ Found Sex: ${sexLetter} → ${sex}`);
       return sex;
     }
     
@@ -1209,9 +1214,41 @@ const extractUMIDSex = (lines) => {
     const combinedMatch = line.match(combinedPattern);
     
     if (combinedMatch) {
-      const sex = combinedMatch[1].toUpperCase() === 'M' ? 'Male' : 'Female';
-      console.log('✅ Found Sex (combined line):', sex);
+      const sexLetter = combinedMatch[1].toUpperCase();
+      const sex = sexLetter === 'M' ? 'Male' : 'Female';
+      console.log(`✅ Found Sex (combined line): ${sexLetter} → ${sex}`);
       return sex;
+    }
+    
+    // Pattern 3: Just "M" or "F" on a line after SEX label or near DATE OF BIRTH
+    if (upperLine === 'M' || upperLine === 'F') {
+      // Check if previous line had SEX
+      if (i > 0) {
+        const prevLine = lines[i - 1].toUpperCase();
+        if (prevLine.includes('SEX')) {
+          const sex = upperLine === 'M' ? 'Male' : 'Female';
+          console.log(`✅ Found Sex (next line): ${upperLine} → ${sex}`);
+          return sex;
+        }
+      }
+      
+      // Check if same context as DATE OF BIRTH
+      if (upperLine.includes('DATE') || upperLine.includes('BIRTH')) {
+        const sex = upperLine === 'M' ? 'Male' : 'Female';
+        console.log(`✅ Found Sex (with date context): ${upperLine} → ${sex}`);
+        return sex;
+      }
+    }
+    
+    // Pattern 4: Isolated M or F in line with SEX keyword
+    if (upperLine.includes('SEX')) {
+      const isolatedMatch = upperLine.match(/\b([MF])\b/);
+      if (isolatedMatch) {
+        const sexLetter = isolatedMatch[1];
+        const sex = sexLetter === 'M' ? 'Male' : 'Female';
+        console.log(`✅ Found Sex (isolated): ${sexLetter} → ${sex}`);
+        return sex;
+      }
     }
   }
   
@@ -1220,17 +1257,19 @@ const extractUMIDSex = (lines) => {
 };
 
 /**
- * UMID Birthday Extraction - FIXED VERSION for MM/DD/YYYY format
- * Format: "DATE OF BIRTH 1960/01/28" - value is on same line, to the RIGHT of label
- * Output: Convert to YYYY-MM-DD for HTML date input
+ * UMID Birthday Extraction - ENHANCED for cropped scan
+ * Format: "SEX M DATE OF BIRTH 1960/01/28" on same line
  */
 const extractUMIDBirthday = (lines) => {
   console.log('📅 Extracting UMID Birthday');
+  console.log('📄 All lines for birthday:', lines);
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     
-    // Pattern 1: "DATE OF BIRTH YYYY/MM/DD" (actual format from image)
+    console.log(`🔍 Checking line ${i}: "${line}"`);
+    
+    // Pattern 1: "DATE OF BIRTH YYYY/MM/DD" or "SEX M DATE OF BIRTH YYYY/MM/DD"
     const dobPattern1 = /DATE\s+OF\s+BIRTH\s+(\d{4})[\/\-](\d{2})[\/\-](\d{2})/i;
     const match1 = line.match(dobPattern1);
     
@@ -1239,59 +1278,30 @@ const extractUMIDBirthday = (lines) => {
       const month = match1[2];
       const day = match1[3];
       
-      // Validate year is reasonable
       const yearInt = parseInt(year);
       if (yearInt >= 1900 && yearInt <= new Date().getFullYear()) {
         const formattedDate = `${year}-${month}-${day}`;
-        console.log('✅ Found Birthday (YYYY/MM/DD format):', formattedDate);
+        console.log('✅ Found Birthday (YYYY/MM/DD):', formattedDate);
         return formattedDate;
       }
     }
     
-    // Pattern 2: "DATE OF BIRTH MM/DD/YYYY" (your mentioned format)
-    const dobPattern2 = /DATE\s+OF\s+BIRTH\s+(\d{2})[\/\-](\d{2})[\/\-](\d{4})/i;
-    const match2 = line.match(dobPattern2);
-    
-    if (match2) {
-      const month = match2[1];
-      const day = match2[2];
-      const year = match2[3];
+    // Pattern 2: Just date pattern YYYY/MM/DD (not in address)
+    if (!line.toUpperCase().includes('ADDRESS') && 
+        !line.toUpperCase().includes('STREET') &&
+        !line.toUpperCase().includes('PHILIPPINES')) {
       
-      // Validate year is reasonable
-      const yearInt = parseInt(year);
-      if (yearInt >= 1900 && yearInt <= new Date().getFullYear()) {
-        const formattedDate = `${year}-${month}-${day}`;
-        console.log('✅ Found Birthday (MM/DD/YYYY format):', formattedDate);
-        return formattedDate;
-      }
-    }
-    
-    // Pattern 3: Just look for date pattern anywhere in line (not in address context)
-    if (!line.includes('ADDRESS') && !line.includes('STREET')) {
-      // Try YYYY/MM/DD
-      const directPattern1 = /\b(\d{4})[\/\-](\d{2})[\/\-](\d{2})\b/;
-      const directMatch1 = line.match(directPattern1);
+      const datePattern = /\b(\d{4})[\/\-](\d{2})[\/\-](\d{2})\b/;
+      const dateMatch = line.match(datePattern);
       
-      if (directMatch1) {
-        const year = directMatch1[1];
+      if (dateMatch) {
+        const year = dateMatch[1];
         const yearInt = parseInt(year);
+        
+        // Make sure it's a birth year, not a zip code or other number
         if (yearInt >= 1900 && yearInt <= new Date().getFullYear()) {
-          const formattedDate = `${directMatch1[1]}-${directMatch1[2]}-${directMatch1[3]}`;
-          console.log('✅ Found Birthday (direct YYYY/MM/DD):', formattedDate);
-          return formattedDate;
-        }
-      }
-      
-      // Try MM/DD/YYYY
-      const directPattern2 = /\b(\d{2})[\/\-](\d{2})[\/\-](\d{4})\b/;
-      const directMatch2 = line.match(directPattern2);
-      
-      if (directMatch2) {
-        const year = directMatch2[3];
-        const yearInt = parseInt(year);
-        if (yearInt >= 1900 && yearInt <= new Date().getFullYear()) {
-          const formattedDate = `${directMatch2[3]}-${directMatch2[1]}-${directMatch2[2]}`;
-          console.log('✅ Found Birthday (direct MM/DD/YYYY):', formattedDate);
+          const formattedDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+          console.log('✅ Found Birthday (direct pattern):', formattedDate);
           return formattedDate;
         }
       }
@@ -1303,18 +1313,13 @@ const extractUMIDBirthday = (lines) => {
 };
 
 /**
- * UMID Address Extraction - FIXED VERSION based on actual card
+ * UMID Address Extraction - ULTRA-FIXED VERSION for cropped scan
  * Layout: "ADDRESS" label, then multi-line address DIRECTLY UNDER
- * Example from image:
- *   ADDRESS
- *   28 PAYAPA ST BAGONG DIWA
- *   STO CRISTOBAL CALOOCAN CITY
- *   METRO MANILA
- *   PHILIPPINES 1800
+ * Handles case where only bottom portion of ID is scanned
  */
 const extractUMIDAddress = (lines) => {
   console.log('🏠 Extracting UMID Address');
-  console.log('📄 All lines for address:', lines);
+  console.log('📄 All lines received:', lines);
   
   let addressLines = [];
   let foundAddressLabel = false;
@@ -1324,97 +1329,152 @@ const extractUMIDAddress = (lines) => {
     const line = lines[i].trim();
     const upperLine = line.toUpperCase();
     
-    console.log(`🔍 Checking line ${i}: "${line}"`);
+    console.log(`🔍 Line ${i}: "${line}"`);
     
     // Look for "ADDRESS" label
-    if (upperLine === 'ADDRESS' || upperLine.startsWith('ADDRESS')) {
+    if (upperLine === 'ADDRESS' || upperLine.startsWith('ADDRESS') || upperLine.includes('ADDRESS')) {
       foundAddressLabel = true;
       addressStartIndex = i;
-      console.log('✅ Found ADDRESS label at index:', i);
+      console.log(`✅ Found ADDRESS label at line ${i}`);
       
       // Check if address starts on same line (after ADDRESS word)
       const afterLabel = line.replace(/^ADDRESS\s*/i, '').trim();
-      if (afterLabel.length >= 5 && /[0-9]/.test(afterLabel)) {
+      if (afterLabel.length >= 3) {
         addressLines.push(afterLabel);
-        console.log('📍 Found address part on same line:', afterLabel);
+        console.log(`📍 Found address on same line: "${afterLabel}"`);
       }
       continue;
     }
     
-    // Collect address lines after the label
+    // If we found ADDRESS label, collect subsequent lines
     if (foundAddressLabel && i > addressStartIndex) {
       
-      // Stop conditions - these indicate end of address section
+      // Stop at these markers
       if (upperLine.includes('SIGNATURE') ||
-          upperLine.includes('CARD NUMBER') ||
-          upperLine.includes('VALID') ||
-          upperLine.includes('EXPIR') ||
-          upperLine.includes('ISSUED') ||
+          upperLine.includes('CARD') ||
           upperLine.includes('HOLDER') ||
+          upperLine.includes('VALID') ||
+          upperLine.includes('ISSUED') ||
+          upperLine.includes('EXPIR') ||
           /^CRN[-\s]?\d/.test(line) ||
           line.length < 2) {
-        console.log('⏹️ Stopping address collection at:', line);
+        console.log(`⏹️ Stopping at: "${line}"`);
         break;
       }
       
-      // Skip name field labels (they come before address)
+      // Skip non-address lines
       if (upperLine === 'SURNAME' ||
           upperLine === 'GIVEN NAME' ||
           upperLine === 'MIDDLE NAME' ||
           upperLine === 'SEX' ||
-          upperLine.includes('DATE OF BIRTH')) {
+          upperLine === 'DATE OF BIRTH' ||
+          upperLine === 'CRN') {
+        console.log(`⏭️ Skipping label: "${line}"`);
         continue;
       }
       
-      // Address line indicators - be more lenient
+      // Check if this looks like an address line
       const hasNumbers = /\d/.test(line);
-      const hasAddressKeywords = 
+      const hasAddressWords = 
         upperLine.includes('ST') ||
         upperLine.includes('STREET') ||
         upperLine.includes('AVE') ||
-        upperLine.includes('AVENUE') ||
-        upperLine.includes('RD') ||
         upperLine.includes('ROAD') ||
         upperLine.includes('BLVD') ||
-        upperLine.includes('BRGY') ||
-        upperLine.includes('BARANGAY') ||
         upperLine.includes('CITY') ||
         upperLine.includes('METRO') ||
         upperLine.includes('MANILA') ||
-        upperLine.includes('NCR') ||
         upperLine.includes('PHILIPPINES') ||
         upperLine.includes('CALOOCAN') ||
-        upperLine.includes('QUEZON') ||
-        upperLine.includes('MAKATI') ||
-        upperLine.includes('PASIG') ||
         upperLine.includes('BAGONG') ||
         upperLine.includes('PAYAPA') ||
         upperLine.includes('DIWA') ||
         upperLine.includes('CRISTOBAL') ||
-        upperLine.includes('STO ') ||
-        upperLine.includes('SAN ');
+        upperLine.includes('STO') ||
+        upperLine.includes('BRGY') ||
+        upperLine.includes('BARANGAY');
       
-      const isAddressLine = hasNumbers || hasAddressKeywords || 
-        (addressLines.length > 0 && addressLines.length < 5 && 
-         line.length >= 3 && /^[A-Z0-9]/.test(line));
+      // Be more aggressive in collecting lines after ADDRESS
+      const isLikelyAddress = 
+        hasNumbers || 
+        hasAddressWords || 
+        (addressLines.length > 0 && addressLines.length < 6 && line.length >= 3);
       
-      if (isAddressLine && addressLines.length < 5) {
+      if (isLikelyAddress) {
         addressLines.push(line);
-        console.log('📍 Added address line:', line);
+        console.log(`📍 Added address line: "${line}"`);
+      } else if (addressLines.length > 0 && line.length >= 10) {
+        // If we already have some address and this is a substantial line, include it
+        addressLines.push(line);
+        console.log(`📍 Added substantial line: "${line}"`);
+      }
+      
+      // Stop after collecting reasonable number of lines
+      if (addressLines.length >= 6) {
+        console.log('⏹️ Reached maximum address lines');
+        break;
       }
     }
   }
   
-  console.log('📦 Collected address lines:', addressLines);
+  // FALLBACK: If ADDRESS label not found but we see address-like lines
+  if (!foundAddressLabel || addressLines.length === 0) {
+    console.log('🔄 Trying fallback: looking for address-like lines without label');
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      const upperLine = line.toUpperCase();
+      
+      // Skip obvious non-address lines
+      if (upperLine.includes('CRN') ||
+          upperLine.includes('SURNAME') ||
+          upperLine.includes('GIVEN') ||
+          upperLine.includes('MIDDLE') ||
+          upperLine.includes('SEX') ||
+          upperLine.includes('DATE OF BIRTH') ||
+          line.length < 5) {
+        continue;
+      }
+      
+      // Look for lines that strongly indicate address
+      const strongAddressIndicators = 
+        (/^\d+\s+[A-Z]/.test(line)) || // Starts with house number
+        (upperLine.includes('PAYAPA') && upperLine.includes('ST')) ||
+        (upperLine.includes('CRISTOBAL') && upperLine.includes('CALOOCAN')) ||
+        (upperLine.includes('METRO') && upperLine.includes('MANILA')) ||
+        (upperLine.includes('PHILIPPINES') && /\d{4}/.test(line));
+      
+      if (strongAddressIndicators) {
+        addressLines.push(line);
+        console.log(`📍 Fallback added: "${line}"`);
+        
+        // Try to collect next few lines too
+        for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+          const nextLine = lines[j].trim();
+          if (nextLine.length >= 5 && 
+              !nextLine.toUpperCase().includes('SIGNATURE') &&
+              !nextLine.toUpperCase().includes('HOLDER')) {
+            addressLines.push(nextLine);
+            console.log(`📍 Fallback continuation: "${nextLine}"`);
+          }
+        }
+        break;
+      }
+    }
+  }
+  
+  console.log('📦 Final collected address lines:', addressLines);
   
   if (addressLines.length > 0) {
-    // Clean up and combine address lines
+    // Clean and combine
     const fullAddress = addressLines
       .map(line => line.trim())
       .filter(line => line.length > 0)
-      .join(', ');
+      .join(', ')
+      .replace(/,\s*,/g, ',') // Remove double commas
+      .trim();
     
-    console.log('✅ Found Address:', fullAddress);
+    console.log('✅ FINAL ADDRESS:', fullAddress);
     return fullAddress;
   }
   
