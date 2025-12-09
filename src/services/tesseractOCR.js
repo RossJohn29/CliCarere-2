@@ -2278,141 +2278,52 @@ const extractUMIDIDNumber = (lines) => {
       };
     }
   };
-
-/**
- * Upload ID image to backend and get URL
- * @param {string} imageData - Base64 image data
- * @param {string} patientId - Patient ID (temp or permanent)
- * @param {string} idType - Type of ID being uploaded
- * @returns {Promise<{success: boolean, publicUrl?: string, error?: string}>}
- */
-export const uploadIDImage = async (imageData, patientId, idType) => {
+  
+export const uploadIDImage = async (imageData, patientId, idType, idNumber = null) => {
   try {
-    // Validate inputs
-    if (!imageData) {
-      console.error('❌ uploadIDImage: No image data provided');
-      return { success: false, error: 'No image data provided' };
-    }
+    console.log('📤 Starting ID image upload to localhost:', { patientId, idType, idNumber });
     
-    if (!patientId) {
-      console.error('❌ uploadIDImage: No patient ID provided');
-      return { success: false, error: 'No patient ID provided' };
-    }
-    
-    if (!idType) {
-      console.error('❌ uploadIDImage: No ID type provided');
-      return { success: false, error: 'No ID type provided' };
-    }
-
-    console.log('📤 Uploading ID image to backend...', { patientId, idType });
-    
-    // Validate base64 format
-    if (!imageData.includes(',')) {
-      console.error('❌ uploadIDImage: Invalid base64 format');
-      return { success: false, error: 'Invalid image format' };
-    }
-
     // Convert base64 to blob
-    let blob;
-    try {
-      const base64Data = imageData.split(',')[1];
-      if (!base64Data) {
-        throw new Error('Empty base64 data');
-      }
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      blob = new Blob([byteArray], { type: 'image/jpeg' });
-    } catch (conversionError) {
-      console.error('❌ uploadIDImage: Failed to convert base64 to blob:', conversionError);
-      return { success: false, error: 'Failed to process image data' };
+    const base64Data = imageData.split(',')[1];
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'image/jpeg' });
     
     // Create FormData
     const formData = new FormData();
-    const timestamp = Date.now();
-    const fileName = `${patientId}_${idType}_${timestamp}.jpg`;
-    formData.append('file', blob, fileName);
+    formData.append('file', blob, `${idType}_${Date.now()}.jpg`);
     formData.append('patientId', patientId);
     formData.append('idType', idType);
+    if (idNumber) {
+      formData.append('idNumber', idNumber);
+    }
     
-    // Get API URL with fallback
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-    const uploadEndpoint = `${apiUrl}/api/upload-id-image`;
+    console.log('📤 Uploading to localhost with patientId:', patientId);
     
-    console.log('📤 Uploading to:', uploadEndpoint);
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload-id-image`, {
+      method: 'POST',
+      body: formData
+    });
     
-    // Upload to backend with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    const result = await response.json();
     
-    let response;
-    try {
-      response = await fetch(uploadEndpoint, {
-        method: 'POST',
-        body: formData,
-        signal: controller.signal
+    if (result.success) {
+      console.log('✅ ID image uploaded successfully to localhost:', {
+        publicUrl: result.publicUrl,
+        fileName: result.fileName
       });
-      clearTimeout(timeoutId);
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      if (fetchError.name === 'AbortError') {
-        console.error('❌ uploadIDImage: Request timeout');
-        return { success: false, error: 'Upload timeout - please try again' };
-      }
-      console.error('❌ uploadIDImage: Network error:', fetchError);
-      return { success: false, error: 'Network error - please check your connection' };
-    }
-    
-    // Check response status
-    if (!response) {
-      console.error('❌ uploadIDImage: No response received');
-      return { success: false, error: 'No response from server' };
-    }
-    
-    if (!response.ok) {
-      console.error('❌ uploadIDImage: HTTP error:', response.status);
-      return { success: false, error: `Server error: ${response.status}` };
-    }
-    
-    // Parse response
-    let result;
-    try {
-      const responseText = await response.text();
-      if (!responseText) {
-        console.error('❌ uploadIDImage: Empty response body');
-        return { success: false, error: 'Empty response from server' };
-      }
-      result = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('❌ uploadIDImage: Failed to parse response:', parseError);
-      return { success: false, error: 'Invalid response from server' };
-    }
-    
-    // Check result
-    if (result && result.success) {
-      console.log('✅ ID image uploaded successfully:', result.publicUrl);
-      return {
-        success: true,
-        publicUrl: result.publicUrl || null,
-        fileName: result.fileName || fileName
-      };
+      return result;
     } else {
-      console.error('❌ ID image upload failed:', result?.error || 'Unknown error');
-      return {
-        success: false,
-        error: result?.error || 'Upload failed'
-      };
+      console.error('❌ ID image upload failed:', result.error);
+      return { success: false, error: result.error };
     }
   } catch (error) {
-    console.error('❌ uploadIDImage unexpected error:', error);
-    return {
-      success: false,
-      error: error?.message || 'Unexpected error during upload'
-    };
+    console.error('❌ ID image upload error:', error);
+    return { success: false, error: error.message };
   }
 };
   // Main export

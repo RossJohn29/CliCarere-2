@@ -910,57 +910,6 @@ const processIDImageWithOCR = async (imageData) => {
   }
 };
 
-// FIXED: Client-side upload function (for both webregistration.js and kioskregistration.js)
-const uploadIDImage = async (imageData, patientId, idType, idNumber = null) => {
-  try {
-    console.log('📤 Starting ID image upload:', { patientId, idType, idNumber });
-    
-    // Convert base64 to blob
-    const base64Data = imageData.split(',')[1];
-    const byteCharacters = atob(base64Data);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: 'image/jpeg' });
-    
-    // Create FormData
-    const formData = new FormData();
-    formData.append('file', blob, `${idType}_${Date.now()}.jpg`);
-    formData.append('patientId', patientId);
-    formData.append('idType', idType);
-    if (idNumber) {
-      formData.append('idNumber', idNumber);
-    }
-    
-    console.log('📤 Uploading with patientId:', patientId);
-    
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload-id-image`, {
-      method: 'POST',
-      body: formData
-    });
-    
-    const result = await response.json();
-    
-    if (result.success) {
-      console.log('✅ ID image uploaded and saved to database:', {
-        publicUrl: result.publicUrl,
-        tempId: result.tempId,
-        fileName: result.fileName,
-        dbUpdated: !!result.updatedRecord
-      });
-      return result;
-    } else {
-      console.error('❌ ID image upload failed:', result.error);
-      return { success: false, error: result.error };
-    }
-  } catch (error) {
-    console.error('❌ ID image upload error:', error);
-    return { success: false, error: error.message };
-  }
-};
-
     const closeCameraModal = (focusFullName = false) => {
       setShowCameraModal(false);
       setCapturedImage(null);
@@ -1200,6 +1149,8 @@ const uploadIDImage = async (imageData, patientId, idType, idNumber = null) => {
     };
 
 const handleSubmit = async () => {
+  console.log('🚀 Form submission started');
+  
   if (!validateStep(currentStep)) {
     setError('Please complete all required fields');
     return;
@@ -1238,10 +1189,9 @@ const handleSubmit = async () => {
       status: 'completed',
       created_date: new Date().toISOString().split('T')[0],
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      // Don't send ID data yet - will be updated after image upload
-      id_type: null,
-      id_number: null,
-      id_image_url: null
+      id_type: selectedIDType || null,
+      id_number: formData.idNumber || null,
+      id_image_url: null  // Will be updated after localhost upload
     };
 
     const response = await fetch(`${apiUrl}/api/temp-registration`, {
@@ -1275,9 +1225,9 @@ const handleSubmit = async () => {
 
     console.log('✅ Registration created:', { tempRegId, tempPatientId });
 
-    // ✅ STEP 2: Upload ID image if captured (this now also updates database)
+    // ✅ STEP 2: Upload ID image to localhost if captured
     if (capturedIDImage && selectedIDType) {
-      console.log('📤 Step 2: Uploading ID image and updating database...');
+      console.log('📤 Step 2: Uploading ID image to localhost...');
       
       try {
         const uploadResult = await uploadIDImage(
@@ -1288,18 +1238,16 @@ const handleSubmit = async () => {
         );
         
         if (uploadResult && uploadResult.success) {
-          console.log('✅ ID image uploaded and database updated:', uploadResult.publicUrl);
+          console.log('✅ ID image uploaded to localhost:', uploadResult.publicUrl);
         } else {
           console.warn('⚠️ ID image upload failed:', uploadResult?.error);
-          // Don't fail the entire registration
         }
       } catch (uploadError) {
         console.warn('⚠️ ID image upload error:', uploadError);
-        // Don't fail the entire registration
       }
     }
 
-    // ✅ STEP 3: Generate QR and send email
+    // Rest of your QR generation code...
     const qrData = {
       type: 'webreg_registration',
       source: 'web_registration',
