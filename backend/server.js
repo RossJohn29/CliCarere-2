@@ -2826,10 +2826,24 @@ app.get('/api/admin/patients', authenticateToken, async (req, res) => {
 
     let query = supabase
       .from('outpatient')
-      .select('*')
+      .select(`
+        id,
+        patient_id,
+        name,
+        birthday,
+        age,
+        sex,
+        address,
+        contact_no,
+        email,
+        registration_date,
+        id_type,
+        id_number,
+        id_image_url
+      `)
       .order('registration_date', { ascending: false });
 
-    // Search by patient_id only
+    // Search functionality
     if (search && search.trim() !== '') {
       const searchTerm = search.trim();
       query = query.or(`patient_id.ilike.%${searchTerm}%,name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,contact_no.like.%${searchTerm}%,sex.ilike.%${searchTerm}%`);
@@ -2872,7 +2886,11 @@ app.get('/api/admin/patients', authenticateToken, async (req, res) => {
       contact_no: patient.contact_no,
       email: patient.email,
       registration_date: patient.registration_date,
-      last_visit: lastVisits[patient.id] || null
+      last_visit: lastVisits[patient.id] || null,
+      // ✅ ADD THESE LINES
+      id_type: patient.id_type,
+      id_number: patient.id_number,
+      id_image_url: patient.id_image_url
     }));
 
     res.status(200).json({
@@ -2886,7 +2904,6 @@ app.get('/api/admin/patients', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
 // Send OTP to Outpatient
 app.post('/api/outpatient/send-otp', generalLoginLimiter, async (req, res) => {
   try {
@@ -4042,7 +4059,10 @@ app.get('/api/healthcare/all-patients', authenticateToken, async (req, res) => {
             address,
             contact_no,
             email,
-            registration_date
+            registration_date,
+            id_type,
+            id_number,
+            id_image_url
           )
         )
       `)
@@ -4071,7 +4091,11 @@ app.get('/api/healthcare/all-patients', authenticateToken, async (req, res) => {
           address: patient.address,
           contact_no: patient.contact_no,
           email: patient.email,
-          registration_date: patient.registration_date
+          registration_date: patient.registration_date,
+          // ✅ ADD THESE LINES
+          id_type: patient.id_type,
+          id_number: patient.id_number,
+          id_image_url: patient.id_image_url
         });
       }
     });
@@ -5101,7 +5125,6 @@ const generateHealthAssessmentId = () => {
   return `HEALTH${timestamp}${random}`;
 };
 
-// Cleanup expired registrations
 const cleanupExpiredRegistrations = async () => {
   try {
     const now = new Date();
@@ -5109,6 +5132,9 @@ const cleanupExpiredRegistrations = async () => {
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     
     console.log(`🧹 Starting cleanup at ${currentDate} ${currentTime}`);
+    
+    // ✅ ENHANCED: Also clean up completed registrations older than 1 hour
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
     
     const { data: registrations, error: fetchError } = await supabase
       .from('pre_registration')
@@ -5121,7 +5147,8 @@ const cleanupExpiredRegistrations = async () => {
         next_available_date,
         next_available_time,
         department_id, 
-        status
+        status,
+        updated_at
       `)
       .in('status', ['pending', 'completed']);
 
@@ -5138,75 +5165,86 @@ const cleanupExpiredRegistrations = async () => {
     const expiredIds = [];
     
     for (const reg of registrations) {
-      // ✅ SUBSPECIALTY SERVICE CHECK (with time slots)
-      if (reg.department_id && reg.next_available_date && reg.next_available_time) {
-        const { data: dept } = await supabase
-          .from('department')
-          .select('is_scheduled, service_type, name, available_days')
-          .eq('department_id', reg.department_id)
-          .single();
+      let shouldDelete = false;
+      let reason = '';
 
-        if (dept && dept.is_scheduled && dept.service_type === 'subspecialty') {
-          const nextDate = reg.next_available_date;
-          const timeSlot = reg.next_available_time;
-          
-          // Parse end time from time slot (e.g., "08:00-17:00" -> "17:00")
-          let endTime = '20:00'; // Default fallback
-          if (timeSlot && timeSlot.includes('-')) {
-            endTime = timeSlot.split('-')[1];
-          }
-          
-          // Check if past the end time of the next available slot
-          if (currentDate > nextDate || 
-              (currentDate === nextDate && currentTime > endTime)) {
-            console.log(`🗑️ Subspecialty expired: ${reg.name} - ${dept.name} (due: ${nextDate} ${endTime})`);
-            expiredIds.push(reg.temp_id);
+      // ✅ DELETE COMPLETED REGISTRATIONS OLDER THAN 1 HOUR
+      if (reg.status === 'completed' && reg.updated_at) {
+        const updatedAt = new Date(reg.updated_at);
+        if (now - updatedAt > 60 * 60 * 1000) { // 1 hour
+          shouldDelete = true;
+          reason = 'completed and older than 1 hour';
+        }
+      }
+
+      // ✅ EXISTING EXPIRATION LOGIC
+      if (!shouldDelete && reg.status === 'pending') {
+        // Subspecialty service check
+        if (reg.department_id && reg.next_available_date && reg.next_available_time) {
+          const { data: dept } = await supabase
+            .from('department')
+            .select('is_scheduled, service_type, name, available_days')
+            .eq('department_id', reg.department_id)
+            .single();
+
+          if (dept && dept.is_scheduled && dept.service_type === 'subspecialty') {
+            const nextDate = reg.next_available_date;
+            const timeSlot = reg.next_available_time;
+            
+            let endTime = '20:00';
+            if (timeSlot && timeSlot.includes('-')) {
+              endTime = timeSlot.split('-')[1];
+            }
+            
+            if (currentDate > nextDate || 
+                (currentDate === nextDate && currentTime > endTime)) {
+              shouldDelete = true;
+              reason = `subspecialty expired (due: ${nextDate} ${endTime})`;
+            }
+            
             continue;
           }
+        }
+
+        // General service check
+        const appointmentDate = reg.preferred_date;
+        const timeSlot = reg.preferred_time_slot;
+        
+        if (!appointmentDate) continue;
+        
+        if (appointmentDate < currentDate) {
+          shouldDelete = true;
+          reason = 'past appointment date';
+        } else if (appointmentDate === currentDate) {
+          let hasExpired = false;
           
-          // Still within waiting period
-          console.log(`⏳ Waiting for ${reg.name} - ${dept.name} (due: ${nextDate} ${endTime})`);
-          continue;
+          switch (timeSlot) {
+            case 'morning':
+              hasExpired = currentTime >= '12:00';
+              break;
+            case 'afternoon':
+              hasExpired = currentTime >= '17:00';
+              break;
+            case 'evening':
+              hasExpired = currentTime >= '20:00';
+              break;
+            case 'anytime':
+              hasExpired = currentTime >= '20:00';
+              break;
+            default:
+              hasExpired = false;
+          }
+          
+          if (hasExpired) {
+                        shouldDelete = true;
+            reason = `time slot expired (${timeSlot})`;
+          }
         }
       }
 
-      // ✅ GENERAL SERVICE CHECK (existing logic)
-      const appointmentDate = reg.preferred_date;
-      const timeSlot = reg.preferred_time_slot;
-      
-      if (!appointmentDate) continue;
-      
-      // Past date
-      if (appointmentDate < currentDate) {
+      if (shouldDelete) {
+        console.log(`🗑️ Marking for deletion: ${reg.name} - ${reason}`);
         expiredIds.push(reg.temp_id);
-        continue;
-      }
-      
-      // Same date - check time slot
-      if (appointmentDate === currentDate) {
-        let hasExpired = false;
-        
-        switch (timeSlot) {
-          case 'morning':
-            hasExpired = currentTime >= '12:00';
-            break;
-          case 'afternoon':
-            hasExpired = currentTime >= '17:00';
-            break;
-          case 'evening':
-            hasExpired = currentTime >= '20:00';
-            break;
-          case 'anytime':
-            hasExpired = currentTime >= '20:00';
-            break;
-          default:
-            hasExpired = false;
-        }
-        
-        if (hasExpired) {
-          console.log(`🗑️ General service expired: ${reg.name} (slot: ${timeSlot})`);
-          expiredIds.push(reg.temp_id);
-        }
       }
     }
 
@@ -5215,7 +5253,7 @@ const cleanupExpiredRegistrations = async () => {
       return;
     }
 
-    // Delete expired registrations
+    // ✅ DELETE ALL EXPIRED REGISTRATIONS
     const { error: deleteError } = await supabase
       .from('pre_registration')
       .delete()
@@ -5230,6 +5268,54 @@ const cleanupExpiredRegistrations = async () => {
       
   } catch (error) {
     console.error('💥 Cleanup job error:', error);
+  }
+};
+
+const cleanupCompletedRegistrations = async () => {
+  try {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+    
+    console.log('🧹 Cleaning up completed registrations older than 1 hour...');
+    
+    // Get completed registrations older than 1 hour
+    const { data: completedRegs, error: fetchError } = await supabase
+      .from('pre_registration')
+      .select('temp_id, temp_patient_id, name, updated_at')
+      .eq('status', 'completed')
+      .lt('updated_at', oneHourAgo);
+
+    if (fetchError) {
+      console.error('❌ Error fetching completed registrations:', fetchError);
+      return;
+    }
+
+    if (!completedRegs || completedRegs.length === 0) {
+      console.log('✅ No completed registrations to clean');
+      return;
+    }
+
+    console.log(`🗑️ Found ${completedRegs.length} completed registrations to delete`);
+
+    // Delete them
+    const tempIds = completedRegs.map(reg => reg.temp_id);
+    const { error: deleteError } = await supabase
+      .from('pre_registration')
+      .delete()
+      .in('temp_id', tempIds);
+
+    if (deleteError) {
+      console.error('❌ Error deleting completed registrations:', deleteError);
+      return;
+    }
+
+    console.log(`✅ Successfully deleted ${completedRegs.length} completed registrations`);
+    completedRegs.forEach(reg => {
+      console.log(`   - Deleted: ${reg.name} (${reg.temp_patient_id})`);
+    });
+
+  } catch (error) {
+    console.error('💥 Completed registrations cleanup error:', error);
   }
 };
 
@@ -8939,6 +9025,7 @@ app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => 
 });
 
 // Upload ID image to Supabase Storage
+// FIXED: Upload ID image to Supabase Storage with proper database updates
 app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
   try {
     console.log('📥 Upload ID image request received');
@@ -8967,18 +9054,115 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       });
     }
 
-    // ✅ STEP 1: Upload to Supabase Storage
+    // ✅ STEP 1: Check if this is temp registration and get temp_id
+    let actualPatientId = patientId;
+    let tempId = null;
+    let recordType = null;
+
+    if (patientId.startsWith('TEMP')) {
+      // Get the actual temp_id from database
+      const { data: tempReg, error: tempError } = await supabase
+        .from('pre_registration')
+        .select('temp_id, temp_patient_id')
+        .eq('temp_patient_id', patientId)
+        .single();
+
+      if (tempError || !tempReg) {
+        return res.status(404).json({
+          success: false,
+          error: 'Temporary registration not found'
+        });
+      }
+
+      tempId = tempReg.temp_id;
+      actualPatientId = tempReg.temp_patient_id;
+      recordType = 'pre_registration';
+      
+      console.log('📋 Found temp registration:', { tempId, actualPatientId });
+
+      // ✅ STEP 2: Delete existing ID image if any (enforce single ID per registration)
+      const { data: existingReg } = await supabase
+        .from('pre_registration')
+        .select('id_image_url')
+        .eq('temp_id', tempId)
+        .single();
+
+      if (existingReg && existingReg.id_image_url) {
+        console.log('🗑️ Deleting existing ID image for temp registration');
+        try {
+          // Extract file path from URL and delete from storage
+          const urlParts = existingReg.id_image_url.split('/');
+          const fileName = urlParts[urlParts.length - 1];
+          const folderName = urlParts[urlParts.length - 2];
+          const filePath = `${folderName}/${fileName}`;
+          
+          await supabase.storage
+            .from('outpatient_id')
+            .remove([filePath]);
+          
+          console.log('✅ Deleted existing file:', filePath);
+        } catch (deleteError) {
+          console.warn('⚠️ Failed to delete existing file:', deleteError);
+        }
+      }
+    } else {
+      // Regular patient ID
+      const { data: patient, error: patientError } = await supabase
+        .from('outpatient')
+        .select('id, patient_id')
+        .eq('patient_id', patientId)
+        .single();
+
+      if (patientError || !patient) {
+        return res.status(404).json({
+          success: false,
+          error: 'Patient not found'
+        });
+      }
+
+      recordType = 'outpatient';
+      
+      // ✅ Delete existing ID image if any
+      const { data: existingPatient } = await supabase
+        .from('outpatient')
+        .select('id_image_url')
+        .eq('patient_id', patientId)
+        .single();
+
+      if (existingPatient && existingPatient.id_image_url) {
+        console.log('🗑️ Deleting existing ID image for patient');
+        try {
+          const urlParts = existingPatient.id_image_url.split('/');
+          const fileName = urlParts[urlParts.length - 1];
+          const folderName = urlParts[urlParts.length - 2];
+          const filePath = `${folderName}/${fileName}`;
+          
+          await supabase.storage
+            .from('outpatient_id')
+            .remove([filePath]);
+          
+          console.log('✅ Deleted existing file:', filePath);
+        } catch (deleteError) {
+          console.warn('⚠️ Failed to delete existing file:', deleteError);
+        }
+      }
+    }
+
+    // ✅ STEP 3: Upload new file with proper naming
     const timestamp = Date.now();
     const fileExt = path.extname(req.file.originalname) || '.jpg';
-    const fileName = `${patientId}/${idType}_${timestamp}${fileExt}`;
     
-    console.log('📤 Uploading file:', fileName, 'with content type:', req.file.mimetype);
+    // Use temp_id for folder structure: TEMP_123/drivers_license_timestamp.jpg
+    const folderName = tempId ? `TEMP_${tempId}` : actualPatientId;
+    const fileName = `${folderName}/${idType}_${timestamp}${fileExt}`;
+    
+    console.log('📤 Uploading file with structure:', fileName);
 
     const { data, error } = await supabase.storage
       .from('outpatient_id')
       .upload(fileName, req.file.buffer, {
         contentType: req.file.mimetype || 'image/jpeg',
-        upsert: true
+        upsert: true // This will replace if exists
       });
 
     if (error) {
@@ -8992,7 +9176,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
 
     console.log('✅ File uploaded successfully:', data.path);
 
-    // ✅ STEP 2: Get public URL
+    // ✅ STEP 4: Get public URL
     const { data: publicUrlData } = supabase.storage
       .from('outpatient_id')
       .getPublicUrl(fileName);
@@ -9000,15 +9184,12 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
     const publicUrl = publicUrlData.publicUrl;
     console.log('✅ Public URL generated:', publicUrl);
 
-    // ✅ STEP 3: Save to appropriate table
+    // ✅ STEP 5: Update database with URL
     let updateResult = null;
-    let recordType = null;
 
-    // Check if it's a temporary patient ID (starts with TEMP)
-    if (patientId.startsWith('TEMP')) {
-      console.log('📝 Updating pre_registration table for temp patient:', patientId);
+    if (recordType === 'pre_registration') {
+      console.log('📝 Updating pre_registration table for temp_id:', tempId);
       
-      // Update pre_registration table
       const { data: tempUpdateData, error: tempUpdateError } = await supabase
         .from('pre_registration')
         .update({ 
@@ -9016,52 +9197,61 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
           id_image_url: publicUrl,
           updated_at: new Date().toISOString()
         })
-        .eq('temp_patient_id', patientId)
+        .eq('temp_id', tempId)
         .select('temp_id, temp_patient_id, name, id_type, id_image_url')
         .single();
 
       if (tempUpdateError) {
         console.error('❌ Failed to update pre_registration:', tempUpdateError);
+        
+        // Cleanup uploaded file on database error
+        await supabase.storage
+          .from('outpatient_id')
+          .remove([fileName]);
+          
         return res.status(500).json({
           success: false,
           error: 'Failed to save ID data to database',
           details: tempUpdateError.message
         });
-      } else {
-        updateResult = tempUpdateData;
-        recordType = 'pre_registration';
-        console.log('✅ Pre-registration updated successfully:', updateResult);
       }
+      
+      updateResult = tempUpdateData;
+      console.log('✅ Pre-registration updated successfully:', updateResult);
 
     } else {
-      console.log('📝 Updating outpatient table for permanent patient:', patientId);
+      console.log('📝 Updating outpatient table for patient_id:', actualPatientId);
       
-      // Update outpatient table
       const { data: patientUpdateData, error: patientUpdateError } = await supabase
         .from('outpatient')
         .update({ 
           id_type: idType,
           id_image_url: publicUrl
         })
-        .eq('patient_id', patientId)
+        .eq('patient_id', actualPatientId)
         .select('id, patient_id, name, id_type, id_image_url')
         .single();
 
       if (patientUpdateError) {
         console.error('❌ Failed to update outpatient:', patientUpdateError);
+        
+        // Cleanup uploaded file on database error
+        await supabase.storage
+          .from('outpatient_id')
+          .remove([fileName]);
+          
         return res.status(500).json({
           success: false,
           error: 'Failed to save ID data to database',
           details: patientUpdateError.message
         });
-      } else {
-        updateResult = patientUpdateData;
-        recordType = 'outpatient';
-        console.log('✅ Outpatient updated successfully:', updateResult);
       }
+      
+      updateResult = patientUpdateData;
+      console.log('✅ Outpatient updated successfully:', updateResult);
     }
 
-    // ✅ STEP 4: Return success response
+    // ✅ STEP 6: Return success response
     res.json({
       success: true,
       message: 'ID image uploaded and database updated successfully',
@@ -9070,7 +9260,8 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       path: data.path,
       recordType: recordType,
       updatedRecord: updateResult,
-      patientId: patientId,
+      patientId: actualPatientId,
+      tempId: tempId,
       idType: idType
     });
 
@@ -9242,7 +9433,6 @@ app.post('/api/temp-registration', async (req, res) => {
   }
 });
 
-// ✅ MODIFIED: Enhanced patient registration to handle ID data from temp registration
 app.post('/api/patient/register', async (req, res) => {
   const {
     name,
@@ -9268,44 +9458,43 @@ app.post('/api/patient/register', async (req, res) => {
   } = req.body;
 
   try {
-    console.log('📥 Received patient registration with ID data:', {
-      name,
-      temp_id,
-      id_type: id_type || 'not provided',
-      id_number: id_number || 'not provided',
-      id_image_url: id_image_url ? 'URL provided' : 'not provided'
-    });
+    console.log('📥 Received patient registration with temp_id:', temp_id);
 
-    // ✅ ENHANCED: If temp_id provided, get ID data from pre_registration
+    // ✅ STEP 1: Get ID data from temp registration BEFORE deletion
     let finalIdType = id_type;
     let finalIdNumber = id_number;
     let finalIdImageUrl = id_image_url;
+    let tempRegistrationData = null;
 
     if (temp_id) {
-      console.log('🔍 Looking up temp registration for ID data:', temp_id);
+      console.log('🔍 Looking up temp registration for complete data:', temp_id);
       
       const { data: tempData, error: tempError } = await supabase
         .from('pre_registration')
-        .select('id_type, id_number, id_image_url, name')
+        .select('*')
         .eq('temp_id', temp_id)
         .single();
 
       if (tempData) {
-        // Use ID data from temp registration if not provided in request
-        finalIdType = finalIdType || tempData.id_type;
-        finalIdNumber = finalIdNumber || tempData.id_number;
-        finalIdImageUrl = finalIdImageUrl || tempData.id_image_url;
+        tempRegistrationData = tempData;
+        // Use ID data from temp registration (prioritize over request data)
+        finalIdType = tempData.id_type || finalIdType;
+        finalIdNumber = tempData.id_number || finalIdNumber;
+        finalIdImageUrl = tempData.id_image_url || finalIdImageUrl;
         
-        console.log('✅ Retrieved ID data from temp registration:', {
+        console.log('✅ Retrieved complete data from temp registration:', {
+          temp_patient_id: tempData.temp_patient_id,
           id_type: finalIdType,
           id_number: finalIdNumber,
           id_image_url: finalIdImageUrl ? 'URL found' : 'no URL'
         });
+      } else {
+        console.warn('⚠️ Temp registration not found for temp_id:', temp_id);
       }
     }
 
     // Check for duplicates
-    const { data: duplicateCheck, error: duplicateError } = await supabase
+    const { data: duplicateCheck } = await supabase
       .from('outpatient')
       .select('patient_id, email, contact_no')
       .or(`email.ilike.${email.toLowerCase()},contact_no.eq.${contact_no}`)
@@ -9337,7 +9526,7 @@ app.post('/api/patient/register', async (req, res) => {
     }
     const patient_id = `PAT${String(nextId).padStart(9, '0')}`;
 
-    // ✅ ENHANCED: Insert patient WITH ID fields
+    // ✅ STEP 2: Insert patient with complete ID data
     const patientInsertData = {
       patient_id,
       name,
@@ -9349,18 +9538,16 @@ app.post('/api/patient/register', async (req, res) => {
       email: email.toLowerCase(),
       registration_date: new Date().toISOString().split('T')[0],
       temp_id: temp_id || null,
-      // ✅ ID FIELDS - Now saved directly in outpatient table
       id_type: finalIdType || null,
       id_number: finalIdNumber || null,
       id_image_url: finalIdImageUrl || null
     };
 
-    console.log('📤 Inserting patient with ID data:', {
+    console.log('📤 Inserting patient with complete ID data:', {
       patient_id: patientInsertData.patient_id,
-      name: patientInsertData.name,
+      temp_id: patientInsertData.temp_id,
       id_type: patientInsertData.id_type,
-      id_number: patientInsertData.id_number,
-      id_image_url: patientInsertData.id_image_url ? 'URL included' : 'null'
+      id_number: patientInsertData.id_number
     });
 
     const { data: patientData, error: patientError } = await supabase
@@ -9369,7 +9556,7 @@ app.post('/api/patient/register', async (req, res) => {
       .select()
       .single();
 
-        if (patientError) {
+    if (patientError) {
       console.error('❌ Patient insert error:', patientError);
       return res.status(500).json({
         success: false,
@@ -9378,15 +9565,13 @@ app.post('/api/patient/register', async (req, res) => {
       });
     }
 
-    console.log('✅ Patient registered with ID info:', {
+    console.log('✅ Patient registered successfully:', {
       patient_id: patientData.patient_id,
-      name: patientData.name,
       id_type: patientData.id_type,
-      id_number: patientData.id_number,
-      id_image_url: patientData.id_image_url ? 'Saved' : 'Not saved'
+      id_number: patientData.id_number
     });
 
-    // Insert emergency contact
+    // ✅ STEP 3: Insert emergency contact
     if (emergency_contact_name && emergency_contact_no) {
       const { error: emergencyError } = await supabase
         .from('emergency_contact')
@@ -9402,7 +9587,7 @@ app.post('/api/patient/register', async (req, res) => {
       }
     }
 
-    // Create visit record
+    // ✅ STEP 4: Create visit record
     const { data: visitData, error: visitError } = await supabase
       .from('visit')
       .insert({
@@ -9424,11 +9609,10 @@ app.post('/api/patient/register', async (req, res) => {
       console.error('Visit insert error:', visitError);
     }
 
-    // Get department recommendation
+    // ✅ STEP 5: Get department recommendation and create queue
     const symptomList = symptoms ? symptoms.split(',').map(s => s.trim()) : [];
     const departmentId = await assignDepartmentBySymptoms(symptomList, parseInt(age) || null);
 
-    // Get department info
     const { data: deptData } = await supabase
       .from('department')
       .select('name')
@@ -9466,14 +9650,25 @@ app.post('/api/patient/register', async (req, res) => {
       }
     }
 
-    // Mark temp registration as completed if exists
+    // ✅ STEP 6: DELETE temp registration after successful patient creation
     if (temp_id) {
-      await supabase
+      console.log('🗑️ Deleting temp registration:', temp_id);
+      
+      const { error: deleteError } = await supabase
         .from('pre_registration')
-        .update({ status: 'completed' })
+        .delete()
         .eq('temp_id', temp_id);
+
+      if (deleteError) {
+        console.error('❌ Failed to delete temp registration:', deleteError);
+        // Don't fail the whole registration, just log the error
+        console.warn('⚠️ Temp registration deletion failed, but patient was created successfully');
+      } else {
+        console.log('✅ Successfully deleted temp registration:', temp_id);
+      }
     }
 
+    // ✅ STEP 7: Return success response
     res.json({
       success: true,
       message: 'Patient registered successfully',
@@ -9487,7 +9682,8 @@ app.post('/api/patient/register', async (req, res) => {
       },
       visit: visitData,
       queue_number: queueNumber,
-      recommendedDepartment: recommendedDepartment
+      recommendedDepartment: recommendedDepartment,
+      tempRegistrationDeleted: temp_id ? true : false
     });
 
   } catch (error) {
@@ -9851,6 +10047,97 @@ app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => 
     });
   }
 });
+
+// Add this to your server.js
+app.post('/api/admin/cleanup-orphaned-id-images', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.type !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    console.log('🧹 Starting cleanup of orphaned ID images...');
+
+    // Get all files in storage
+    const { data: files, error: listError } = await supabase.storage
+      .from('outpatient_id')
+      .list('', {
+        limit: 1000,
+        sortBy: { column: 'created_at', order: 'desc' }
+      });
+
+    if (listError) {
+      throw listError;
+    }
+
+    let orphanedCount = 0;
+    const orphanedFiles = [];
+
+    for (const file of files) {
+      if (file.name.includes('/')) {
+        // This is a folder, check its contents
+        const { data: folderFiles } = await supabase.storage
+          .from('outpatient_id')
+          .list(file.name);
+
+        for (const folderFile of folderFiles || []) {
+          const fullPath = `${file.name}/${folderFile.name}`;
+          
+          // Check if this file is referenced in database
+          const isReferenced = await checkIfImageIsReferenced(fullPath);
+          
+          if (!isReferenced) {
+            orphanedFiles.push(fullPath);
+            orphanedCount++;
+          }
+        }
+      }
+    }
+
+    // Delete orphaned files
+    if (orphanedFiles.length > 0) {
+      const { error: deleteError } = await supabase.storage
+        .from('outpatient_id')
+        .remove(orphanedFiles);
+
+      if (deleteError) {
+        console.error('Error deleting orphaned files:', deleteError);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Cleanup completed. Removed ${orphanedCount} orphaned files.`,
+      orphanedFiles: orphanedFiles
+    });
+
+  } catch (error) {
+    console.error('Cleanup error:', error);
+    res.status(500).json({ error: 'Cleanup failed' });
+  }
+});
+
+// Helper function to check if image is referenced
+const checkIfImageIsReferenced = async (imagePath) => {
+  // Check in pre_registration table
+  const { data: tempReg } = await supabase
+    .from('pre_registration')
+    .select('temp_id')
+    .like('id_image_url', `%${imagePath}%`)
+    .limit(1);
+
+  if (tempReg && tempReg.length > 0) {
+    return true;
+  }
+
+  // Check in outpatient table
+  const { data: patient } = await supabase
+    .from('outpatient')
+    .select('id')
+    .like('id_image_url', `%${imagePath}%`)
+    .limit(1);
+
+  return patient && patient.length > 0;
+};
 
 // PATCH /api/temp-registration/:tempId/update-id-image - Update temp registration's ID image URL
 app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => {
