@@ -299,85 +299,86 @@ const KioskRegistration = () => {
     }
   };
 
-  const registerNewPatient = async (data) => {
-    console.log('📥 registerNewPatient called with data:', data);
-    
-    let currentQrResult = qrScanResult;
-    if (!currentQrResult) {
-      const stored = localStorage.getItem('kioskQrScanResult');
-      if (stored) {
-        try {
-          currentQrResult = JSON.parse(stored);
-          console.log('📦 Retrieved QR result in registerNewPatient:', currentQrResult);
-        } catch (error) {
-          console.error('❌ Failed to parse stored QR result in registerNewPatient:', error);
-        }
+const registerNewPatient = async (data) => {
+  console.log('📥 registerNewPatient called with data:', {
+    name: data.fullName,
+    id_type: data.id_type,
+    id_number: data.id_number,
+    id_image_url: data.id_image_url ? 'URL provided' : 'null'
+  });
+  
+  let currentQrResult = qrScanResult;
+  if (!currentQrResult) {
+    const stored = localStorage.getItem('kioskQrScanResult');
+    if (stored) {
+      try {
+        currentQrResult = JSON.parse(stored);
+      } catch (error) {
+        console.error('❌ Failed to parse stored QR result:', error);
       }
     }
-    
-    console.log('📥 Current QR result for registration:', currentQrResult);
-    
-    // ✅ FIX: Include id_type, id_number, and id_image_url in request body
-    const requestBody = {
-      name: data.fullName,
-      birthday: data.birthday,
-      age: parseInt(data.age),
-      sex: data.sex,
-      address: data.address,
-      contact_no: cleanPhoneNumber(data.contactNumber),
-      email: data.email.toLowerCase(),
-      emergency_contact_name: data.emergencyContactName,
-      emergency_contact_relationship: data.emergencyRelationship,
-      emergency_contact_no: cleanPhoneNumber(data.emergencyContactNumber),
-      symptoms: data.selectedSymptoms.join(', '),
-      duration: data.duration,
-      severity: data.severity,
-      previous_treatment: data.previousTreatment,
-      allergies: data.allergies,
-      medications: data.medications,
-      temp_id: currentQrResult?.temp_id || null,
-      id_type: data.id_type || null,
-      id_number: data.id_number || null,
-      id_image_url: data.id_image_url || null
-    };
-    
-    console.log('📤 Sending registration request with ID fields:', {
-      id_type: requestBody.id_type,
-      id_number: requestBody.id_number,
-      id_image_url: requestBody.id_image_url
-    });
-
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(requestBody)
-    });
-
-    const result = await response.json();
-    console.log('📥 Registration response:', result);
-    
-    if (!response.ok) {
-      if (result.field) {
-        setFieldErrors(prev => ({
-          ...prev,
-          [result.field === 'phone' ? 'contactNumber' : result.field]: result.error
-        }));
-      }
-      throw new Error(result.error || 'Registration failed');
-    }
-
-    console.log('🔍 About to cleanup. QR result:', currentQrResult);
-    
-    if (currentQrResult?.temp_id) {
-      console.log('✅ Registration successful, temp_id found:', currentQrResult.temp_id);
-      console.log('✅ Backend should have processed temp_id:', currentQrResult.temp_id);
-    } else {
-      console.log('⚠️ No temp_id found for cleanup');
-    }
-    
-    return result;
+  }
+  
+  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+  
+  // ✅ Build request body with ID fields
+  const requestBody = {
+    name: data.fullName,
+    birthday: data.birthday,
+    age: parseInt(data.age) || 0,
+    sex: data.sex,
+    address: data.address,
+    contact_no: cleanPhoneNumber(data.contactNumber),
+    email: data.email.toLowerCase(),
+    emergency_contact_name: data.emergencyContactName,
+    emergency_contact_relationship: data.emergencyRelationship,
+    emergency_contact_no: cleanPhoneNumber(data.emergencyContactNumber),
+    symptoms: data.selectedSymptoms.join(', '),
+    duration: data.duration || null,
+    severity: data.severity || null,
+    previous_treatment: data.previousTreatment || null,
+    allergies: data.allergies || null,
+    medications: data.medications || null,
+    temp_id: currentQrResult?.temp_id || null,
+    // ✅ ID FIELDS
+    id_type: data.id_type || null,
+    id_number: data.id_number || null,
+    id_image_url: data.id_image_url || null
   };
+  
+  console.log('📤 Sending registration with ID fields:', {
+    id_type: requestBody.id_type,
+    id_number: requestBody.id_number,
+    id_image_url: requestBody.id_image_url ? 'URL included' : 'null'
+  });
+
+  const response = await fetch(`${apiUrl}/api/patient/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(requestBody)
+  });
+
+  const result = await response.json();
+  
+  console.log('📥 Registration response:', {
+    success: result.success,
+    patient_id: result.patient?.patient_id,
+    id_image_url: result.patient?.id_image_url ? 'saved' : 'not saved'
+  });
+  
+  if (!response.ok) {
+    if (result.field) {
+      setFieldErrors(prev => ({
+        ...prev,
+        [result.field === 'phone' ? 'contactNumber' : result.field]: result.error
+      }));
+    }
+    throw new Error(result.error || 'Registration failed');
+  }
+
+  return result;
+};
 
   const bookAppointmentForReturningPatient = async (data) => {
     const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/visit`, {

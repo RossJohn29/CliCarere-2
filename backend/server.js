@@ -3578,149 +3578,199 @@ app.post('/api/patient/register', async (req, res) => {
     allergies,
     medications,
     temp_id,
-    id_type,        // ✅ NEW
-    id_number,      // ✅ NEW
-    id_image_url    // ✅ NEW
+    id_type,
+    id_number,
+    id_image_url
   } = req.body;
 
   try {
-    // Check for duplicates
-    const duplicateCheck = await db.query(
-      `SELECT patient_id FROM outpatient 
-       WHERE LOWER(email) = LOWER($1) OR contact_no = $2`,
-      [email, contact_no]
-    );
+    console.log('📥 Received patient registration with ID data:', {
+      name,
+      id_type: id_type || 'not provided',
+      id_number: id_number || 'not provided',
+      id_image_url: id_image_url ? 'URL provided' : 'not provided'
+    });
 
-    if (duplicateCheck.rows.length > 0) {
+    // Check for duplicates
+    const { data: duplicateCheck, error: duplicateError } = await supabase
+      .from('outpatient')
+      .select('patient_id, email, contact_no')
+      .or(`email.ilike.${email.toLowerCase()},contact_no.eq.${contact_no}`)
+      .limit(1);
+
+    if (duplicateCheck && duplicateCheck.length > 0) {
       return res.status(400).json({
         success: false,
         error: 'A patient with this email or contact number already exists',
-        field: duplicateCheck.rows[0].email === email.toLowerCase() ? 'email' : 'phone'
+        field: duplicateCheck[0].email?.toLowerCase() === email.toLowerCase() ? 'email' : 'phone'
       });
     }
 
     // Generate unique patient ID
-    const patientIdResult = await db.query(
-      `SELECT COALESCE(MAX(CAST(SUBSTRING(patient_id FROM 4) AS INTEGER)), 0) + 1 as next_id 
-       FROM outpatient WHERE patient_id LIKE 'OUT%'`
-    );
-    const nextId = patientIdResult.rows[0].next_id;
-    const patient_id = `OUT${String(nextId).padStart(6, '0')}`;
+    const { data: maxIdData } = await supabase
+      .from('outpatient')
+      .select('patient_id')
+      .like('patient_id', 'PAT%')
+      .order('patient_id', { ascending: false })
+      .limit(1);
 
-    // Insert patient with ID fields
-    const patientResult = await db.query(
-      `INSERT INTO outpatient (
-        patient_id, name, birthday, age, sex, address, 
-        contact_no, email, registration_date, temp_id,
-        id_type, id_number, id_image_url
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE, $9, $10, $11, $12) 
-      RETURNING id, patient_id`,
-      [
-        patient_id, name, birthday, age, sex, address,
-        contact_no, email, temp_id,
-        id_type, id_number, id_image_url  // ✅ Save ID fields
-      ]
-    );
+    let nextId = 1;
+    if (maxIdData && maxIdData.length > 0) {
+      const lastId = maxIdData[0].patient_id;
+      const numPart = parseInt(lastId.substring(3));
+      if (!isNaN(numPart)) {
+        nextId = numPart + 1;
+      }
+    }
+    const patient_id = `PAT${String(nextId).padStart(9, '0')}`;
 
-    const newPatientId = patientResult.rows[0].id;
-    const newPatientPublicId = patientResult.rows[0].patient_id;
+    // Insert patient WITH ID fields
+    const patientInsertData = {
+      patient_id,
+      name,
+      birthday,
+      age: parseInt(age) || null,
+      sex,
+      address,
+      contact_no,
+      email: email.toLowerCase(),
+      registration_date: new Date().toISOString().split('T')[0],
+      id_type: id_type || null,
+      id_number: id_number || null,
+      id_image_url: id_image_url || null
+    };
+
+    console.log('📤 Inserting patient with ID data:', {
+      patient_id: patientInsertData.patient_id,
+      id_type: patientInsertData.id_type,
+      id_number: patientInsertData.id_number,
+      id_image_url: patientInsertData.id_image_url ? 'URL set' : 'null'
+    });
+
+    const { data: patientData, error: patientError } = await supabase
+      .from('outpatient')
+      .insert(patientInsertData)
+      .select()
+      .single();
+
+    if (patientError) {
+      console.error('❌ Patient insert error:', patientError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to register patient',
+        details: patientError.message
+      });
+    }
 
     console.log('✅ Patient registered with ID info:', {
-      patient_id: newPatientPublicId,
-      id_type,
-      id_number,
-      id_image_url
+      patient_id: patientData.patient_id,
+      id_type: patientData.id_type,
+      id_number: patientData.id_number,
+      id_image_url: patientData.id_image_url ? 'Saved' : 'Not saved'
     });
 
     // Insert emergency contact
-    if (emergency_contact_name && emergency_contact_no && emergency_contact_relationship) {
-      await db.query(
-        `INSERT INTO emergency_contact (patient_id, name, contact_number, relationship) 
-         VALUES ($1, $2, $3, $4)`,
-        [newPatientId, emergency_contact_name, emergency_contact_no, emergency_contact_relationship]
-      );
-    }
+    if (emergency_contact_name && emergency_contact_no) {
+      const { error: emergencyError } = await supabase
+        .from('emergency_contact')
+        .insert({
+          patient_id: patientData.id,
+          name: emergency_contact_name,
+          contact_number: emergency_contact_no,
+          relationship: emergency_contact_relationship
+        });
 
-    // Create visit record
-    const visitResult = await db.query(
-      `INSERT INTO visit (
-        patient_id, visit_date, visit_time, appointment_type,
-        symptoms, duration, severity, previous_treatment, allergies, medications
-      ) VALUES ($1, CURRENT_DATE, CURRENT_TIME, $2, $3, $4, $5, $6, $7, $8) 
-      RETURNING visit_id`,
-      [
-        newPatientId, 'Walk-in Appointment',
-        symptoms, duration, severity, previous_treatment, allergies, medications
-      ]
-    );
-
-    const visitId = visitResult.rows[0].visit_id;
-
-    // Get department recommendation
-    const symptomList = symptoms.split(',').map(s => s.trim());
-    let departmentId = 1; // Default to Internal Medicine
-
-    for (const symptom of symptomList) {
-      const deptResult = await db.query(
-        `SELECT department_id FROM symptom_department 
-         WHERE symptom_name = $1 AND is_active = true 
-         AND $2 BETWEEN age_min AND age_max
-         ORDER BY priority DESC LIMIT 1`,
-        [symptom, age]
-      );
-
-      if (deptResult.rows.length > 0) {
-        departmentId = deptResult.rows[0].department_id;
-        break;
+      if (emergencyError) {
+        console.error('Emergency contact insert error:', emergencyError);
       }
     }
 
+    // Create visit record
+    const { data: visitData, error: visitError } = await supabase
+      .from('visit')
+      .insert({
+        patient_id: patientData.id,
+        visit_date: new Date().toISOString().split('T')[0],
+        visit_time: new Date().toTimeString().split(' ')[0],
+        appointment_type: 'Walk-in Appointment',
+        symptoms: symptoms,
+        duration: duration || null,
+        severity: severity || null,
+        previous_treatment: previous_treatment || null,
+        allergies: allergies || null,
+        medications: medications || null
+      })
+      .select()
+      .single();
+
+    if (visitError) {
+      console.error('Visit insert error:', visitError);
+    }
+
+    // Get department recommendation
+    const symptomList = symptoms ? symptoms.split(',').map(s => s.trim()) : [];
+    const departmentId = await assignDepartmentBySymptoms(symptomList, parseInt(age) || null);
+
     // Get department info
-    const deptInfo = await db.query(
-      `SELECT name FROM department WHERE department_id = $1`,
-      [departmentId]
-    );
+    const { data: deptData } = await supabase
+      .from('department')
+      .select('name')
+      .eq('department_id', departmentId)
+      .single();
+
+    const recommendedDepartment = deptData?.name || 'Internal Medicine';
 
     // Create queue entry
-    const queueResult = await db.query(
-      `SELECT COALESCE(MAX(queue_no), 0) + 1 as next_queue 
-       FROM queue 
-       WHERE department_id = $1 AND scheduled_date = CURRENT_DATE`,
-      [departmentId]
-    );
+    const today = new Date().toISOString().split('T')[0];
+    const { data: existingQueues } = await supabase
+      .from('queue')
+      .select('queue_no')
+      .eq('department_id', departmentId)
+      .eq('scheduled_date', today);
 
-    const queueNo = queueResult.rows[0].next_queue;
+    const maxQueueNo = existingQueues?.length > 0 
+      ? Math.max(...existingQueues.map(q => q.queue_no)) 
+      : 0;
+    const queueNumber = maxQueueNo + 1;
 
-    await db.query(
-      `INSERT INTO queue (visit_id, department_id, queue_no, status, scheduled_date) 
-       VALUES ($1, $2, $3, 'waiting', CURRENT_DATE)`,
-      [visitId, departmentId, queueNo]
-    );
+    if (visitData) {
+      const { error: queueError } = await supabase
+        .from('queue')
+        .insert({
+          visit_id: visitData.visit_id,
+          department_id: departmentId,
+          queue_no: queueNumber,
+          status: 'waiting',
+          scheduled_date: today
+        });
+
+      if (queueError) {
+        console.error('Queue insert error:', queueError);
+      }
+    }
 
     // Mark temp registration as completed if exists
     if (temp_id) {
-      await db.query(
-        `UPDATE pre_registration SET status = 'completed' WHERE temp_id = $1`,
-        [temp_id]
-      );
+      await supabase
+        .from('pre_registration')
+        .update({ status: 'completed' })
+        .eq('temp_id', temp_id);
     }
 
     res.json({
       success: true,
       message: 'Patient registered successfully',
       patient: {
-        id: newPatientId,
-        patient_id: newPatientPublicId,
-        name,
-        id_type,
-        id_number,
-        id_image_url
+        id: patientData.id,
+        patient_id: patientData.patient_id,
+        name: patientData.name,
+        id_type: patientData.id_type,
+        id_number: patientData.id_number,
+        id_image_url: patientData.id_image_url
       },
-      visit: {
-        visit_id: visitId
-      },
-      queue_number: queueNo,
-      recommendedDepartment: deptInfo.rows[0]?.name || 'Internal Medicine'
+      visit: visitData,
+      queue_number: queueNumber,
+      recommendedDepartment: recommendedDepartment
     });
 
   } catch (error) {
@@ -5552,11 +5602,17 @@ app.post('/api/temp-registration', async (req, res) => {
     expires_at,
     id_type,
     id_number,
-    id_image_url // ✅ NEW: Accept ID image URL
+    id_image_url
   } = req.body;
 
   try {
-    // Check for duplicates using Supabase
+    console.log('📥 Received temp registration request with ID data:', {
+      id_type: id_type || 'not provided',
+      id_number: id_number || 'not provided',
+      id_image_url: id_image_url ? 'URL provided' : 'not provided'
+    });
+
+    // Check for duplicates
     const { data: duplicateCheck, error: duplicateError } = await supabase
       .from('pre_registration')
       .select('temp_patient_id, email, contact_no')
@@ -5584,68 +5640,82 @@ app.post('/api/temp-registration', async (req, res) => {
     if (maxIdData && maxIdData.length > 0) {
       const lastId = maxIdData[0].temp_patient_id;
       const numPart = parseInt(lastId.substring(4));
-      nextId = numPart + 1;
+      if (!isNaN(numPart)) {
+        nextId = numPart + 1;
+      }
     }
     
     const temp_patient_id = `TEMP${String(nextId).padStart(6, '0')}`;
 
-    // ✅ Insert temporary registration WITH id_image_url
+    // Build insert data object
+    const insertData = {
+      temp_patient_id,
+      name,
+      birthday,
+      age: parseInt(age) || null,
+      sex,
+      address,
+      contact_no,
+      email: email.toLowerCase(),
+      emergency_contact_name,
+      emergency_contact_relationship,
+      emergency_contact_no,
+      symptoms,
+      duration: duration || null,
+      severity: severity || null,
+      previous_treatment: previous_treatment || null,
+      allergies: allergies || null,
+      medications: medications || null,
+      preferred_date,
+      preferred_time_slot,
+      scheduled_date,
+      status: status || 'pending',
+      created_date: created_date || new Date().toISOString().split('T')[0],
+      expires_at,
+      id_type: id_type || null,
+      id_number: id_number || null,
+      id_image_url: id_image_url || null
+    };
+
+    console.log('📤 Inserting temp registration with data:', {
+      temp_patient_id: insertData.temp_patient_id,
+      name: insertData.name,
+      id_type: insertData.id_type,
+      id_number: insertData.id_number,
+      id_image_url: insertData.id_image_url ? 'URL set' : 'null'
+    });
+
+    // Insert into database
     const { data: insertedData, error: insertError } = await supabase
       .from('pre_registration')
-      .insert({
-        temp_patient_id,
-        name,
-        birthday,
-        age,
-        sex,
-        address,
-        contact_no,
-        email,
-        emergency_contact_name,
-        emergency_contact_relationship,
-        emergency_contact_no,
-        symptoms,
-        duration,
-        severity,
-        previous_treatment,
-        allergies,
-        medications,
-        preferred_date,
-        preferred_time_slot,
-        scheduled_date,
-        status: status || 'pending',
-        created_date,
-        expires_at,
-        id_type,
-        id_number,
-        id_image_url // ✅ Save ID image URL
-      })
-      .select('temp_id, temp_patient_id, id_image_url')
+      .insert(insertData)
+      .select('temp_id, temp_patient_id, id_type, id_number, id_image_url')
       .single();
 
     if (insertError) {
       console.error('❌ Insert error:', insertError);
-      throw insertError;
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to create temporary registration',
+        details: insertError.message
+      });
     }
 
-    const tempId = insertedData.temp_id;
-    const tempPatientId = insertedData.temp_patient_id;
-
-    console.log('✅ Temp registration created with ID info:', {
-      temp_id: tempId,
-      temp_patient_id: tempPatientId,
-      id_type,
-      id_number,
-      id_image_url: insertedData.id_image_url
+    console.log('✅ Temp registration created successfully:', {
+      temp_id: insertedData.temp_id,
+      temp_patient_id: insertedData.temp_patient_id,
+      id_type: insertedData.id_type,
+      id_number: insertedData.id_number,
+      id_image_url: insertedData.id_image_url ? 'Saved' : 'Not saved'
     });
 
     res.json({
       success: true,
       message: 'Temporary registration created successfully',
-      temp_id: tempId,
-      temp_patient_id: tempPatientId,
-      id_type,
-      id_number,
+      temp_id: insertedData.temp_id,
+      temp_patient_id: insertedData.temp_patient_id,
+      id_type: insertedData.id_type,
+      id_number: insertedData.id_number,
       id_image_url: insertedData.id_image_url
     });
 
@@ -8556,7 +8626,10 @@ app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => 
 // POST /api/upload-id-image - Upload ID image to Supabase
 app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
   try {
+    console.log('📥 Upload ID image request received');
+    
     if (!req.file) {
+      console.error('❌ No file in request');
       return res.status(400).json({
         success: false,
         error: 'No file uploaded'
@@ -8564,6 +8637,8 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
     }
 
     const { patientId, idType } = req.body;
+    
+    console.log('📥 Upload params:', { patientId, idType, fileSize: req.file.size });
     
     if (!patientId || !idType) {
       return res.status(400).json({
@@ -8574,27 +8649,29 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
 
     // Generate organized filename: patientId/idType_timestamp.jpg
     const timestamp = Date.now();
-    const fileExt = path.extname(req.file.originalname);
+    const fileExt = path.extname(req.file.originalname) || '.jpg';
     const fileName = `${patientId}/${idType}_${timestamp}${fileExt}`;
     
-    console.log('📤 Uploading ID image to Supabase:', fileName);
+    console.log('📤 Uploading to Supabase Storage:', fileName);
 
     // Upload to Supabase Storage bucket 'outpatient_id'
     const { data, error } = await supabase.storage
       .from('outpatient_id')
       .upload(fileName, req.file.buffer, {
-        contentType: req.file.mimetype,
+        contentType: req.file.mimetype || 'image/jpeg',
         upsert: true
       });
 
     if (error) {
-      console.error('❌ Supabase upload error:', error);
+      console.error('❌ Supabase storage upload error:', error);
       return res.status(500).json({
         success: false,
         error: 'Failed to upload image to storage',
         details: error.message
       });
     }
+
+    console.log('✅ File uploaded to storage:', data.path);
 
     // Get public URL
     const { data: publicUrlData } = supabase.storage
@@ -8603,13 +8680,14 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
 
     const publicUrl = publicUrlData.publicUrl;
 
-    console.log('✅ ID image uploaded successfully:', publicUrl);
+    console.log('✅ Public URL generated:', publicUrl);
 
     res.json({
       success: true,
       message: 'ID image uploaded successfully',
       publicUrl: publicUrl,
-      fileName: fileName
+      fileName: fileName,
+      path: data.path
     });
 
   } catch (error) {
@@ -8622,17 +8700,18 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
   }
 });
 
-// PATCH /api/patient/:patientId/update-id-image - Update patient's ID image URL
+// PATCH /api/patient/:patientId/update-id-image
 app.patch('/api/patient/:patientId/update-id-image', async (req, res) => {
   const { patientId } = req.params;
   const { id_image_url } = req.body;
+  
+  console.log('📥 Update patient ID image:', { patientId, id_image_url: id_image_url ? 'provided' : 'null' });
   
   try {
     const { data: result, error } = await supabase
       .from('outpatient')
       .update({ 
-        id_image_url: id_image_url,
-        updated_at: new Date().toISOString()
+        id_image_url: id_image_url
       })
       .eq('patient_id', patientId)
       .select('patient_id, id_image_url')
@@ -8660,6 +8739,58 @@ app.patch('/api/patient/:patientId/update-id-image', async (req, res) => {
       success: true, 
       message: 'ID image URL updated successfully',
       patient_id: result.patient_id,
+      id_image_url: result.id_image_url
+    });
+  } catch (error) {
+    console.error('❌ Error updating ID image URL:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update ID image URL',
+      details: error.message
+    });
+  }
+});
+
+// PATCH /api/temp-registration/:tempId/update-id-image
+app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => {
+  const { tempId } = req.params;
+  const { id_image_url } = req.body;
+  
+  console.log('📥 Update temp registration ID image:', { tempId, id_image_url: id_image_url ? 'provided' : 'null' });
+  
+  try {
+    const { data: result, error } = await supabase
+      .from('pre_registration')
+      .update({ 
+        id_image_url: id_image_url
+      })
+      .eq('temp_id', tempId)
+      .select('temp_id, temp_patient_id, id_image_url')
+      .single();
+
+    if (error) {
+      console.error('❌ Update error:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to update ID image URL',
+        details: error.message
+      });
+    }
+
+    if (!result) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Temporary registration not found' 
+      });
+    }
+
+    console.log('✅ Updated ID image URL for temp registration:', tempId);
+
+    res.json({ 
+      success: true, 
+      message: 'ID image URL updated successfully',
+      temp_id: result.temp_id,
+      temp_patient_id: result.temp_patient_id,
       id_image_url: result.id_image_url
     });
   } catch (error) {
