@@ -1073,11 +1073,17 @@ const uploadToSupabaseStorage = async (fileBuffer, fileName, bucketName = 'lab-r
 
     console.log(`Uploading file: ${fileName} with content type: ${contentType}`);
 
-    const { data, error } = await supabase.storage
+    // ✅ FIX: Use service role key for uploads (bypasses RLS)
+    const supabaseAdmin = createClient(
+      process.env.REACT_APP_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.REACT_APP_SUPABASE_ANON_KEY
+    );
+
+    const { data, error } = await supabaseAdmin.storage
       .from(bucketName)
       .upload(fileName, fileBuffer, {
         contentType: contentType,
-        upsert: false
+        upsert: true  // ✅ CHANGED: Allow overwriting existing files
       });
 
     if (error) {
@@ -1086,7 +1092,7 @@ const uploadToSupabaseStorage = async (fileBuffer, fileName, bucketName = 'lab-r
     }
 
     // Get public URL
-    const { data: urlData } = supabase.storage
+    const { data: urlData } = supabaseAdmin.storage
       .from(bucketName)
       .getPublicUrl(fileName);
 

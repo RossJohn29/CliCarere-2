@@ -2278,7 +2278,7 @@ const extractUMIDIDNumber = (lines) => {
       };
     }
   };
-  
+
 export const uploadIDImage = async (imageData, patientId, idType, idNumber = null) => {
   try {
     console.log('📤 Starting ID image upload to localhost:', { patientId, idType, idNumber });
