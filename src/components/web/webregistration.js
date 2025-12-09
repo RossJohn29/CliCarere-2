@@ -65,6 +65,8 @@
     const [openCategories, setOpenCategories] = useState({});
     const [selectedIDType, setSelectedIDType] = useState('');
     const [capturedIDImage, setCapturedIDImage] = useState(null);
+    const [uploadingIDImage, setUploadingIDImage] = useState(false);
+
     const ID_TYPES = [
       { value: 'philhealth', label: 'PhilHealth ID' },
       { value: 'drivers_license', label: 'Driver\'s License' },
@@ -716,28 +718,80 @@
       setCameraStream(null);
     };
 
-    const handleCaptureID = () => {
-      if (ocrProcessing) return;
-      
-      const video = document.getElementById('webreg-camera-feed');
-      if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
-        setCameraError('Camera not ready. Please wait a moment and try again.');
-        return;
-      }
-      
-      try {
-        const imageData = captureImageFromVideo(video);
-        if (!imageData) {
-          setCameraError('Failed to capture image. Please try again.');
-          return;
-        }
-        
-        setCapturedImage(imageData);
-        processIDImageWithOCR(imageData);
-      } catch (error) {
-        setCameraError('Failed to capture image. Please try again.');
-      }
-    };
+const handleCaptureID = async () => {
+  if (ocrProcessing) return;
+  
+  const video = document.getElementById('webreg-camera-feed');
+  if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+    setCameraError('Camera not ready. Please wait a moment and try again.');
+    return;
+  }
+  
+  try {
+    const imageData = captureImageFromVideo(video);
+    if (!imageData) {
+      setCameraError('Failed to capture image. Please try again.');
+      return;
+    }
+    
+    setCapturedImage(imageData);
+    
+    // If ID type is selected, process with OCR AND upload image
+    if (selectedIDType) {
+      await processIDImageWithOCR(imageData);
+      // Image upload is now handled inside processIDImageWithOCR
+    } else {
+      setCameraError('Please select an ID type first');
+    }
+  } catch (error) {
+    setCameraError('Failed to capture image. Please try again.');
+  }
+};
+
+// MODIFIED: uploadIDImageToSupabase function (new helper function)
+const uploadIDImageToSupabase = async (imageDataUrl, patientId, idType) => {
+  try {
+    setUploadingIDImage(true);
+    
+    // Convert base64 to blob
+    const base64Data = imageDataUrl.split(',')[1];
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+    
+    // Create FormData
+    const formData = new FormData();
+    formData.append('file', blob, `${patientId}_${idType}_${Date.now()}.jpg`);
+    formData.append('patientId', patientId);
+    formData.append('idType', idType);
+    
+    // Upload to backend
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload-id-image`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      console.log('✅ ID image uploaded successfully:', result.publicUrl);
+      return result.publicUrl;
+    } else {
+      console.error('❌ ID image upload failed:', result.error);
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ ID image upload error:', error);
+    return null;
+  } finally {
+    setUploadingIDImage(false);
+  }
+};
+
 
 const processIDImageWithOCR = async (imageData) => {
   if (ocrProcessing || !imageData) return;
@@ -750,6 +804,7 @@ const processIDImageWithOCR = async (imageData) => {
   setOcrProcessing(true);
   
   try {
+    // Run OCR extraction
     const result = await processIDWithOCR(imageData, selectedIDType);
     
     if (result.success && result.name) {
@@ -757,47 +812,35 @@ const processIDImageWithOCR = async (imageData) => {
       const updateData = { 
         fullName: result.name,
         idType: selectedIDType,
-        idNumber: result.idNumber || '' // ✅ FIX: Capture ID number from OCR
+        idNumber: result.idNumber || ''
       };
       
       // PhilHealth: populate name, sex, birthday, and address
       if (selectedIDType === 'philhealth') {
-        if (result.sex) {
-          updateData.sex = result.sex;
-        }
+        if (result.sex) updateData.sex = result.sex;
         if (result.birthday) {
           updateData.birthday = result.birthday;
           updateData.age = calculateAge(result.birthday);
         }
-        if (result.address) {
-          updateData.address = result.address;
-        }
+        if (result.address) updateData.address = result.address;
       }
       // Driver's License: populate name, sex, birthday, and address
       else if (selectedIDType === 'drivers_license') {
-        if (result.sex) {
-          updateData.sex = result.sex;
-        }
+        if (result.sex) updateData.sex = result.sex;
         if (result.birthday) {
           updateData.birthday = result.birthday;
           updateData.age = calculateAge(result.birthday);
         }
-        if (result.address) {
-          updateData.address = result.address;
-        }
+        if (result.address) updateData.address = result.address;
       }
       // UMID: populate sex, birthday, and address
       else if (selectedIDType === 'umid') {
-        if (result.sex) {
-          updateData.sex = result.sex;
-        }
+        if (result.sex) updateData.sex = result.sex;
         if (result.birthday) {
           updateData.birthday = result.birthday;
           updateData.age = calculateAge(result.birthday);
         }
-        if (result.address) {
-          updateData.address = result.address;
-        }
+        if (result.address) updateData.address = result.address;
       }
       // PhilSys or Postal ID: populate birthday and address
       else if (selectedIDType === 'philsys' || selectedIDType === 'postal') {
@@ -805,9 +848,7 @@ const processIDImageWithOCR = async (imageData) => {
           updateData.birthday = result.birthday;
           updateData.age = calculateAge(result.birthday);
         }
-        if (result.address) {
-          updateData.address = result.address;
-        }
+        if (result.address) updateData.address = result.address;
       }
       
       setFormData((prev) => ({ 
@@ -815,12 +856,13 @@ const processIDImageWithOCR = async (imageData) => {
         ...updateData
       }));
       
+      // ✅ NEW: Save captured image for later upload
       setCapturedIDImage(imageData);
       
       setShowCameraModal(false);
       setError('');
       
-      // Show appropriate success message for each ID type
+      // Show appropriate success message
       let successMessage = `${ID_TYPES.find(t => t.value === selectedIDType)?.label} scanned successfully!`;
       
       if (selectedIDType === 'philhealth' && result.sex && result.birthday && result.address) {
@@ -853,8 +895,6 @@ const processIDImageWithOCR = async (imageData) => {
         successMessage += ' Name and ' + (result.birthday ? 'birthday' : 'address') + ' extracted.';
       } else if (selectedIDType === 'pagibig') {
         successMessage += ' Name extracted.';
-      } else if (selectedIDType === 'drivers_license') {
-        successMessage += ' Name extracted.';
       }
       
       showToastNotification(successMessage, 'success');
@@ -867,6 +907,7 @@ const processIDImageWithOCR = async (imageData) => {
     setOcrProcessing(false);
   }
 };
+
 
     const uploadIDImage = async (imageData, patientId, idType) => {
       try {
@@ -1160,7 +1201,7 @@ const handleSubmit = async () => {
   try {
     const calculatedAge = formData.age || calculateAge(formData.birthday);
 
-    // ✅ FIX 1: Upload ID image BEFORE registration if captured
+    // ✅ STEP 1: Upload ID image FIRST if captured
     let idImageUrl = null;
     if (capturedIDImage && selectedIDType) {
       console.log('📤 Uploading ID image before registration...');
@@ -1168,7 +1209,7 @@ const handleSubmit = async () => {
       // Generate temporary patient ID for upload
       const tempUploadId = `TEMP_${Date.now()}`;
       
-      idImageUrl = await uploadIDImage(
+      idImageUrl = await uploadIDImageToSupabase(
         capturedIDImage,
         tempUploadId,
         selectedIDType
@@ -1181,7 +1222,7 @@ const handleSubmit = async () => {
       }
     }
 
-    // ✅ FIX 2: Include id_type, id_number, and id_image_url in registration data
+    // ✅ STEP 2: Create registration with id_image_url
     const registrationData = {
       name: formData.fullName,
       birthday: formData.birthday,
@@ -1207,7 +1248,7 @@ const handleSubmit = async () => {
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       id_type: selectedIDType || null,
       id_number: formData.idNumber || null,
-      id_image_url: idImageUrl || null // Include the uploaded image URL
+      id_image_url: idImageUrl || null // ✅ Include uploaded image URL
     };
 
     console.log('📤 Submitting registration with ID data:', {
@@ -1250,12 +1291,12 @@ const handleSubmit = async () => {
     const tempRegId = result.temp_id;
     const tempPatientId = result.temp_patient_id;
 
-    // ✅ FIX 3: Update image path with real temp patient ID after registration
-    if (idImageUrl && tempPatientId) {
+    // ✅ STEP 3: Update image path with real temp patient ID
+    if (idImageUrl && tempPatientId && capturedIDImage) {
       console.log('🔄 Updating ID image path with temp patient ID...');
       
       // Re-upload with correct temp patient ID
-      const finalImageUrl = await uploadIDImage(
+      const finalImageUrl = await uploadIDImageToSupabase(
         capturedIDImage,
         tempPatientId,
         selectedIDType
@@ -1281,6 +1322,7 @@ const handleSubmit = async () => {
       }
     }
 
+    // Generate QR code data
     const qrData = {
       type: 'webreg_registration',
       source: 'web_registration',
@@ -1315,6 +1357,7 @@ const handleSubmit = async () => {
       type: 'registration'
     });
 
+    // Send QR code email
     try {
       const qrResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/generate-qr-email`, {
         method: 'POST',

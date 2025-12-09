@@ -5552,7 +5552,7 @@ app.post('/api/temp-registration', async (req, res) => {
     expires_at,
     id_type,
     id_number,
-    id_image_url
+    id_image_url // ✅ NEW: Accept ID image URL
   } = req.body;
 
   try {
@@ -5589,7 +5589,7 @@ app.post('/api/temp-registration', async (req, res) => {
     
     const temp_patient_id = `TEMP${String(nextId).padStart(6, '0')}`;
 
-    // Insert temporary registration with ID fields using Supabase
+    // ✅ Insert temporary registration WITH id_image_url
     const { data: insertedData, error: insertError } = await supabase
       .from('pre_registration')
       .insert({
@@ -5618,9 +5618,9 @@ app.post('/api/temp-registration', async (req, res) => {
         expires_at,
         id_type,
         id_number,
-        id_image_url
+        id_image_url // ✅ Save ID image URL
       })
-      .select('temp_id, temp_patient_id')
+      .select('temp_id, temp_patient_id, id_image_url')
       .single();
 
     if (insertError) {
@@ -5636,7 +5636,7 @@ app.post('/api/temp-registration', async (req, res) => {
       temp_patient_id: tempPatientId,
       id_type,
       id_number,
-      id_image_url
+      id_image_url: insertedData.id_image_url
     });
 
     res.json({
@@ -5646,7 +5646,7 @@ app.post('/api/temp-registration', async (req, res) => {
       temp_patient_id: tempPatientId,
       id_type,
       id_number,
-      id_image_url
+      id_image_url: insertedData.id_image_url
     });
 
   } catch (error) {
@@ -8508,12 +8508,26 @@ app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => 
   const { id_image_url } = req.body;
   
   try {
-    const result = await db.query(
-      'UPDATE pre_registration SET id_image_url = $1 WHERE temp_id = $2 RETURNING temp_id, temp_patient_id, id_image_url',
-      [id_image_url, tempId]
-    );
+    const { data: result, error } = await supabase
+      .from('pre_registration')
+      .update({ 
+        id_image_url: id_image_url,
+        updated_at: new Date().toISOString()
+      })
+      .eq('temp_id', tempId)
+      .select('temp_id, temp_patient_id, id_image_url')
+      .single();
 
-    if (result.rows.length === 0) {
+    if (error) {
+      console.error('❌ Update error:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to update ID image URL',
+        details: error.message
+      });
+    }
+
+    if (!result) {
       return res.status(404).json({ 
         success: false, 
         error: 'Temporary registration not found' 
@@ -8525,9 +8539,9 @@ app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => 
     res.json({ 
       success: true, 
       message: 'ID image URL updated successfully',
-      temp_id: result.rows[0].temp_id,
-      temp_patient_id: result.rows[0].temp_patient_id,
-      id_image_url: result.rows[0].id_image_url
+      temp_id: result.temp_id,
+      temp_patient_id: result.temp_patient_id,
+      id_image_url: result.id_image_url
     });
   } catch (error) {
     console.error('❌ Error updating ID image URL:', error);
@@ -8558,13 +8572,14 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       });
     }
 
-    // Generate unique filename
+    // Generate organized filename: patientId/idType_timestamp.jpg
     const timestamp = Date.now();
-    const fileName = `${patientId}_${idType}_${timestamp}.jpg`;
+    const fileExt = path.extname(req.file.originalname);
+    const fileName = `${patientId}/${idType}_${timestamp}${fileExt}`;
     
     console.log('📤 Uploading ID image to Supabase:', fileName);
 
-    // Upload to Supabase Storage
+    // Upload to Supabase Storage bucket 'outpatient_id'
     const { data, error } = await supabase.storage
       .from('outpatient_id')
       .upload(fileName, req.file.buffer, {
@@ -8605,7 +8620,8 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       details: error.message
     });
   }
-}); 
+});
+
 
 // Start server
 app.listen(PORT, () => {
