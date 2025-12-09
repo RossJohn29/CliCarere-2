@@ -316,6 +316,7 @@ const KioskRegistration = () => {
     
     console.log('📥 Current QR result for registration:', currentQrResult);
     
+    // ✅ FIX: Include id_type, id_number, and id_image_url in request body
     const requestBody = {
       name: data.fullName,
       birthday: data.birthday,
@@ -333,10 +334,17 @@ const KioskRegistration = () => {
       previous_treatment: data.previousTreatment,
       allergies: data.allergies,
       medications: data.medications,
-      temp_id: currentQrResult?.temp_id || null
+      temp_id: currentQrResult?.temp_id || null,
+      id_type: data.id_type || null,
+      id_number: data.id_number || null,
+      id_image_url: data.id_image_url || null
     };
     
-    console.log('📤 Sending registration request:', requestBody);
+    console.log('📤 Sending registration request with ID fields:', {
+      id_type: requestBody.id_type,
+      id_number: requestBody.id_number,
+      id_image_url: requestBody.id_image_url
+    });
 
     const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/register`, {
       method: 'POST',
@@ -545,7 +553,7 @@ const KioskRegistration = () => {
         const updateData = { 
           fullName: result.name,
           idType: selectedIDType,
-          idNumber: result.idNumber || ''
+          idNumber: result.idNumber || '' // ✅ FIX: Capture ID number from OCR
         };
         
         // PhilHealth: populate name, sex, birthday, and address
@@ -1674,30 +1682,73 @@ const KioskRegistration = () => {
         
         console.log('📤 About to call registerNewPatient with QR result:', currentQrResult);
         
-        const registrationData = {
-          ...formData,
-          age: calculatedAge,
-          temp_id: currentQrResult?.temp_id || null
-        };
-        
-        console.log('📤 Submitting registration with temp_id:', registrationData.temp_id);
-        
-        result = await registerNewPatient(registrationData);
-        
-        // ✅ FIX: Upload ID image after successful registration
-        // Use result.patient.patient_id which is returned from the API
-        if (capturedIDImage && result.patient?.patient_id) {
-          console.log('📤 Uploading ID image for patient:', result.patient.patient_id);
-          const idImageUrl = await uploadIDImage(
+        // ✅ FIX 1: Upload ID image BEFORE registration if captured
+        let idImageUrl = null;
+        if (capturedIDImage && selectedIDType) {
+          console.log('📤 Uploading ID image before registration...');
+          
+          // Generate temporary patient ID for upload (will be replaced with real ID after registration)
+          const tempUploadId = `TEMP_${Date.now()}`;
+          
+          idImageUrl = await uploadIDImage(
             capturedIDImage,
-            result.patient.patient_id,  // ✅ Use patient_id from result
+            tempUploadId,
             selectedIDType
           );
           
           if (idImageUrl) {
-            console.log('✅ ID image stored:', idImageUrl);
+            console.log('✅ ID image uploaded successfully:', idImageUrl);
           } else {
-            console.warn('⚠️ ID image upload failed, continuing anyway');
+            console.warn('⚠️ ID image upload failed, continuing without image');
+          }
+        }
+        
+        // ✅ FIX 2: Include id_type, id_number, and id_image_url in registration data
+        const registrationData = {
+          ...formData,
+          age: calculatedAge,
+          temp_id: currentQrResult?.temp_id || null,
+          id_type: selectedIDType || null,
+          id_number: formData.idNumber || null,
+          id_image_url: idImageUrl || null // Include the uploaded image URL
+        };
+        
+        console.log('📤 Submitting registration with ID data:', {
+          id_type: registrationData.id_type,
+          id_number: registrationData.id_number,
+          id_image_url: registrationData.id_image_url
+        });
+        
+        result = await registerNewPatient(registrationData);
+        
+        // ✅ FIX 3: Update image path with real patient ID after registration
+        if (idImageUrl && result.patient?.patient_id) {
+          console.log('🔄 Updating ID image path with real patient ID...');
+          
+          // Re-upload with correct patient ID
+          const finalImageUrl = await uploadIDImage(
+            capturedIDImage,
+            result.patient.patient_id,
+            selectedIDType
+          );
+          
+          if (finalImageUrl) {
+            console.log('✅ ID image path updated with real patient ID');
+            
+            // Update the database with the final image URL
+            try {
+              await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/${result.patient.patient_id}/update-id-image`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  id_image_url: finalImageUrl
+                })
+              });
+              console.log('✅ Database updated with final image URL');
+            } catch (updateError) {
+              console.error('❌ Failed to update image URL in database:', updateError);
+            }
           }
         }
       }

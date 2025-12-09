@@ -3558,334 +3558,177 @@ app.post('/api/check-duplicate', async (req, res) => {
   }
 });
 
+// POST /api/patient/register - Register new patient with ID information
 app.post('/api/patient/register', async (req, res) => {
+  const {
+    name,
+    birthday,
+    age,
+    sex,
+    address,
+    contact_no,
+    email,
+    emergency_contact_name,
+    emergency_contact_relationship,
+    emergency_contact_no,
+    symptoms,
+    duration,
+    severity,
+    previous_treatment,
+    allergies,
+    medications,
+    temp_id,
+    id_type,        // ✅ NEW
+    id_number,      // ✅ NEW
+    id_image_url    // ✅ NEW
+  } = req.body;
+
   try {
-    console.log('📥 Patient registration request:', req.body);
-          
-    const {
-      name, birthday, age, sex, address, contact_no, email,
-      emergency_contact_name, emergency_contact_relationship, emergency_contact_no,
-      symptoms, duration, severity, previous_treatment, allergies, medications,
-      temp_id
-    } = req.body;
-
-    console.log('🔍 Extracted temp_id from request:', temp_id);
-
-    if (!name || !birthday || !age || !sex || !address || !contact_no || !email) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
     // Check for duplicates
-    const duplicateCheck = await checkDuplicateUser(email, contact_no);
-    if (duplicateCheck.isDuplicate) {
+    const duplicateCheck = await db.query(
+      `SELECT patient_id FROM outpatient 
+       WHERE LOWER(email) = LOWER($1) OR contact_no = $2`,
+      [email, contact_no]
+    );
+
+    if (duplicateCheck.rows.length > 0) {
       return res.status(400).json({
-        error: duplicateCheck.message,
-        field: duplicateCheck.field
+        success: false,
+        error: 'A patient with this email or contact number already exists',
+        field: duplicateCheck.rows[0].email === email.toLowerCase() ? 'email' : 'phone'
       });
     }
 
-    const isRoutineCareOnly = hasOnlyRoutineCareSymptoms(symptoms);
+    // Generate unique patient ID
+    const patientIdResult = await db.query(
+      `SELECT COALESCE(MAX(CAST(SUBSTRING(patient_id FROM 4) AS INTEGER)), 0) + 1 as next_id 
+       FROM outpatient WHERE patient_id LIKE 'OUT%'`
+    );
+    const nextId = patientIdResult.rows[0].next_id;
+    const patient_id = `OUT${String(nextId).padStart(6, '0')}`;
 
-    // ✅ ORIGINAL: Handle temp registration with validation
-    let tempRegData = null;
-    if (temp_id) {
-      console.log('🔄 Processing temp registration with temp_id:', temp_id);
-      
-      const { data: existingTempReg, error: fetchError } = await supabase
-        .from('pre_registration')
-        .select('*')
-        .eq('temp_id', temp_id)
-        .single();
+    // Insert patient with ID fields
+    const patientResult = await db.query(
+      `INSERT INTO outpatient (
+        patient_id, name, birthday, age, sex, address, 
+        contact_no, email, registration_date, temp_id,
+        id_type, id_number, id_image_url
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE, $9, $10, $11, $12) 
+      RETURNING id, patient_id`,
+      [
+        patient_id, name, birthday, age, sex, address,
+        contact_no, email, temp_id,
+        id_type, id_number, id_image_url  // ✅ Save ID fields
+      ]
+    );
 
-      if (fetchError || !existingTempReg) {
-        console.error('❌ Temp registration not found:', fetchError);
-        return res.status(400).json({
-          error: 'Invalid or expired registration reference'
-        });
-      }
+    const newPatientId = patientResult.rows[0].id;
+    const newPatientPublicId = patientResult.rows[0].patient_id;
 
-      console.log('✅ Found temp registration:', existingTempReg.temp_patient_id);
-
-      const { error: updateError } = await supabase
-        .from('pre_registration')
-        .update({ 
-          status: 'processed', 
-          updated_at: new Date().toISOString() 
-        })
-        .eq('temp_id', temp_id);
-
-      if (updateError) {
-        console.error('❌ Failed to update temp registration status:', updateError);
-        return res.status(500).json({
-          error: 'Registration processing failed'
-        });
-      }
-
-      console.log('✅ Successfully updated tempReg status to processed');
-      tempRegData = existingTempReg;
-    }
-
-    // Generate patient ID
-    const patientId = `PAT${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
-    
-    console.log('🆔 Generated patient ID:', patientId);
-    
-    // Insert into outpatient table
-    const { data: patientData, error: patientError } = await supabase
-      .from('outpatient')
-      .insert({
-        patient_id: patientId,
-        name, 
-        birthday, 
-        age: parseInt(age), 
-        sex, 
-        address,
-        contact_no: contact_no.replace(/\D/g, ''),
-        email: email.toLowerCase(),
-        registration_date: new Date().toISOString().split('T')[0],
-        temp_id: temp_id || null
-      })
-      .select()
-      .single();
-
-    if (patientError) {
-      console.error('❌ Patient registration error:', patientError);
-        
-      // ✅ ORIGINAL: Revert temp registration status if patient creation fails
-      if (temp_id) {
-        console.log('🔄 Reverting temp registration status due to patient creation failure');
-        await supabase
-          .from('pre_registration')
-          .update({ status: 'completed' })
-          .eq('temp_id', temp_id);
-      }
-        
-      return res.status(500).json({ 
-        error: 'Patient registration failed',
-        details: patientError.message 
-      });
-    }
-
-    console.log('✅ Patient created successfully:', patientData.patient_id);
+    console.log('✅ Patient registered with ID info:', {
+      patient_id: newPatientPublicId,
+      id_type,
+      id_number,
+      id_image_url
+    });
 
     // Insert emergency contact
-    if (emergency_contact_name && emergency_contact_relationship && emergency_contact_no) {
-      const { error: emergencyError } = await supabase
-        .from('emergency_contact')
-        .insert({
-          patient_id: patientData.id,
-          name: emergency_contact_name,
-          relationship: emergency_contact_relationship,
-          contact_number: emergency_contact_no.replace(/\D/g, '')
-        });
-
-      if (emergencyError) {
-        console.error('⚠️ Emergency contact creation failed:', emergencyError);
-      } else {
-        console.log('✅ Emergency contact created successfully');
-      }
+    if (emergency_contact_name && emergency_contact_no && emergency_contact_relationship) {
+      await db.query(
+        `INSERT INTO emergency_contact (patient_id, name, contact_number, relationship) 
+         VALUES ($1, $2, $3, $4)`,
+        [newPatientId, emergency_contact_name, emergency_contact_no, emergency_contact_relationship]
+      );
     }
 
     // Create visit record
-    const today = new Date().toISOString().split('T')[0];
-    const currentTime = new Date().toTimeString().split(' ')[0];
+    const visitResult = await db.query(
+      `INSERT INTO visit (
+        patient_id, visit_date, visit_time, appointment_type,
+        symptoms, duration, severity, previous_treatment, allergies, medications
+      ) VALUES ($1, CURRENT_DATE, CURRENT_TIME, $2, $3, $4, $5, $6, $7, $8) 
+      RETURNING visit_id`,
+      [
+        newPatientId, 'Walk-in Appointment',
+        symptoms, duration, severity, previous_treatment, allergies, medications
+      ]
+    );
 
-    const { data: visitData, error: visitError } = await supabase
-      .from('visit')
-      .insert({
-        patient_id: patientData.id,
-        visit_date: today,
-        visit_time: currentTime,
-        appointment_type: 'Walk-in Registration',
-        symptoms: Array.isArray(symptoms) ? symptoms : symptoms.join(', '),
-        duration: isRoutineCareOnly ? null : duration,
-        severity: isRoutineCareOnly ? null : severity,
-        previous_treatment: previous_treatment || null,
-        allergies: allergies || null,
-        medications: medications || null
-      })
-      .select()
-      .single();
+    const visitId = visitResult.rows[0].visit_id;
 
-    if (visitError) {
-      console.error('❌ Visit creation error:', visitError);
-      return res.status(500).json({
-        error: 'Failed to create visit record',
-        details: visitError.message
-      });
+    // Get department recommendation
+    const symptomList = symptoms.split(',').map(s => s.trim());
+    let departmentId = 1; // Default to Internal Medicine
+
+    for (const symptom of symptomList) {
+      const deptResult = await db.query(
+        `SELECT department_id FROM symptom_department 
+         WHERE symptom_name = $1 AND is_active = true 
+         AND $2 BETWEEN age_min AND age_max
+         ORDER BY priority DESC LIMIT 1`,
+        [symptom, age]
+      );
+
+      if (deptResult.rows.length > 0) {
+        departmentId = deptResult.rows[0].department_id;
+        break;
+      }
     }
 
-    console.log('✅ Visit created successfully:', visitData.visit_id);
+    // Get department info
+    const deptInfo = await db.query(
+      `SELECT name FROM department WHERE department_id = $1`,
+      [departmentId]
+    );
 
-    // Assign department based on symptoms
-    const symptomsList = Array.isArray(symptoms) ? symptoms : symptoms.split(', ');
-    const deptId = await assignDepartmentBySymptoms(symptomsList, patientData.age);
+    // Create queue entry
+    const queueResult = await db.query(
+      `SELECT COALESCE(MAX(queue_no), 0) + 1 as next_queue 
+       FROM queue 
+       WHERE department_id = $1 AND scheduled_date = CURRENT_DATE`,
+      [departmentId]
+    );
 
-    // ✅ NEW: Calculate next available slot (handles both general and subspecialty)
-    const availabilityInfo = await calculateNextAvailableSlot(deptId);
+    const queueNo = queueResult.rows[0].next_queue;
 
-    const { data: deptData } = await supabase
-      .from('department')
-      .select('name, is_scheduled, service_type')
-      .eq('department_id', deptId)
-      .single();
+    await db.query(
+      `INSERT INTO queue (visit_id, department_id, queue_no, status, scheduled_date) 
+       VALUES ($1, $2, $3, 'waiting', CURRENT_DATE)`,
+      [visitId, departmentId, queueNo]
+    );
 
-    const recommendedDepartment = deptData?.name || 'Internal Medicine';
-    console.log('✅ Assigned department:', recommendedDepartment);
-
-    // ✅ NEW: Handle queue creation based on department type
-    let queueData = null;
-    let queueNumber = null;
-    let appointmentStatus = 'immediate';
-
-    if (!availabilityInfo.isScheduled || availabilityInfo.isToday) {
-      // GENERAL DEPARTMENT or SUBSPECIALTY with availability TODAY
-      const { data: existingQueues } = await supabase
-        .from('queue')
-        .select('queue_no, visit!inner(visit_date)')
-        .eq('department_id', deptId)
-        .eq('visit.visit_date', today);
-
-      const maxQueueNo = existingQueues?.length > 0 
-        ? Math.max(...existingQueues.map(q => q.queue_no)) 
-        : 0;
-      queueNumber = maxQueueNo + 1;
-
-      const { data: createdQueue, error: queueError } = await supabase
-        .from('queue')
-        .insert({
-          visit_id: visitData.visit_id,
-          department_id: deptId,
-          queue_no: queueNumber,
-          status: 'waiting',
-          scheduled_date: today
-        })
-        .select()
-        .single();
-
-      if (!queueError) {
-        queueData = createdQueue;
-        console.log('✅ Queue created successfully:', queueNumber);
-      } else {
-        console.error('⚠️ Queue creation error:', queueError);
-      }
-
-      appointmentStatus = 'immediate';
-
-    } else if (availabilityInfo.isScheduled && availabilityInfo.nextAvailableDate) {
-      // SUBSPECIALTY with FUTURE appointment
-      queueNumber = availabilityInfo.queuePosition;
-
-      const { data: createdQueue, error: queueError } = await supabase
-        .from('queue')
-        .insert({
-          visit_id: visitData.visit_id,
-          department_id: deptId,
-          queue_no: queueNumber,
-          status: 'scheduled',
-          scheduled_date: availabilityInfo.nextAvailableDate
-        })
-        .select()
-        .single();
-
-      if (!queueError) {
-        queueData = createdQueue;
-        console.log('✅ Scheduled queue created for:', availabilityInfo.nextAvailableDate);
-      } else {
-        console.error('⚠️ Queue creation error:', queueError);
-      }
-
-      appointmentStatus = 'scheduled';
-    }
-
-    // ✅ ORIGINAL: Update temp registration with next available date
+    // Mark temp registration as completed if exists
     if (temp_id) {
-      const { error: updateTempError } = await supabase
-        .from('pre_registration')
-        .update({ 
-          next_available_date: availabilityInfo.nextAvailableDate || today,
-          next_available_time: availabilityInfo.timeSlot || 'anytime',
-          department_id: deptId,
-          updated_at: new Date().toISOString() 
-        })
-        .eq('temp_id', temp_id);
-
-      if (updateTempError) {
-        console.error('❌ Failed to update temp registration with schedule info:', updateTempError);
-      } else {
-        console.log('✅ Updated temp registration with next available date');
-      }
+      await db.query(
+        `UPDATE pre_registration SET status = 'completed' WHERE temp_id = $1`,
+        [temp_id]
+      );
     }
 
-    // ✅ ORIGINAL: Delete temp registration after successful patient creation
-    if (temp_id && patientData) {
-      console.log('🗑️ Deleting temp registration after successful patient creation');
-      
-      const { error: deleteError } = await supabase
-        .from('pre_registration')
-        .delete()
-        .eq('temp_id', temp_id);
-
-      if (deleteError) {
-        console.error('⚠️ Failed to delete temp registration (non-critical):', deleteError);
-      } else {
-        console.log('✅ Successfully deleted temp registration');
-      }
-    }
-
-    // ✅ NEW: Enhanced response with scheduling information
-    const response = {
+    res.json({
       success: true,
-      patient: patientData,
-      visit: visitData,
-      queue: queueData,
-      recommendedDepartment: recommendedDepartment,
-      queue_number: queueNumber,
-      estimated_wait: appointmentStatus === 'immediate' ? '15-30 minutes' : 'Scheduled appointment',
-      is_routine_care: isRoutineCareOnly,
-      appointment_status: appointmentStatus,
-      scheduling_info: {
-        is_scheduled_department: availabilityInfo.isScheduled,
-        appointment_date: availabilityInfo.nextAvailableDate,
-        is_today: availabilityInfo.isToday,
-        day_name: availabilityInfo.dayName,
-        time_slot: availabilityInfo.timeSlot,
-        message: appointmentStatus === 'scheduled' 
-          ? `Your appointment is scheduled for ${availabilityInfo.dayName}, ${new Date(availabilityInfo.nextAvailableDate).toLocaleDateString()}. Your queue number will be ${queueNumber} on that day.`
-          : `You are now in queue. Your queue number is ${queueNumber}.`
+      message: 'Patient registered successfully',
+      patient: {
+        id: newPatientId,
+        patient_id: newPatientPublicId,
+        name,
+        id_type,
+        id_number,
+        id_image_url
       },
-      message: 'Patient registered successfully'
-    };
-
-    // ✅ ORIGINAL: Include temp registration info if it was processed
-    if (tempRegData) {
-      response.temp_registration_processed = true;
-      response.original_temp_id = tempRegData.temp_patient_id;
-    }
-
-    console.log('🎉 Registration completed successfully for:', patientData.patient_id);
-
-    res.status(201).json(response);
+      visit: {
+        visit_id: visitId
+      },
+      queue_number: queueNo,
+      recommendedDepartment: deptInfo.rows[0]?.name || 'Internal Medicine'
+    });
 
   } catch (error) {
-    console.error('💥 Registration error:', error);
-    
-    // ✅ ORIGINAL: Revert temp registration status on error
-    if (req.body.temp_id) {
-      try {
-        await supabase
-          .from('pre_registration')
-          .update({ status: 'completed' })
-          .eq('temp_id', req.body.temp_id);
-        console.log('🔄 Reverted temp registration status due to error');
-      } catch (revertError) {
-        console.error('❌ Failed to revert temp registration status:', revertError);
-      }
-    }
-    
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message 
+    console.error('❌ Registration error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to register patient',
+      details: error.message
     });
   }
 });
@@ -5682,92 +5525,111 @@ const validateAppointmentDate = (preferredDate) => {
   return null;
 };
 
-// Temporary registration
+// POST /api/temp-registration - Create temporary registration with ID info
 app.post('/api/temp-registration', async (req, res) => {
+  const {
+    name,
+    birthday,
+    age,
+    sex,
+    address,
+    contact_no,
+    email,
+    emergency_contact_name,
+    emergency_contact_relationship,
+    emergency_contact_no,
+    symptoms,
+    duration,
+    severity,
+    previous_treatment,
+    allergies,
+    medications,
+    preferred_date,
+    preferred_time_slot,
+    scheduled_date,
+    status,
+    created_date,
+    expires_at,
+    id_type,        // ✅ NEW
+    id_number,      // ✅ NEW
+    id_image_url    // ✅ NEW
+  } = req.body;
+
   try {
-    console.log('📝 Temp registration request:', req.body);
-          
-    const {
-      name, birthday, age, sex, address, contact_no, email,
-      emergency_contact_name, emergency_contact_relationship, emergency_contact_no,
-      symptoms, duration, severity, previous_treatment, allergies, medications,
-      preferred_date, preferred_time_slot, scheduled_date, status, expires_at
-    } = req.body;
+    // Check for duplicates
+    const duplicateCheck = await db.query(
+      `SELECT temp_patient_id FROM pre_registration 
+       WHERE LOWER(email) = LOWER($1) OR contact_no = $2`,
+      [email, contact_no]
+    );
 
-    // Check for duplicates BEFORE processing
-    const duplicateCheck = await checkDuplicateUser(email, contact_no);
-    if (duplicateCheck.isDuplicate) {
+    if (duplicateCheck.rows.length > 0) {
       return res.status(400).json({
-        error: duplicateCheck.message,
-        field: duplicateCheck.field
+        success: false,
+        error: 'A registration with this email or contact number already exists',
+        field: duplicateCheck.rows[0].email === email.toLowerCase() ? 'email' : 'phone'
       });
-    }
-
-    if (preferred_date) {
-      const dateValidationError = validateAppointmentDate(preferred_date);
-      if (dateValidationError) {
-        return res.status(400).json({
-          error: dateValidationError
-        });
-      }
     }
 
     // Generate temp patient ID
-    const temp_patient_id = generateTempPatientId();
+    const tempIdResult = await db.query(
+      `SELECT COALESCE(MAX(CAST(SUBSTRING(temp_patient_id FROM 5) AS INTEGER)), 0) + 1 as next_id 
+       FROM pre_registration WHERE temp_patient_id LIKE 'TEMP%'`
+    );
+    const nextId = tempIdResult.rows[0].next_id;
+    const temp_patient_id = `TEMP${String(nextId).padStart(6, '0')}`;
 
-    // Insert into tempReg table
-    const { data: tempRegData, error: tempRegError } = await supabase
-      .from('pre_registration')
-      .insert({
-        name,
-        birthday,
-        age: parseInt(age),
-        sex,
-        address,
-        contact_no: contact_no.replace(/\D/g, ''), // Clean phone number
-        email: email.toLowerCase(),
-        emergency_contact_name,
-        emergency_contact_relationship,
-        emergency_contact_no: emergency_contact_no ? emergency_contact_no.replace(/\D/g, '') : null,
-        symptoms,
-        duration,
-        severity,
-        previous_treatment,
-        allergies,
-        medications,
-        preferred_date,
-        preferred_time_slot,
-        scheduled_date,
-        status: status || 'completed',
-        expires_at,
-        temp_patient_id,
-        created_date: new Date().toISOString().split('T')[0]
-      })
-      .select()
-      .single();
+    // Insert temporary registration with ID fields
+    const result = await db.query(
+      `INSERT INTO pre_registration (
+        temp_patient_id, name, birthday, age, sex, address,
+        contact_no, email, emergency_contact_name,
+        emergency_contact_relationship, emergency_contact_no,
+        symptoms, duration, severity, previous_treatment,
+        allergies, medications, preferred_date, preferred_time_slot,
+        scheduled_date, status, created_date, expires_at,
+        id_type, id_number, id_image_url
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
+      ) RETURNING temp_id, temp_patient_id`,
+      [
+        temp_patient_id, name, birthday, age, sex, address,
+        contact_no, email, emergency_contact_name,
+        emergency_contact_relationship, emergency_contact_no,
+        symptoms, duration, severity, previous_treatment,
+        allergies, medications, preferred_date, preferred_time_slot,
+        scheduled_date, status || 'pending', created_date, expires_at,
+        id_type, id_number, id_image_url  // ✅ Save ID fields
+      ]
+    );
 
-    if (tempRegError) {
-      console.error('💥 Temp registration error:', tempRegError);
-      
-      return res.status(500).json({
-        error: 'Registration failed. Please try again.',
-        details: tempRegError.message
-      });
-    }
+    const tempId = result.rows[0].temp_id;
+    const tempPatientId = result.rows[0].temp_patient_id;
 
-    console.log('✅ Temp registration created:', tempRegData.name, 'ID:', tempRegData.temp_patient_id);
+    console.log('✅ Temp registration created with ID info:', {
+      temp_id: tempId,
+      temp_patient_id: tempPatientId,
+      id_type,
+      id_number,
+      id_image_url
+    });
 
-    res.status(201).json({
+    res.json({
       success: true,
       message: 'Temporary registration created successfully',
-      temp_id: tempRegData.temp_id,
-      temp_patient_id: tempRegData.temp_patient_id
+      temp_id: tempId,
+      temp_patient_id: tempPatientId,
+      id_type,
+      id_number,
+      id_image_url
     });
 
   } catch (error) {
-    console.error('💥 Temp registration error:', error);
+    console.error('❌ Temp registration error:', error);
     res.status(500).json({
-      error: 'Registration failed. Please try again.',
+      success: false,
+      error: 'Failed to create temporary registration',
       details: error.message
     });
   }
@@ -8545,6 +8407,181 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
     });
   }
 });
+
+// PATCH /api/patient/:patientId/update-id-image
+app.patch('/api/patient/:patientId/update-id-image', async (req, res) => {
+  const { patientId } = req.params;
+  const { id_image_url } = req.body;
+  
+  try {
+    await db.query(
+      'UPDATE patients SET id_image_url = $1 WHERE patient_id = $2',
+      [id_image_url, patientId]
+    );
+    res.json({ success: true, message: 'ID image URL updated successfully' });
+  } catch (error) {
+    console.error('Error updating ID image URL:', error);
+    res.status(500).json({ success: false, error: 'Failed to update ID image URL' });
+  }
+});
+
+// PATCH /api/temp-registration/:tempId/update-id-image
+app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => {
+  const { tempId } = req.params;
+  const { id_image_url } = req.body;
+  
+  try {
+    await db.query(
+      'UPDATE temp_registration SET id_image_url = $1 WHERE temp_id = $2',
+      [id_image_url, tempId]
+    );
+    res.json({ success: true, message: 'ID image URL updated successfully' });
+  } catch (error) {
+    console.error('Error updating ID image URL:', error);
+    res.status(500).json({ success: false, error: 'Failed to update ID image URL' });
+  }
+});
+
+// PATCH /api/patient/:patientId/update-id-image
+app.patch('/api/patient/:patientId/update-id-image', async (req, res) => {
+  const { patientId } = req.params;
+  const { id_image_url } = req.body;
+  
+  try {
+    const result = await db.query(
+      'UPDATE outpatient SET id_image_url = $1 WHERE patient_id = $2 RETURNING patient_id, id_image_url',
+      [id_image_url, patientId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Patient not found' 
+      });
+    }
+
+    console.log('✅ Updated ID image URL for patient:', patientId);
+
+    res.json({ 
+      success: true, 
+      message: 'ID image URL updated successfully',
+      patient_id: result.rows[0].patient_id,
+      id_image_url: result.rows[0].id_image_url
+    });
+  } catch (error) {
+    console.error('❌ Error updating ID image URL:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update ID image URL',
+      details: error.message
+    });
+  }
+});
+
+// PATCH /api/temp-registration/:tempId/update-id-image
+app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => {
+  const { tempId } = req.params;
+  const { id_image_url } = req.body;
+  
+  try {
+    const result = await db.query(
+      'UPDATE pre_registration SET id_image_url = $1 WHERE temp_id = $2 RETURNING temp_id, temp_patient_id, id_image_url',
+      [id_image_url, tempId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Temporary registration not found' 
+      });
+    }
+
+    console.log('✅ Updated ID image URL for temp registration:', tempId);
+
+    res.json({ 
+      success: true, 
+      message: 'ID image URL updated successfully',
+      temp_id: result.rows[0].temp_id,
+      temp_patient_id: result.rows[0].temp_patient_id,
+      id_image_url: result.rows[0].id_image_url
+    });
+  } catch (error) {
+    console.error('❌ Error updating ID image URL:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update ID image URL',
+      details: error.message
+    });
+  }
+});
+
+// POST /api/upload-id-image - Upload ID image to Supabase
+app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      });
+    }
+
+    const { patientId, idType } = req.body;
+    
+    if (!patientId || !idType) {
+      return res.status(400).json({
+        success: false,
+        error: 'Patient ID and ID type are required'
+      });
+    }
+
+    // Generate unique filename
+    const timestamp = Date.now();
+    const fileName = `${patientId}_${idType}_${timestamp}.jpg`;
+    
+    console.log('📤 Uploading ID image to Supabase:', fileName);
+
+    // Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('outpatient_id')
+      .upload(fileName, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: true
+      });
+
+    if (error) {
+      console.error('❌ Supabase upload error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to upload image to storage',
+        details: error.message
+      });
+    }
+
+    // Get public URL
+    const { data: publicUrlData } = supabase.storage
+      .from('outpatient_id')
+      .getPublicUrl(fileName);
+
+    const publicUrl = publicUrlData.publicUrl;
+
+    console.log('✅ ID image uploaded successfully:', publicUrl);
+
+    res.json({
+      success: true,
+      message: 'ID image uploaded successfully',
+      publicUrl: publicUrl,
+      fileName: fileName
+    });
+
+  } catch (error) {
+    console.error('❌ Upload error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload ID image',
+      details: error.message
+    });
+  }
+}); 
 
 // Start server
 app.listen(PORT, () => {

@@ -739,162 +739,134 @@
       }
     };
 
-    const processIDImageWithOCR = async (imageData) => {
-      if (ocrProcessing || !imageData) return;
+const processIDImageWithOCR = async (imageData) => {
+  if (ocrProcessing || !imageData) return;
+  
+  if (!selectedIDType) {
+    setCameraError('Please select an ID type first');
+    return;
+  }
+  
+  setOcrProcessing(true);
+  
+  try {
+    const result = await processIDWithOCR(imageData, selectedIDType);
+    
+    if (result.success && result.name) {
+      // Handle different ID types with their specific fields
+      const updateData = { 
+        fullName: result.name,
+        idType: selectedIDType,
+        idNumber: result.idNumber || '' // ✅ FIX: Capture ID number from OCR
+      };
       
-      if (!selectedIDType) {
-        setCameraError('Please select an ID type first');
-        return;
+      // PhilHealth: populate name, sex, birthday, and address
+      if (selectedIDType === 'philhealth') {
+        if (result.sex) {
+          updateData.sex = result.sex;
+        }
+        if (result.birthday) {
+          updateData.birthday = result.birthday;
+          updateData.age = calculateAge(result.birthday);
+        }
+        if (result.address) {
+          updateData.address = result.address;
+        }
+      }
+      // Driver's License: populate name, sex, birthday, and address
+      else if (selectedIDType === 'drivers_license') {
+        if (result.sex) {
+          updateData.sex = result.sex;
+        }
+        if (result.birthday) {
+          updateData.birthday = result.birthday;
+          updateData.age = calculateAge(result.birthday);
+        }
+        if (result.address) {
+          updateData.address = result.address;
+        }
+      }
+      // UMID: populate sex, birthday, and address
+      else if (selectedIDType === 'umid') {
+        if (result.sex) {
+          updateData.sex = result.sex;
+        }
+        if (result.birthday) {
+          updateData.birthday = result.birthday;
+          updateData.age = calculateAge(result.birthday);
+        }
+        if (result.address) {
+          updateData.address = result.address;
+        }
+      }
+      // PhilSys or Postal ID: populate birthday and address
+      else if (selectedIDType === 'philsys' || selectedIDType === 'postal') {
+        if (result.birthday) {
+          updateData.birthday = result.birthday;
+          updateData.age = calculateAge(result.birthday);
+        }
+        if (result.address) {
+          updateData.address = result.address;
+        }
       }
       
-      setOcrProcessing(true);
+      setFormData((prev) => ({ 
+        ...prev, 
+        ...updateData
+      }));
       
-      try {
-        // Preprocess image before OCR
-        const img = new Image();
-        img.src = imageData;
-        await new Promise(resolve => img.onload = resolve);
-
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-
-        // Draw and enhance contrast
-        ctx.drawImage(img, 0, 0);
-        let imageDataObj = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-        // Apply contrast enhancement
-        const data = imageDataObj.data;
-        const factor = 1.5;
-        const contrast = (factor - 1) * 128;
-
-        for (let i = 0; i < data.length; i += 4) {
-          data[i] = Math.max(0, Math.min(255, factor * data[i] + contrast));
-          data[i + 1] = Math.max(0, Math.min(255, factor * data[i + 1] + contrast));
-          data[i + 2] = Math.max(0, Math.min(255, factor * data[i + 2] + contrast));
-        }
-
-        ctx.putImageData(imageDataObj, 0, 0);
-        const enhancedImageData = canvas.toDataURL('image/jpeg', 0.95);
-
-        const result = await processIDWithOCR(enhancedImageData, selectedIDType);
-        
-        if (result.success && result.name) {
-          // Handle different ID types with their specific fields
-          const updateData = { 
-            fullName: result.name,
-            idType: selectedIDType,
-            idNumber: result.idNumber || ''
-          };
-          
-          // PhilHealth: populate name, sex, birthday, and address
-          if (selectedIDType === 'philhealth') {
-            if (result.sex) {
-              updateData.sex = result.sex;
-            }
-            if (result.birthday) {
-              updateData.birthday = result.birthday;
-              updateData.age = calculateAge(result.birthday);
-            }
-            if (result.address) {
-              updateData.address = result.address;
-            }
-          }
-          // Driver's License: populate name, sex, birthday, and address
-          else if (selectedIDType === 'drivers_license') {
-            if (result.sex) {
-              updateData.sex = result.sex;
-            }
-            if (result.birthday) {
-              updateData.birthday = result.birthday;
-              updateData.age = calculateAge(result.birthday);
-            }
-            if (result.address) {
-              updateData.address = result.address;
-            }
-          }
-          // UMID: populate sex, birthday, and address
-          else if (selectedIDType === 'umid') {
-            if (result.sex) {
-              updateData.sex = result.sex;
-            }
-            if (result.birthday) {
-              updateData.birthday = result.birthday;
-              updateData.age = calculateAge(result.birthday);
-            }
-            if (result.address) {
-              updateData.address = result.address;
-            }
-          }
-          // PhilSys or Postal ID: populate birthday and address
-          else if (selectedIDType === 'philsys' || selectedIDType === 'postal') {
-            if (result.birthday) {
-              updateData.birthday = result.birthday;
-              updateData.age = calculateAge(result.birthday);
-            }
-            if (result.address) {
-              updateData.address = result.address;
-            }
-          }
-          
-          setFormData((prev) => ({ 
-            ...prev, 
-            ...updateData
-          }));
-          
-          setCapturedIDImage(imageData);
-          
-          setShowCameraModal(false);
-          setError('');
-          
-          // Show appropriate success message for each ID type
-          let successMessage = `${ID_TYPES.find(t => t.value === selectedIDType)?.label} scanned successfully!`;
-          
-          if (selectedIDType === 'philhealth' && result.sex && result.birthday && result.address) {
-            successMessage += ' Name, sex, birthday, and address extracted.';
-          } else if (selectedIDType === 'philhealth' && (result.sex || result.birthday || result.address)) {
-            const extracted = [];
-            if (result.sex) extracted.push('sex');
-            if (result.birthday) extracted.push('birthday');
-            if (result.address) extracted.push('address');
-            successMessage += ` Name and ${extracted.join(', ')} extracted.`;
-          } else if (selectedIDType === 'drivers_license' && result.sex && result.birthday && result.address) {
-            successMessage += ' Name, sex, birthday, and address extracted.';
-          } else if (selectedIDType === 'drivers_license' && (result.sex || result.birthday || result.address)) {
-            const extracted = [];
-            if (result.sex) extracted.push('sex');
-            if (result.birthday) extracted.push('birthday');
-            if (result.address) extracted.push('address');
-            successMessage += ` Name and ${extracted.join(', ')} extracted.`;
-          } else if (selectedIDType === 'umid' && result.sex && result.birthday && result.address) {
-            successMessage += ' Name, sex, birthday, and address extracted.';
-          } else if (selectedIDType === 'umid' && (result.sex || result.birthday || result.address)) {
-            const extracted = [];
-            if (result.sex) extracted.push('sex');
-            if (result.birthday) extracted.push('birthday');
-            if (result.address) extracted.push('address');
-            successMessage += ` Name and ${extracted.join(', ')} extracted.`;
-          } else if ((selectedIDType === 'philsys' || selectedIDType === 'postal') && result.birthday && result.address) {
-            successMessage += ' Name, birthday, and address extracted.';
-          } else if ((selectedIDType === 'philsys' || selectedIDType === 'postal') && (result.birthday || result.address)) {
-            successMessage += ' Name and ' + (result.birthday ? 'birthday' : 'address') + ' extracted.';
-          } else if (selectedIDType === 'pagibig') {
-            successMessage += ' Name extracted.';
-          } else if (selectedIDType === 'drivers_license') {
-            successMessage += ' Name extracted.';
-          }
-          
-          showToastNotification(successMessage, 'success');
-        } else {
-          setCameraError(result.message || 'Failed to extract information from ID');
-        }
-      } catch (err) {
-        setCameraError('Failed to process ID image. Please try again.');
-      } finally {
-        setOcrProcessing(false);
+      setCapturedIDImage(imageData);
+      
+      setShowCameraModal(false);
+      setError('');
+      
+      // Show appropriate success message for each ID type
+      let successMessage = `${ID_TYPES.find(t => t.value === selectedIDType)?.label} scanned successfully!`;
+      
+      if (selectedIDType === 'philhealth' && result.sex && result.birthday && result.address) {
+        successMessage += ' Name, sex, birthday, and address extracted.';
+      } else if (selectedIDType === 'philhealth' && (result.sex || result.birthday || result.address)) {
+        const extracted = [];
+        if (result.sex) extracted.push('sex');
+        if (result.birthday) extracted.push('birthday');
+        if (result.address) extracted.push('address');
+        successMessage += ` Name and ${extracted.join(', ')} extracted.`;
+      } else if (selectedIDType === 'drivers_license' && result.sex && result.birthday && result.address) {
+        successMessage += ' Name, sex, birthday, and address extracted.';
+      } else if (selectedIDType === 'drivers_license' && (result.sex || result.birthday || result.address)) {
+        const extracted = [];
+        if (result.sex) extracted.push('sex');
+        if (result.birthday) extracted.push('birthday');
+        if (result.address) extracted.push('address');
+        successMessage += ` Name and ${extracted.join(', ')} extracted.`;
+      } else if (selectedIDType === 'umid' && result.sex && result.birthday && result.address) {
+        successMessage += ' Name, sex, birthday, and address extracted.';
+      } else if (selectedIDType === 'umid' && (result.sex || result.birthday || result.address)) {
+        const extracted = [];
+        if (result.sex) extracted.push('sex');
+        if (result.birthday) extracted.push('birthday');
+        if (result.address) extracted.push('address');
+        successMessage += ` Name and ${extracted.join(', ')} extracted.`;
+      } else if ((selectedIDType === 'philsys' || selectedIDType === 'postal') && result.birthday && result.address) {
+        successMessage += ' Name, birthday, and address extracted.';
+      } else if ((selectedIDType === 'philsys' || selectedIDType === 'postal') && (result.birthday || result.address)) {
+        successMessage += ' Name and ' + (result.birthday ? 'birthday' : 'address') + ' extracted.';
+      } else if (selectedIDType === 'pagibig') {
+        successMessage += ' Name extracted.';
+      } else if (selectedIDType === 'drivers_license') {
+        successMessage += ' Name extracted.';
       }
-    };
+      
+      showToastNotification(successMessage, 'success');
+    } else {
+      setCameraError(result.message || 'Failed to extract information from ID');
+    }
+  } catch (err) {
+    setCameraError('Failed to process ID image. Please try again.');
+  } finally {
+    setOcrProcessing(false);
+  }
+};
 
     const uploadIDImage = async (imageData, patientId, idType) => {
       try {
@@ -1176,164 +1148,209 @@
       }
     };
 
-    const handleSubmit = async () => {
-      if (!validateStep(currentStep)) {
-        setError('Please complete all required fields');
-        return;
+const handleSubmit = async () => {
+  if (!validateStep(currentStep)) {
+    setError('Please complete all required fields');
+    return;
+  }
+
+  setLoading(true);
+  setError('');
+
+  try {
+    const calculatedAge = formData.age || calculateAge(formData.birthday);
+
+    // ✅ FIX 1: Upload ID image BEFORE registration if captured
+    let idImageUrl = null;
+    if (capturedIDImage && selectedIDType) {
+      console.log('📤 Uploading ID image before registration...');
+      
+      // Generate temporary patient ID for upload
+      const tempUploadId = `TEMP_${Date.now()}`;
+      
+      idImageUrl = await uploadIDImage(
+        capturedIDImage,
+        tempUploadId,
+        selectedIDType
+      );
+      
+      if (idImageUrl) {
+        console.log('✅ ID image uploaded successfully:', idImageUrl);
+      } else {
+        console.warn('⚠️ ID image upload failed, continuing without image');
       }
+    }
 
-      setLoading(true);
-      setError('');
+    // ✅ FIX 2: Include id_type, id_number, and id_image_url in registration data
+    const registrationData = {
+      name: formData.fullName,
+      birthday: formData.birthday,
+      age: parseInt(calculatedAge),
+      sex: formData.sex,
+      address: formData.address,
+      contact_no: cleanPhoneNumber(formData.contactNumber),
+      email: formData.email.toLowerCase(),
+      emergency_contact_name: formData.emergencyContactName,
+      emergency_contact_relationship: formData.emergencyRelationship,
+      emergency_contact_no: cleanPhoneNumber(formData.emergencyContactNumber),
+      symptoms: formData.selectedSymptoms.join(', '),
+      duration: formData.duration,
+      severity: formData.severity,
+      previous_treatment: formData.previousTreatment || null,
+      allergies: formData.allergies || null,
+      medications: formData.medications || null,
+      preferred_date: formData.preferredDate,
+      preferred_time_slot: formData.appointmentTime,
+      scheduled_date: formData.preferredDate,
+      status: 'completed',
+      created_date: new Date().toISOString().split('T')[0],
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      id_type: selectedIDType || null,
+      id_number: formData.idNumber || null,
+      id_image_url: idImageUrl || null // Include the uploaded image URL
+    };
 
-      try {
-        const calculatedAge = formData.age || calculateAge(formData.birthday);
+    console.log('📤 Submitting registration with ID data:', {
+      id_type: registrationData.id_type,
+      id_number: registrationData.id_number,
+      id_image_url: registrationData.id_image_url
+    });
 
-        const registrationData = {
-          name: formData.fullName,
-          birthday: formData.birthday,
-          age: parseInt(calculatedAge),
-          sex: formData.sex,
-          address: formData.address,
-          contact_no: cleanPhoneNumber(formData.contactNumber),
-          email: formData.email.toLowerCase(),
-          emergency_contact_name: formData.emergencyContactName,
-          emergency_contact_relationship: formData.emergencyRelationship,
-          emergency_contact_no: cleanPhoneNumber(formData.emergencyContactNumber),
-          symptoms: formData.selectedSymptoms.join(', '),
-          duration: formData.duration,
-          severity: formData.severity,
-          previous_treatment: formData.previousTreatment || null,
-          allergies: formData.allergies || null,
-          medications: formData.medications || null,
-          preferred_date: formData.preferredDate,
-          preferred_time_slot: formData.appointmentTime,
-          scheduled_date: formData.preferredDate,
-          status: 'completed',
-          created_date: new Date().toISOString().split('T')[0],
-          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          id_type: selectedIDType || null,
-          id_number: formData.idNumber || null
-        };
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(registrationData)
+    });
 
-        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify(registrationData)
-        });
+    const result = await response.json();
 
-        const result = await response.json();
-
-        if (!response.ok) {
-          if (result.field) {
-            setFieldErrors(prev => ({
-              ...prev,
-              [result.field === 'phone' ? 'contactNumber' : result.field]: result.error
-            }));
-            
-            setCurrentStep(1);
-            
-            setTimeout(() => {
-              const errorField = document.querySelector(`[name="${result.field === 'phone' ? 'contactNumber' : result.field}"]`);
-              if (errorField) {
-                errorField.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                errorField.focus();
-              }
-            }, 100);
+    if (!response.ok) {
+      if (result.field) {
+        setFieldErrors(prev => ({
+          ...prev,
+          [result.field === 'phone' ? 'contactNumber' : result.field]: result.error
+        }));
+        
+        setCurrentStep(1);
+        
+        setTimeout(() => {
+          const errorField = document.querySelector(`[name="${result.field === 'phone' ? 'contactNumber' : result.field}"]`);
+          if (errorField) {
+            errorField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            errorField.focus();
           }
-          throw new Error(result.error || 'Registration failed');
-        }
+        }, 100);
+      }
+      throw new Error(result.error || 'Registration failed');
+    }
 
-        const tempRegId = result.temp_id;
-        const tempPatientId = result.temp_patient_id;
+    const tempRegId = result.temp_id;
+    const tempPatientId = result.temp_patient_id;
 
-        if (capturedIDImage && tempPatientId) {
-          console.log('📤 Uploading ID image for temp patient:', tempPatientId);
-          const idImageUrl = await uploadIDImage(
-            capturedIDImage,
-            tempPatientId,
-            selectedIDType
-          );
-          
-          if (idImageUrl) {
-            console.log('✅ ID image stored:', idImageUrl);
-          } else {
-            console.warn('⚠️ ID image upload failed, continuing anyway');
-          }
-        }
-
-        const qrData = {
-          type: 'webreg_registration',
-          source: 'web_registration',
-          version: '1.0',
-          tempRegId: tempRegId,
-          tempPatientId: tempPatientId,
-          patientName: formData.fullName,
-          patientEmail: formData.email.toLowerCase(),
-          patientPhone: cleanPhoneNumber(formData.contactNumber),
-          scheduledDate: registrationData.scheduled_date,
-          preferredTime: registrationData.preferred_time_slot,
-          symptoms: formData.selectedSymptoms.join(', '),
-          severity: formData.severity,
-          duration: formData.duration,
-          previousTreatment: formData.previousTreatment,
-          allergies: formData.allergies,
-          medications: formData.medications,
-          timestamp: new Date().toISOString(),
-          expiresAt: registrationData.expires_at,
-          registrationHash: btoa(`${tempPatientId}-${formData.email.toLowerCase()}-${Date.now()}`).slice(0, 16),
-          checksum: btoa(`${tempPatientId}${formData.fullName}${formData.email.toLowerCase()}`).slice(0, 8)
-        };
-
-        console.log('🔍 Generated QR Data:', qrData);
-
-        if (!qrData.tempPatientId || !qrData.patientName || !qrData.patientEmail) {
-          throw new Error('QR code generation failed - missing required data');
-        }
-
-        setRegistrationResult({
-          tempPatientId: tempPatientId,
-          type: 'registration'
-        });
-
+    // ✅ FIX 3: Update image path with real temp patient ID after registration
+    if (idImageUrl && tempPatientId) {
+      console.log('🔄 Updating ID image path with temp patient ID...');
+      
+      // Re-upload with correct temp patient ID
+      const finalImageUrl = await uploadIDImage(
+        capturedIDImage,
+        tempPatientId,
+        selectedIDType
+      );
+      
+      if (finalImageUrl) {
+        console.log('✅ ID image path updated with temp patient ID');
+        
+        // Update the database with the final image URL
         try {
-          const qrResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/generate-qr-email`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+          await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration/${tempRegId}/update-id-image`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({
-              qrData: qrData,
-              patientEmail: formData.email,
-              patientName: formData.fullName
+              id_image_url: finalImageUrl
             })
           });
-
-          const qrResult = await qrResponse.json();
-
-          if (!qrResponse.ok) {
-            showToastNotification('Registration completed, but QR code email failed. Please visit the reception desk.', 'warning');
-          } else {
-            showToastNotification('Registration completed successfully! Check your email for the QR code.', 'success');
-          }
-        } catch (emailError) {
-          showToastNotification('Registration completed, but QR code email failed. Please visit the reception desk.', 'warning');
+          console.log('✅ Database updated with final image URL');
+        } catch (updateError) {
+          console.error('❌ Failed to update image URL in database:', updateError);
         }
-
-        setTimeout(() => {
-          setShowSuccessModal(true);
-        }, 500);
-
-      } catch (err) {
-        setError(err.message || 'Registration failed. Please check your internet connection and try again.');
-        showToastNotification(err.message || 'Registration failed. Please try again.', 'error');
-      } finally {
-        setLoading(false);
       }
+    }
+
+    const qrData = {
+      type: 'webreg_registration',
+      source: 'web_registration',
+      version: '1.0',
+      tempRegId: tempRegId,
+      tempPatientId: tempPatientId,
+      patientName: formData.fullName,
+      patientEmail: formData.email.toLowerCase(),
+      patientPhone: cleanPhoneNumber(formData.contactNumber),
+      scheduledDate: registrationData.scheduled_date,
+      preferredTime: registrationData.preferred_time_slot,
+      symptoms: formData.selectedSymptoms.join(', '),
+      severity: formData.severity,
+      duration: formData.duration,
+      previousTreatment: formData.previousTreatment,
+      allergies: formData.allergies,
+      medications: formData.medications,
+      timestamp: new Date().toISOString(),
+      expiresAt: registrationData.expires_at,
+      registrationHash: btoa(`${tempPatientId}-${formData.email.toLowerCase()}-${Date.now()}`).slice(0, 16),
+      checksum: btoa(`${tempPatientId}${formData.fullName}${formData.email.toLowerCase()}`).slice(0, 8)
     };
+
+    console.log('🔍 Generated QR Data:', qrData);
+
+    if (!qrData.tempPatientId || !qrData.patientName || !qrData.patientEmail) {
+      throw new Error('QR code generation failed - missing required data');
+    }
+
+    setRegistrationResult({
+      tempPatientId: tempPatientId,
+      type: 'registration'
+    });
+
+    try {
+      const qrResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/generate-qr-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          qrData: qrData,
+          patientEmail: formData.email,
+          patientName: formData.fullName
+        })
+      });
+
+      const qrResult = await qrResponse.json();
+
+      if (!qrResponse.ok) {
+        showToastNotification('Registration completed, but QR code email failed. Please visit the reception desk.', 'warning');
+      } else {
+        showToastNotification('Registration completed successfully! Check your email for the QR code.', 'success');
+      }
+    } catch (emailError) {
+      showToastNotification('Registration completed, but QR code email failed. Please visit the reception desk.', 'warning');
+    }
+
+    setTimeout(() => {
+      setShowSuccessModal(true);
+    }, 500);
+
+  } catch (err) {
+    setError(err.message || 'Registration failed. Please check your internet connection and try again.');
+    showToastNotification(err.message || 'Registration failed. Please try again.', 'error');
+  } finally {
+    setLoading(false);
+  }
+};
 
     const handleSuccessModalClose = () => {
       setShowSuccessModal(false);
