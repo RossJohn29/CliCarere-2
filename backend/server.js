@@ -6268,7 +6268,7 @@ app.get('/api/debug/token', authenticateToken, (req, res) => {
   });
 });
 
-// Generate QR email - IMPROVED VERSION with better error handling
+// Generate QR email - FIXED VERSION with proper image handling
 app.post('/api/generate-qr-email', async (req, res) => {
   try {
     console.log('📧 QR generation request received');
@@ -6309,27 +6309,30 @@ app.post('/api/generate-qr-email', async (req, res) => {
 
     console.log('✅ Input validation passed');
 
-    // ✅ STEP 4: Generate QR code with error handling
+    // ✅ STEP 4: Generate QR code with higher quality
     console.log('📱 Step 1: Generating QR code...');
     let qrCodeDataURL;
+    let qrCodeBuffer;
     try {
       const qrString = JSON.stringify(qrData);
       console.log('📊 QR data string length:', qrString.length);
       
-      if (qrString.length > 2000) {
-        console.warn('⚠️ QR data is very large, may cause scanning issues');
-      }
-      
+      // Generate QR code with optimal settings for email
       qrCodeDataURL = await QRCode.toDataURL(qrString, {
-        width: 300,
-        margin: 2,
+        width: 400,           // Larger size for better quality
+        margin: 3,            // More margin for better scanning
         color: {
           dark: '#000000',
           light: '#FFFFFF'
         },
-        errorCorrectionLevel: 'M'
+        errorCorrectionLevel: 'H'  // High error correction
       });
-      console.log('✅ QR code generated successfully');
+
+      // Convert to buffer immediately
+      const base64Data = qrCodeDataURL.replace(/^data:image\/png;base64,/, '');
+      qrCodeBuffer = Buffer.from(base64Data, 'base64');
+      
+      console.log('✅ QR code generated successfully, buffer size:', qrCodeBuffer.length);
     } catch (qrError) {
       console.error('❌ QR generation failed:', qrError);
       return res.status(500).json({
@@ -6339,100 +6342,15 @@ app.post('/api/generate-qr-email', async (req, res) => {
       });
     }
 
-    // ✅ STEP 5: Convert to buffer with validation
-    console.log('🔄 Step 2: Converting to buffer...');
-    let qrCodeBuffer;
-    try {
-      if (!qrCodeDataURL || !qrCodeDataURL.includes('data:image/png;base64,')) {
-        throw new Error('Invalid QR code data URL format');
-      }
-      
-      const base64Data = qrCodeDataURL.replace(/^data:image\/png;base64,/, '');
-      if (!base64Data || base64Data.length === 0) {
-        throw new Error('Empty base64 data');
-      }
-      
-      qrCodeBuffer = Buffer.from(base64Data, 'base64');
-      console.log('✅ Buffer created, size:', qrCodeBuffer.length, 'bytes');
-      
-      if (qrCodeBuffer.length === 0) {
-        throw new Error('Buffer is empty');
-      }
-    } catch (bufferError) {
-      console.error('❌ Buffer conversion failed:', bufferError);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to process QR code image',
-        details: bufferError.message
-      });
-    }
-
-    // ✅ STEP 6: Upload to Supabase Storage with retry logic
-    console.log('☁️ Step 3: Uploading QR code to storage...');
-    let qrImageUrl;
-    let uploadAttempts = 0;
-    const maxUploadAttempts = 3;
-    
-    while (uploadAttempts < maxUploadAttempts) {
-      try {
-        uploadAttempts++;
-        console.log(`📤 Upload attempt ${uploadAttempts}/${maxUploadAttempts}`);
-        
-        const qrFileName = `qr_codes/qr_${qrData.tempPatientId}_${Date.now()}.png`;
-        
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('lab-results')
-          .upload(qrFileName, qrCodeBuffer, {
-            contentType: 'image/png',
-            upsert: true
-          });
-
-        if (uploadError) {
-          console.error(`❌ Upload attempt ${uploadAttempts} failed:`, uploadError);
-          if (uploadAttempts === maxUploadAttempts) {
-            throw uploadError;
-          }
-          // Wait before retry
-          await new Promise(resolve => setTimeout(resolve, 1000 * uploadAttempts));
-          continue;
-        }
-
-        // Get public URL
-        const { data: urlData } = supabase.storage
-          .from('lab-results')
-          .getPublicUrl(qrFileName);
-
-        qrImageUrl = urlData.publicUrl;
-        console.log('✅ QR code uploaded successfully:', qrImageUrl);
-        break;
-        
-      } catch (uploadError) {
-        console.error(`❌ Upload attempt ${uploadAttempts} error:`, uploadError);
-        if (uploadAttempts === maxUploadAttempts) {
-          // If upload fails completely, we'll send email with embedded base64
-          console.log('⚠️ Using fallback: embedded base64 image');
-          qrImageUrl = null;
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000 * uploadAttempts));
-      }
-    }
-
-    // ✅ STEP 7: Wait for storage propagation (only if uploaded)
-    if (qrImageUrl) {
-      console.log('⏳ Step 4: Waiting for storage propagation...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-
-    // ✅ STEP 8: Prepare email content with fallback options
-    console.log('📧 Step 5: Preparing email content...');
-    
+    // ✅ STEP 5: Prepare email data
     const departmentName = qrData.department || 'General Practice';
     const scheduledDate = qrData.scheduledDate || 'To be confirmed';
     const preferredTime = qrData.preferredTime || 'To be confirmed';
     const tempPatientId = qrData.tempPatientId || 'N/A';
 
-    // Create email HTML with both hosted image and base64 fallback
+    // ✅ STEP 6: Create email with QR code as attachment (CID)
+    console.log('📧 Step 2: Preparing email with QR attachment...');
+    
     const emailHtml = `
       <!DOCTYPE html>
       <html lang="en">
@@ -6463,14 +6381,10 @@ app.post('/api/generate-qr-email', async (req, res) => {
             Your registration has been successfully recorded. Please present the QR code below upon arriving at the hospital.
           </p>
 
-          <!-- QR Code Section -->
+          <!-- QR Code Section with CID reference -->
           <div style="text-align: center; margin: 0 0 24px 0;">
             <div style="display: inline-block; background: #f9fafb; border-radius: 12px; padding: 20px; border: 2px solid #e5e7eb;">
-              ${qrImageUrl ? 
-                `<img src="${qrImageUrl}" alt="Registration QR Code" style="max-width: 250px; height: auto; border-radius: 8px; display: block; margin: 0 auto;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                 <img src="${qrCodeDataURL}" alt="Registration QR Code" style="max-width: 250px; height: auto; border-radius: 8px; display: none; margin: 0 auto;">` :
-                `<img src="${qrCodeDataURL}" alt="Registration QR Code" style="max-width: 250px; height: auto; border-radius: 8px; display: block; margin: 0 auto;">`
-              }
+              <img src="cid:qrcode" alt="Registration QR Code" style="width: 250px; height: 250px; border-radius: 8px; display: block; margin: 0 auto; border: 1px solid #e5e7eb;">
               <p style="color: #6b7280; font-size: 13px; font-weight: 400; margin: 16px 0 0 0;">
                 📱 Show this QR code to the registration staff
               </p>
@@ -6504,6 +6418,19 @@ app.post('/api/generate-qr-email', async (req, res) => {
             </ol>
           </div>
 
+          <!-- Backup QR Code (Base64) -->
+          <div style="background: #fffbeb; padding: 16px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 0 0 24px 0;">
+            <p style="color: #92400e; font-size: 13px; font-weight: 500; margin: 0 0 8px 0;">
+              📱 Backup QR Code
+            </p>
+            <p style="color: #78350f; font-size: 12px; margin: 0 0 12px 0;">
+              If the QR code above doesn't display, use this backup:
+            </p>
+            <div style="text-align: center;">
+              <img src="${qrCodeDataURL}" alt="Backup QR Code" style="width: 200px; height: 200px; border: 1px solid #d97706; border-radius: 4px;">
+            </div>
+          </div>
+
           <!-- Important Notice -->
           <div style="background: #fef2f2; padding: 16px; border-radius: 8px; border-left: 4px solid #ef4444; margin: 0 0 24px 0;">
             <p style="color: #dc2626; font-size: 13px; font-weight: 500; margin: 0 0 8px 0;">
@@ -6528,8 +6455,8 @@ app.post('/api/generate-qr-email', async (req, res) => {
       </html>
     `;
 
-    // ✅ STEP 9: Send email with comprehensive error handling
-    console.log('📨 Step 6: Sending email to:', patientEmail);
+    // ✅ STEP 7: Send email with QR code as attachment
+    console.log('📨 Step 3: Sending email with QR attachment...');
     try {
       const sendSmtpEmail = new brevo.SendSmtpEmail();
       
@@ -6546,18 +6473,29 @@ app.post('/api/generate-qr-email', async (req, res) => {
       sendSmtpEmail.subject = `CliCare Registration QR Code - ${patientName}`;
       sendSmtpEmail.htmlContent = emailHtml;
 
-      // Add retry logic for email sending
+      // ✅ KEY FIX: Add QR code as attachment with CID
+      sendSmtpEmail.attachment = [
+        {
+          content: qrCodeBuffer.toString('base64'),
+          name: 'qr-code.png',
+          contentType: 'image/png',
+          disposition: 'inline',
+          contentId: 'qrcode'  // This matches the "cid:qrcode" in HTML
+        }
+      ];
+
+      // Send email with retry logic
       let emailAttempts = 0;
       const maxEmailAttempts = 3;
-      let emailResult;
 
       while (emailAttempts < maxEmailAttempts) {
         try {
           emailAttempts++;
           console.log(`📧 Email attempt ${emailAttempts}/${maxEmailAttempts}`);
           
-          emailResult = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
+          const emailResult = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
           console.log('✅ Email sent successfully via Brevo API');
+          console.log('📧 Email ID:', emailResult.messageId || 'No ID returned');
           break;
           
         } catch (emailError) {
@@ -6587,31 +6525,29 @@ app.post('/api/generate-qr-email', async (req, res) => {
       });
     }
 
-    // ✅ STEP 10: Update database (optional, non-critical)
+    // ✅ STEP 8: Update database (optional, non-critical)
     try {
       await supabase
         .from('pre_registration')
         .update({ 
-                    qr_code: JSON.stringify(qrData),
+          qr_code: JSON.stringify(qrData),
           updated_at: new Date().toISOString()
         })
         .eq('temp_patient_id', qrData.tempPatientId);
       console.log('✅ Database updated with QR data');
     } catch (dbError) {
       console.warn('⚠️ Database update failed (non-critical):', dbError.message);
-      // Don't fail the request for database issues
     }
 
     console.log('🎉 QR generation and email process completed successfully');
 
-    // ✅ STEP 11: Return success response
+    // ✅ STEP 9: Return success response
     res.json({
       success: true,
       qrGenerated: true,
       emailSent: true,
       message: `QR code generated and sent successfully to ${patientEmail}`,
       qrCodeDataURL: qrCodeDataURL,
-      qrImageUrl: qrImageUrl,
       patientId: tempPatientId,
       department: departmentName
     });
@@ -6619,14 +6555,12 @@ app.post('/api/generate-qr-email', async (req, res) => {
   } catch (error) {
     console.error('💥 Unexpected error in QR generation:', error);
     
-    // Return detailed error information
     res.status(500).json({
       success: false,
       qrGenerated: false,
       emailSent: false,
       error: 'QR code generation failed',
       details: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       timestamp: new Date().toISOString()
     });
   }
@@ -9004,7 +8938,7 @@ app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => 
   }
 });
 
-// POST /api/upload-id-image - Upload ID image to Supabase
+// MODIFIED: Upload ID image and save URL directly in database tables
 app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
   try {
     console.log('📥 Upload ID image request received');
@@ -9019,7 +8953,12 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
 
     const { patientId, idType } = req.body;
     
-    console.log('📥 Upload params:', { patientId, idType, fileSize: req.file.size });
+    console.log('📥 Upload params:', { 
+      patientId, 
+      idType, 
+      fileSize: req.file.size,
+      fileName: req.file.originalname 
+    });
     
     if (!patientId || !idType) {
       return res.status(400).json({
@@ -9028,14 +8967,13 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       });
     }
 
-    // Generate organized filename: patientId/idType_timestamp.jpg
+    // ✅ STEP 1: Upload to Supabase Storage
     const timestamp = Date.now();
     const fileExt = path.extname(req.file.originalname) || '.jpg';
     const fileName = `${patientId}/${idType}_${timestamp}${fileExt}`;
     
-    console.log('📤 Uploading to Supabase Storage:', fileName);
+    console.log('📤 Uploading file:', fileName, 'with content type:', req.file.mimetype);
 
-    // Upload to Supabase Storage bucket 'outpatient_id'
     const { data, error } = await supabase.storage
       .from('outpatient_id')
       .upload(fileName, req.file.buffer, {
@@ -9052,23 +8990,82 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       });
     }
 
-    console.log('✅ File uploaded to storage:', data.path);
+    console.log('✅ File uploaded successfully:', data.path);
 
-    // Get public URL
+    // ✅ STEP 2: Get public URL
     const { data: publicUrlData } = supabase.storage
       .from('outpatient_id')
       .getPublicUrl(fileName);
 
     const publicUrl = publicUrlData.publicUrl;
-
     console.log('✅ Public URL generated:', publicUrl);
 
+    // ✅ STEP 3: Determine if this is temp registration or permanent patient
+    let updateResult = null;
+    let recordType = null;
+
+    // Check if it's a temporary patient ID (starts with TEMP)
+    if (patientId.startsWith('TEMP')) {
+      console.log('📝 Updating pre_registration table for temp patient:', patientId);
+      
+      // Update pre_registration table
+      const { data: tempUpdateData, error: tempUpdateError } = await supabase
+        .from('pre_registration')
+        .update({ 
+          id_type: idType,
+          id_image_url: publicUrl,
+          updated_at: new Date().toISOString()
+        })
+        .eq('temp_patient_id', patientId)
+        .select('temp_id, temp_patient_id, name, id_type, id_image_url')
+        .single();
+
+      if (tempUpdateError) {
+        console.error('❌ Failed to update pre_registration:', tempUpdateError);
+        // Don't fail the upload, just log the error
+        console.warn('⚠️ Image uploaded but database update failed');
+      } else {
+        updateResult = tempUpdateData;
+        recordType = 'pre_registration';
+        console.log('✅ Pre-registration updated successfully:', updateResult);
+      }
+
+    } else {
+      console.log('📝 Updating outpatient table for permanent patient:', patientId);
+      
+      // Update outpatient table
+      const { data: patientUpdateData, error: patientUpdateError } = await supabase
+        .from('outpatient')
+        .update({ 
+          id_type: idType,
+          id_image_url: publicUrl
+        })
+        .eq('patient_id', patientId)
+        .select('id, patient_id, name, id_type, id_image_url')
+        .single();
+
+      if (patientUpdateError) {
+        console.error('❌ Failed to update outpatient:', patientUpdateError);
+        // Don't fail the upload, just log the error
+        console.warn('⚠️ Image uploaded but database update failed');
+      } else {
+        updateResult = patientUpdateData;
+        recordType = 'outpatient';
+        console.log('✅ Outpatient updated successfully:', updateResult);
+      }
+    }
+
+    // ✅ STEP 4: Return success response
     res.json({
       success: true,
-      message: 'ID image uploaded successfully',
+      message: 'ID image uploaded and database updated successfully',
       publicUrl: publicUrl,
       fileName: fileName,
-      path: data.path
+      path: data.path,
+      recordType: recordType,
+      updatedRecord: updateResult,
+      patientId: patientId,
+      idType: idType
     });
 
   } catch (error) {
@@ -9080,6 +9077,671 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
     });
   }
 });
+
+// ✅ MODIFIED: Enhanced temp registration endpoint to handle ID data
+app.post('/api/temp-registration', async (req, res) => {
+  const {
+    name,
+    birthday,
+    age,
+    sex,
+    address,
+    contact_no,
+    email,
+    emergency_contact_name,
+    emergency_contact_relationship,
+    emergency_contact_no,
+    symptoms,
+    duration,
+    severity,
+    previous_treatment,
+    allergies,
+    medications,
+    preferred_date,
+    preferred_time_slot,
+    scheduled_date,
+    status,
+    created_date,
+    expires_at,
+    id_type,
+    id_number,
+    id_image_url
+  } = req.body;
+
+  try {
+    console.log('📥 Received temp registration request with ID data:', {
+      name,
+      id_type: id_type || 'not provided',
+      id_number: id_number || 'not provided',
+      id_image_url: id_image_url ? 'URL provided' : 'not provided'
+    });
+
+    // Check for duplicates
+    const { data: duplicateCheck, error: duplicateError } = await supabase
+      .from('pre_registration')
+      .select('temp_patient_id, email, contact_no')
+      .or(`email.ilike.${email},contact_no.eq.${contact_no}`)
+      .limit(1);
+
+    if (duplicateCheck && duplicateCheck.length > 0) {
+      const isDuplicateEmail = duplicateCheck[0].email?.toLowerCase() === email.toLowerCase();
+      return res.status(400).json({
+        success: false,
+        error: 'A registration with this email or contact number already exists',
+        field: isDuplicateEmail ? 'email' : 'phone'
+      });
+    }
+
+    // Generate temp patient ID
+    const { data: maxIdData, error: maxIdError } = await supabase
+      .from('pre_registration')
+      .select('temp_patient_id')
+      .like('temp_patient_id', 'TEMP%')
+      .order('temp_patient_id', { ascending: false })
+      .limit(1);
+
+    let nextId = 1;
+    if (maxIdData && maxIdData.length > 0) {
+      const lastId = maxIdData[0].temp_patient_id;
+      const numPart = parseInt(lastId.substring(4));
+      if (!isNaN(numPart)) {
+        nextId = numPart + 1;
+      }
+    }
+    
+    const temp_patient_id = `TEMP${String(nextId).padStart(9, '0')}`;
+
+    // ✅ ENHANCED: Build insert data object with ID fields
+    const insertData = {
+      temp_patient_id,
+      name,
+      birthday,
+      age: parseInt(age) || null,
+      sex,
+      address,
+      contact_no,
+      email: email.toLowerCase(),
+      emergency_contact_name,
+      emergency_contact_relationship,
+      emergency_contact_no,
+      symptoms,
+      duration: duration || null,
+      severity: severity || null,
+      previous_treatment: previous_treatment || null,
+      allergies: allergies || null,
+      medications: medications || null,
+      preferred_date,
+      preferred_time_slot,
+      scheduled_date,
+      status: status || 'pending',
+      created_date: created_date || new Date().toISOString().split('T')[0],
+      expires_at,
+      // ✅ ID FIELDS - Now saved directly in the table
+      id_type: id_type || null,
+      id_number: id_number || null,
+      id_image_url: id_image_url || null
+    };
+
+    console.log('📤 Inserting temp registration with ID data:', {
+      temp_patient_id: insertData.temp_patient_id,
+      name: insertData.name,
+      id_type: insertData.id_type,
+      id_number: insertData.id_number,
+      id_image_url: insertData.id_image_url ? 'URL included' : 'null'
+    });
+
+    // Insert into database
+    const { data: insertedData, error: insertError } = await supabase
+      .from('pre_registration')
+      .insert(insertData)
+      .select('temp_id, temp_patient_id, name, id_type, id_number, id_image_url')
+      .single();
+
+    if (insertError) {
+      console.error('❌ Insert error:', insertError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to create temporary registration',
+        details: insertError.message
+      });
+    }
+
+    console.log('✅ Temp registration created successfully with ID data:', {
+      temp_id: insertedData.temp_id,
+      temp_patient_id: insertedData.temp_patient_id,
+      name: insertedData.name,
+      id_type: insertedData.id_type,
+      id_number: insertedData.id_number,
+      id_image_url: insertedData.id_image_url ? 'Saved' : 'Not saved'
+    });
+
+    res.json({
+      success: true,
+      message: 'Temporary registration created successfully',
+      temp_id: insertedData.temp_id,
+      temp_patient_id: insertedData.temp_patient_id,
+      name: insertedData.name,
+      id_type: insertedData.id_type,
+      id_number: insertedData.id_number,
+      id_image_url: insertedData.id_image_url
+    });
+
+  } catch (error) {
+    console.error('❌ Temp registration error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create temporary registration',
+      details: error.message
+    });
+  }
+});
+
+// ✅ MODIFIED: Enhanced patient registration to handle ID data from temp registration
+app.post('/api/patient/register', async (req, res) => {
+  const {
+    name,
+    birthday,
+    age,
+    sex,
+    address,
+    contact_no,
+    email,
+    emergency_contact_name,
+    emergency_contact_relationship,
+    emergency_contact_no,
+    symptoms,
+    duration,
+    severity,
+    previous_treatment,
+    allergies,
+    medications,
+    temp_id,
+    id_type,
+    id_number,
+    id_image_url
+  } = req.body;
+
+  try {
+    console.log('📥 Received patient registration with ID data:', {
+      name,
+      temp_id,
+      id_type: id_type || 'not provided',
+      id_number: id_number || 'not provided',
+      id_image_url: id_image_url ? 'URL provided' : 'not provided'
+    });
+
+    // ✅ ENHANCED: If temp_id provided, get ID data from pre_registration
+    let finalIdType = id_type;
+    let finalIdNumber = id_number;
+    let finalIdImageUrl = id_image_url;
+
+    if (temp_id) {
+      console.log('🔍 Looking up temp registration for ID data:', temp_id);
+      
+      const { data: tempData, error: tempError } = await supabase
+        .from('pre_registration')
+        .select('id_type, id_number, id_image_url, name')
+        .eq('temp_id', temp_id)
+        .single();
+
+      if (tempData) {
+        // Use ID data from temp registration if not provided in request
+        finalIdType = finalIdType || tempData.id_type;
+        finalIdNumber = finalIdNumber || tempData.id_number;
+        finalIdImageUrl = finalIdImageUrl || tempData.id_image_url;
+        
+        console.log('✅ Retrieved ID data from temp registration:', {
+          id_type: finalIdType,
+          id_number: finalIdNumber,
+          id_image_url: finalIdImageUrl ? 'URL found' : 'no URL'
+        });
+      }
+    }
+
+    // Check for duplicates
+    const { data: duplicateCheck, error: duplicateError } = await supabase
+      .from('outpatient')
+      .select('patient_id, email, contact_no')
+      .or(`email.ilike.${email.toLowerCase()},contact_no.eq.${contact_no}`)
+      .limit(1);
+
+    if (duplicateCheck && duplicateCheck.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'A patient with this email or contact number already exists',
+        field: duplicateCheck[0].email?.toLowerCase() === email.toLowerCase() ? 'email' : 'phone'
+      });
+    }
+
+    // Generate unique patient ID
+    const { data: maxIdData } = await supabase
+      .from('outpatient')
+      .select('patient_id')
+      .like('patient_id', 'PAT%')
+      .order('patient_id', { ascending: false })
+      .limit(1);
+
+    let nextId = 1;
+    if (maxIdData && maxIdData.length > 0) {
+      const lastId = maxIdData[0].patient_id;
+      const numPart = parseInt(lastId.substring(3));
+      if (!isNaN(numPart)) {
+        nextId = numPart + 1;
+      }
+    }
+    const patient_id = `PAT${String(nextId).padStart(9, '0')}`;
+
+    // ✅ ENHANCED: Insert patient WITH ID fields
+    const patientInsertData = {
+      patient_id,
+      name,
+      birthday,
+      age: parseInt(age) || null,
+      sex,
+      address,
+      contact_no,
+      email: email.toLowerCase(),
+      registration_date: new Date().toISOString().split('T')[0],
+      temp_id: temp_id || null,
+      // ✅ ID FIELDS - Now saved directly in outpatient table
+      id_type: finalIdType || null,
+      id_number: finalIdNumber || null,
+      id_image_url: finalIdImageUrl || null
+    };
+
+    console.log('📤 Inserting patient with ID data:', {
+      patient_id: patientInsertData.patient_id,
+      name: patientInsertData.name,
+      id_type: patientInsertData.id_type,
+      id_number: patientInsertData.id_number,
+      id_image_url: patientInsertData.id_image_url ? 'URL included' : 'null'
+    });
+
+    const { data: patientData, error: patientError } = await supabase
+      .from('outpatient')
+      .insert(patientInsertData)
+      .select()
+      .single();
+
+        if (patientError) {
+      console.error('❌ Patient insert error:', patientError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to register patient',
+        details: patientError.message
+      });
+    }
+
+    console.log('✅ Patient registered with ID info:', {
+      patient_id: patientData.patient_id,
+      name: patientData.name,
+      id_type: patientData.id_type,
+      id_number: patientData.id_number,
+      id_image_url: patientData.id_image_url ? 'Saved' : 'Not saved'
+    });
+
+    // Insert emergency contact
+    if (emergency_contact_name && emergency_contact_no) {
+      const { error: emergencyError } = await supabase
+        .from('emergency_contact')
+        .insert({
+          patient_id: patientData.id,
+          name: emergency_contact_name,
+          contact_number: emergency_contact_no,
+          relationship: emergency_contact_relationship
+        });
+
+      if (emergencyError) {
+        console.error('Emergency contact insert error:', emergencyError);
+      }
+    }
+
+    // Create visit record
+    const { data: visitData, error: visitError } = await supabase
+      .from('visit')
+      .insert({
+        patient_id: patientData.id,
+        visit_date: new Date().toISOString().split('T')[0],
+        visit_time: new Date().toTimeString().split(' ')[0],
+        appointment_type: 'Walk-in Appointment',
+        symptoms: symptoms,
+        duration: duration || null,
+        severity: severity || null,
+        previous_treatment: previous_treatment || null,
+        allergies: allergies || null,
+        medications: medications || null
+      })
+      .select()
+      .single();
+
+    if (visitError) {
+      console.error('Visit insert error:', visitError);
+    }
+
+    // Get department recommendation
+    const symptomList = symptoms ? symptoms.split(',').map(s => s.trim()) : [];
+    const departmentId = await assignDepartmentBySymptoms(symptomList, parseInt(age) || null);
+
+    // Get department info
+    const { data: deptData } = await supabase
+      .from('department')
+      .select('name')
+      .eq('department_id', departmentId)
+      .single();
+
+    const recommendedDepartment = deptData?.name || 'Internal Medicine';
+
+    // Create queue entry
+    const today = new Date().toISOString().split('T')[0];
+    const { data: existingQueues } = await supabase
+      .from('queue')
+      .select('queue_no')
+      .eq('department_id', departmentId)
+      .eq('scheduled_date', today);
+
+    const maxQueueNo = existingQueues?.length > 0 
+      ? Math.max(...existingQueues.map(q => q.queue_no)) 
+      : 0;
+    const queueNumber = maxQueueNo + 1;
+
+    if (visitData) {
+      const { error: queueError } = await supabase
+        .from('queue')
+        .insert({
+          visit_id: visitData.visit_id,
+          department_id: departmentId,
+          queue_no: queueNumber,
+          status: 'waiting',
+          scheduled_date: today
+        });
+
+      if (queueError) {
+        console.error('Queue insert error:', queueError);
+      }
+    }
+
+    // Mark temp registration as completed if exists
+    if (temp_id) {
+      await supabase
+        .from('pre_registration')
+        .update({ status: 'completed' })
+        .eq('temp_id', temp_id);
+    }
+
+    res.json({
+      success: true,
+      message: 'Patient registered successfully',
+      patient: {
+        id: patientData.id,
+        patient_id: patientData.patient_id,
+        name: patientData.name,
+        id_type: patientData.id_type,
+        id_number: patientData.id_number,
+        id_image_url: patientData.id_image_url
+      },
+      visit: visitData,
+      queue_number: queueNumber,
+      recommendedDepartment: recommendedDepartment
+    });
+
+  } catch (error) {
+    console.error('❌ Registration error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to register patient',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: Get ID image for a patient
+app.get('/api/patient/:patientId/id-image', async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    
+    let imageData = null;
+    let recordType = null;
+
+    // Check if it's a temporary patient ID
+    if (patientId.startsWith('TEMP')) {
+      const { data: tempData, error: tempError } = await supabase
+        .from('pre_registration')
+        .select('id_type, id_number, id_image_url, name')
+        .eq('temp_patient_id', patientId)
+        .single();
+
+      if (tempData) {
+        imageData = tempData;
+        recordType = 'pre_registration';
+      }
+    } else {
+      const { data: patientData, error: patientError } = await supabase
+        .from('outpatient')
+        .select('id_type, id_number, id_image_url, name')
+        .eq('patient_id', patientId)
+        .single();
+
+      if (patientData) {
+        imageData = patientData;
+        recordType = 'outpatient';
+      }
+    }
+
+    if (!imageData) {
+      return res.status(404).json({
+        success: false,
+        error: 'Patient not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      patientId: patientId,
+      recordType: recordType,
+      idData: {
+        id_type: imageData.id_type,
+        id_number: imageData.id_number,
+        id_image_url: imageData.id_image_url,
+        has_image: !!imageData.id_image_url
+      }
+    });
+
+  } catch (error) {
+    console.error('Get ID image error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get ID image data',
+      details: error.message
+    });
+  }
+});
+
+// ✅ ENHANCED: Get temp registration with ID data
+app.get('/api/temp-registration/:tempPatientId', async (req, res) => {
+  try {
+    const { tempPatientId } = req.params;
+    
+    const { data: regData, error: regError } = await supabase
+      .from('pre_registration')
+      .select(`
+        *,
+        id_type,
+        id_number,
+        id_image_url
+      `)
+      .eq('temp_patient_id', tempPatientId)
+      .in('status', ['completed', 'pending'])
+      .single();
+    
+    if (regError || !regData) {
+      return res.status(404).json({
+        success: false,
+        error: 'Registration not found or expired'
+      });
+    }
+
+    // Check expiration
+    const now = new Date();
+    const currentDate = now.toISOString().split('T')[0];
+    const currentHour = now.getHours();
+
+    if (regData.expires_at) {
+      const expiresAt = new Date(regData.expires_at);
+      if (now > expiresAt) {
+        await supabase.from('pre_registration').delete().eq('temp_id', regData.temp_id);
+        return res.status(404).json({
+          success: false,
+          error: 'Registration has expired'
+        });
+      }
+    }
+
+    // Check appointment time expiration
+    if (regData.preferred_date) {
+      const appointmentDate = regData.preferred_date;
+      const timeSlot = regData.preferred_time_slot;
+      
+      let hasExpired = false;
+      
+      if (appointmentDate < currentDate) {
+        hasExpired = true;
+      }
+      else if (appointmentDate === currentDate && timeSlot) {
+        switch (timeSlot) {
+          case 'morning':
+            hasExpired = currentHour >= 12;
+            break;
+          case 'afternoon':
+            hasExpired = currentHour >= 17;
+            break;
+          case 'evening':
+            hasExpired = currentHour >= 20;
+            break;
+          case 'anytime':
+            hasExpired = currentHour >= 20;
+            break;
+        }
+      }
+      
+      if (hasExpired) {
+        await supabase.from('pre_registration').delete().eq('temp_id', regData.temp_id);
+        return res.status(404).json({
+          success: false,
+          error: 'Registration appointment time has passed'
+        });
+      }
+    }
+    
+    console.log('✅ Retrieved temp registration with ID data:', {
+      temp_patient_id: regData.temp_patient_id,
+      name: regData.name,
+      id_type: regData.id_type,
+      id_number: regData.id_number,
+      has_id_image: !!regData.id_image_url
+    });
+    
+    res.json({
+      success: true,
+      data: regData,
+      qr_type: 'registration',
+      id_data: {
+        id_type: regData.id_type,
+        id_number: regData.id_number,
+        id_image_url: regData.id_image_url,
+        has_image: !!regData.id_image_url
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get registration error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve registration details',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: Bulk update ID images (for migration or admin use)
+app.post('/api/admin/bulk-update-id-images', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.type !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { updates } = req.body; // Array of { patientId, idType, idImageUrl }
+    
+    if (!updates || !Array.isArray(updates)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Updates array is required'
+      });
+    }
+
+    const results = {
+      successful: 0,
+      failed: 0,
+      errors: []
+    };
+
+    for (const update of updates) {
+      const { patientId, idType, idImageUrl } = update;
+      
+      try {
+        if (patientId.startsWith('TEMP')) {
+          // Update pre_registration
+          const { error } = await supabase
+            .from('pre_registration')
+            .update({ 
+              id_type: idType,
+              id_image_url: idImageUrl,
+              updated_at: new Date().toISOString()
+            })
+            .eq('temp_patient_id', patientId);
+
+          if (error) throw error;
+        } else {
+          // Update outpatient
+          const { error } = await supabase
+            .from('outpatient')
+            .update({ 
+              id_type: idType,
+              id_image_url: idImageUrl
+            })
+            .eq('patient_id', patientId);
+
+          if (error) throw error;
+        }
+        
+        results.successful++;
+        console.log('✅ Updated ID image for:', patientId);
+        
+      } catch (error) {
+        results.failed++;
+        results.errors.push({
+          patientId: patientId,
+          error: error.message
+        });
+        console.error('❌ Failed to update ID image for:', patientId, error);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Bulk update completed: ${results.successful} successful, ${results.failed} failed`,
+      results: results
+    });
+
+  } catch (error) {
+    console.error('Bulk update error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Bulk update failed',
+      details: error.message
+    });
+  }
+});
+
 
 // PATCH /api/patient/:patientId/update-id-image
 app.patch('/api/patient/:patientId/update-id-image', async (req, res) => {
