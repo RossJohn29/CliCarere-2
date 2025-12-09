@@ -8938,7 +8938,7 @@ app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => 
   }
 });
 
-// MODIFIED: Upload ID image and save URL directly in database tables
+// Upload ID image to Supabase Storage
 app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
   try {
     console.log('📥 Upload ID image request received');
@@ -9000,7 +9000,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
     const publicUrl = publicUrlData.publicUrl;
     console.log('✅ Public URL generated:', publicUrl);
 
-    // ✅ STEP 3: Determine if this is temp registration or permanent patient
+    // ✅ STEP 3: Save to appropriate table
     let updateResult = null;
     let recordType = null;
 
@@ -9022,8 +9022,11 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
 
       if (tempUpdateError) {
         console.error('❌ Failed to update pre_registration:', tempUpdateError);
-        // Don't fail the upload, just log the error
-        console.warn('⚠️ Image uploaded but database update failed');
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to save ID data to database',
+          details: tempUpdateError.message
+        });
       } else {
         updateResult = tempUpdateData;
         recordType = 'pre_registration';
@@ -9046,8 +9049,11 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
 
       if (patientUpdateError) {
         console.error('❌ Failed to update outpatient:', patientUpdateError);
-        // Don't fail the upload, just log the error
-        console.warn('⚠️ Image uploaded but database update failed');
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to save ID data to database',
+          details: patientUpdateError.message
+        });
       } else {
         updateResult = patientUpdateData;
         recordType = 'outpatient';
