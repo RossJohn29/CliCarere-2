@@ -1149,8 +1149,6 @@ const processIDImageWithOCR = async (imageData) => {
     };
 
 const handleSubmit = async () => {
-  console.log('🚀 Form submission started');
-  
   if (!validateStep(currentStep)) {
     setError('Please complete all required fields');
     return;
@@ -1189,9 +1187,10 @@ const handleSubmit = async () => {
       status: 'completed',
       created_date: new Date().toISOString().split('T')[0],
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      // ✅ ID FIELDS - Set initially as null, will be updated after upload
       id_type: selectedIDType || null,
       id_number: formData.idNumber || null,
-      id_image_url: null  // Will be updated after localhost upload
+      id_image_url: null  // Will be updated after upload
     };
 
     const response = await fetch(`${apiUrl}/api/temp-registration`, {
@@ -1225,28 +1224,29 @@ const handleSubmit = async () => {
 
     console.log('✅ Registration created:', { tempRegId, tempPatientId });
 
-    // ✅ STEP 2: Upload ID image to localhost if captured
+    // ✅ STEP 2: Upload ID image if captured
     if (capturedIDImage && selectedIDType) {
-      console.log('📤 Step 2: Uploading ID image to localhost...');
+      console.log('📤 Step 2: Uploading ID image...');
       
       try {
         const uploadResult = await uploadIDImage(
           capturedIDImage,
-          tempPatientId,
-          selectedIDType,
-          formData.idNumber
+          tempPatientId, // Use the temp_patient_id from registration
+          selectedIDType
         );
         
         if (uploadResult && uploadResult.success) {
-          console.log('✅ ID image uploaded to localhost:', uploadResult.publicUrl);
+          console.log('✅ ID image uploaded and database updated:', uploadResult.publicUrl);
         } else {
           console.warn('⚠️ ID image upload failed:', uploadResult?.error);
         }
       } catch (uploadError) {
         console.warn('⚠️ ID image upload error:', uploadError);
+        // Don't fail the entire registration for image upload issues
       }
     }
 
+    // Rest of your QR generation code...
     // Rest of your QR generation code...
     const qrData = {
       type: 'webreg_registration',

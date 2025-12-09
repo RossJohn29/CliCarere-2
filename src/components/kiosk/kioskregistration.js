@@ -327,10 +327,10 @@ const registerNewPatient = async (data) => {
   
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
   
-  // ✅ STEP 1: Upload ID image to localhost FIRST if captured
+  // ✅ STEP 1: Upload ID image FIRST if captured (before registration)
   let idImageUrl = null;
   if (capturedIDImage && selectedIDType) {
-    console.log('📤 Step 1: Uploading ID image to localhost before registration...');
+    console.log('📤 Step 1: Uploading ID image before registration...');
     
     try {
       // Create a temporary upload using current timestamp
@@ -339,13 +339,12 @@ const registerNewPatient = async (data) => {
       const uploadResult = await uploadIDImage(
         capturedIDImage,
         tempUploadId,
-        selectedIDType,
-        data.idNumber
+        selectedIDType
       );
       
       if (uploadResult && uploadResult.success && uploadResult.publicUrl) {
         idImageUrl = uploadResult.publicUrl;
-        console.log('✅ ID image uploaded to localhost:', idImageUrl);
+        console.log('✅ ID image uploaded successfully:', idImageUrl);
       } else {
         console.warn('⚠️ ID image upload failed, continuing without image');
       }
@@ -373,6 +372,7 @@ const registerNewPatient = async (data) => {
     allergies: data.allergies || null,
     medications: data.medications || null,
     temp_id: currentQrResult?.temp_id || null,
+    // ✅ ID FIELDS - Use from QR scan result OR form data OR captured image
     id_type: currentQrResult?.id_type || data.id_type || selectedIDType || null,
     id_number: currentQrResult?.id_number || data.id_number || null,
     id_image_url: currentQrResult?.id_image_url || idImageUrl || null
@@ -382,7 +382,7 @@ const registerNewPatient = async (data) => {
     temp_id: requestBody.temp_id,
     id_type: requestBody.id_type,
     id_number: requestBody.id_number,
-    id_image_url: requestBody.id_image_url ? 'localhost URL included' : 'null'
+    id_image_url: requestBody.id_image_url ? 'URL included' : 'null'
   });
 
   const response = await fetch(`${apiUrl}/api/patient/register`, {
@@ -399,7 +399,7 @@ const registerNewPatient = async (data) => {
     patient_id: result.patient?.patient_id,
     id_type: result.patient?.id_type,
     id_number: result.patient?.id_number,
-    id_image_url: result.patient?.id_image_url ? 'saved to localhost' : 'not saved'
+    id_image_url: result.patient?.id_image_url ? 'saved' : 'not saved'
   });
   
   if (!response.ok) {
@@ -414,6 +414,7 @@ const registerNewPatient = async (data) => {
 
   return result;
 };
+
   const bookAppointmentForReturningPatient = async (data) => {
     const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/visit`, {
       method: 'POST',
@@ -702,6 +703,52 @@ const processIDImageWithOCR = async (imageData) => {
   }
 };
 
+// FIXED: Upload function for both webregistration.js and kioskregistration.js
+const uploadIDImage = async (imageData, patientId, idType) => {
+  try {
+    console.log('📤 Starting ID image upload:', { patientId, idType });
+    
+    // Convert base64 to blob
+    const base64Data = imageData.split(',')[1];
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+    
+    // Create FormData with proper patientId (should be TEMP_XXXXXX format)
+    const formData = new FormData();
+    formData.append('file', blob, `${idType}_${Date.now()}.jpg`);
+    formData.append('patientId', patientId); // This should be TEMP_XXXXXX
+    formData.append('idType', idType);
+    
+    console.log('📤 Uploading with patientId:', patientId);
+    
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload-id-image`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      console.log('✅ ID image uploaded successfully:', {
+        publicUrl: result.publicUrl,
+        tempId: result.tempId,
+        fileName: result.fileName
+      });
+      return result;
+    } else {
+      console.error('❌ ID image upload failed:', result.error);
+      return { success: false, error: result.error };
+    }
+  } catch (error) {
+    console.error('❌ ID image upload error:', error);
+    return { success: false, error: error.message };
+  }
+};
   const closeCameraModal = (focusFullName = false) => {
     setShowCameraModal(false);
     setCapturedImage(null);
