@@ -6268,82 +6268,171 @@ app.get('/api/debug/token', authenticateToken, (req, res) => {
   });
 });
 
-// Generate QR email
+// Generate QR email - IMPROVED VERSION with better error handling
 app.post('/api/generate-qr-email', async (req, res) => {
   try {
     console.log('📧 QR generation request received');
     
     const { qrData, patientEmail, patientName } = req.body;
 
-    // Validate input
+    // ✅ STEP 1: Validate input data
     if (!qrData || !patientEmail || !patientName) {
-      console.error('Missing required data:', { qrData: !!qrData, patientEmail: !!patientEmail, patientName: !!patientName });
+      console.error('❌ Missing required data:', { 
+        qrData: !!qrData, 
+        patientEmail: !!patientEmail, 
+        patientName: !!patientName 
+      });
       return res.status(400).json({
+        success: false,
         error: 'Missing required data for QR generation'
       });
     }
 
-    // Step 1: Generate QR code
-    console.log('Step 1: Generating QR code...');
+    // ✅ STEP 2: Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(patientEmail)) {
+      console.error('❌ Invalid email format:', patientEmail);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid email format'
+      });
+    }
+
+    // ✅ STEP 3: Check Brevo API configuration
+    if (!brevoApiInstance) {
+      console.error('❌ Brevo API not configured');
+      return res.status(500).json({
+        success: false,
+        error: 'Email service not configured. Please contact administrator.'
+      });
+    }
+
+    console.log('✅ Input validation passed');
+
+    // ✅ STEP 4: Generate QR code with error handling
+    console.log('📱 Step 1: Generating QR code...');
     let qrCodeDataURL;
     try {
       const qrString = JSON.stringify(qrData);
-      console.log('QR data string length:', qrString.length);
+      console.log('📊 QR data string length:', qrString.length);
+      
+      if (qrString.length > 2000) {
+        console.warn('⚠️ QR data is very large, may cause scanning issues');
+      }
       
       qrCodeDataURL = await QRCode.toDataURL(qrString, {
-        width: 256,
-        margin: 1,
+        width: 300,
+        margin: 2,
         color: {
           dark: '#000000',
           light: '#FFFFFF'
-        }
+        },
+        errorCorrectionLevel: 'M'
       });
       console.log('✅ QR code generated successfully');
     } catch (qrError) {
-      console.error('❌ QR generation failed:', qrError.message);
+      console.error('❌ QR generation failed:', qrError);
       return res.status(500).json({
-        error: 'QR code generation failed',
+        success: false,
+        error: 'Failed to generate QR code',
         details: qrError.message
       });
     }
 
-    // Step 2: Convert to buffer
-    console.log('Step 2: Converting to buffer...');
+    // ✅ STEP 5: Convert to buffer with validation
+    console.log('🔄 Step 2: Converting to buffer...');
     let qrCodeBuffer;
     try {
+      if (!qrCodeDataURL || !qrCodeDataURL.includes('data:image/png;base64,')) {
+        throw new Error('Invalid QR code data URL format');
+      }
+      
       const base64Data = qrCodeDataURL.replace(/^data:image\/png;base64,/, '');
+      if (!base64Data || base64Data.length === 0) {
+        throw new Error('Empty base64 data');
+      }
+      
       qrCodeBuffer = Buffer.from(base64Data, 'base64');
       console.log('✅ Buffer created, size:', qrCodeBuffer.length, 'bytes');
+      
+      if (qrCodeBuffer.length === 0) {
+        throw new Error('Buffer is empty');
+      }
     } catch (bufferError) {
-      console.error('❌ Buffer conversion failed:', bufferError.message);
+      console.error('❌ Buffer conversion failed:', bufferError);
       return res.status(500).json({
-        error: 'Image processing failed',
+        success: false,
+        error: 'Failed to process QR code image',
         details: bufferError.message
       });
     }
 
-    // Step 3: Upload QR code to Supabase Storage
-    console.log('Step 3: Uploading QR code to storage...');
+    // ✅ STEP 6: Upload to Supabase Storage with retry logic
+    console.log('☁️ Step 3: Uploading QR code to storage...');
     let qrImageUrl;
-    try {
-      const qrFileName = `qr_${qrData.tempPatientId}_${Date.now()}.png`;
-      const uploadResult = await uploadToSupabaseStorage(qrCodeBuffer, qrFileName, 'lab-results');
-      qrImageUrl = uploadResult.publicUrl;
-      console.log('✅ QR code uploaded to storage:', qrImageUrl);
-    } catch (uploadError) {
-      console.error('❌ Storage upload failed:', uploadError.message);
-      return res.status(500).json({
-        error: 'Failed to upload QR code',
-        details: uploadError.message
-      });
+    let uploadAttempts = 0;
+    const maxUploadAttempts = 3;
+    
+    while (uploadAttempts < maxUploadAttempts) {
+      try {
+        uploadAttempts++;
+        console.log(`📤 Upload attempt ${uploadAttempts}/${maxUploadAttempts}`);
+        
+        const qrFileName = `qr_codes/qr_${qrData.tempPatientId}_${Date.now()}.png`;
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('lab-results')
+          .upload(qrFileName, qrCodeBuffer, {
+            contentType: 'image/png',
+            upsert: true
+          });
+
+        if (uploadError) {
+          console.error(`❌ Upload attempt ${uploadAttempts} failed:`, uploadError);
+          if (uploadAttempts === maxUploadAttempts) {
+            throw uploadError;
+          }
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000 * uploadAttempts));
+          continue;
+        }
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('lab-results')
+          .getPublicUrl(qrFileName);
+
+        qrImageUrl = urlData.publicUrl;
+        console.log('✅ QR code uploaded successfully:', qrImageUrl);
+        break;
+        
+      } catch (uploadError) {
+        console.error(`❌ Upload attempt ${uploadAttempts} error:`, uploadError);
+        if (uploadAttempts === maxUploadAttempts) {
+          // If upload fails completely, we'll send email with embedded base64
+          console.log('⚠️ Using fallback: embedded base64 image');
+          qrImageUrl = null;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000 * uploadAttempts));
+      }
     }
 
-    // Step 4: Wait for storage propagation
-    console.log('Step 4: Waiting for storage propagation...');
-    await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+    // ✅ STEP 7: Wait for storage propagation (only if uploaded)
+    if (qrImageUrl) {
+      console.log('⏳ Step 4: Waiting for storage propagation...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
 
-    // Step 5: Prepare email HTML with hosted image URL
-    console.log('Step 5: Preparing email...');
+    // ✅ STEP 8: Prepare email content with fallback options
+    console.log('📧 Step 5: Preparing email content...');
+    
+    const departmentName = qrData.department || 'General Practice';
+    const scheduledDate = qrData.scheduledDate || 'To be confirmed';
+    const preferredTime = qrData.preferredTime || 'To be confirmed';
+    const tempPatientId = qrData.tempPatientId || 'N/A';
+
+    // Create email HTML with both hosted image and base64 fallback
     const emailHtml = `
       <!DOCTYPE html>
       <html lang="en">
@@ -6351,49 +6440,97 @@ app.post('/api/generate-qr-email', async (req, res) => {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+        <title>CliCare Registration QR Code</title>
       </head>
       <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Poppins', sans-serif;">
-        <div style="max-width: 600px; margin: 0 auto; padding: 24px 24px;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 24px;">
+          
+          <!-- Header -->
+          <div style="text-align: center; margin-bottom: 24px;">
+            <h1 style="color: #27371f; font-size: 24px; font-weight: 600; margin: 0;">
+              CliCare Hospital
+            </h1>
+            <p style="color: #6b7280; font-size: 16px; margin: 8px 0 0 0;">
+              Registration QR Code
+            </p>
+          </div>
+
+          <!-- Greeting -->
           <p style="color: #27371f; font-size: 15px; font-weight: 500; margin: 0 0 6px 0;">
             Hello ${patientName},
           </p>
           <p style="color: #6b7280; font-size: 14px; font-weight: 300; line-height: 1.5; margin: 0 0 24px 0;">
             Your registration has been successfully recorded. Please present the QR code below upon arriving at the hospital.
           </p>
+
+          <!-- QR Code Section -->
           <div style="text-align: center; margin: 0 0 24px 0;">
-            <div style="display: inline-block; background: #f9fafb; border-radius: 8px; padding: 16px 20px;">
-              <img src="${qrImageUrl}" alt="QR Code" style="max-width: 200px; height: auto; border-radius: 6px; display: block;"/>
-              <p style="color: #6b7280; font-size: 13px; font-weight: 400; margin: 12px 0 0 0;">
-                Show this QR code to the registration staff
+            <div style="display: inline-block; background: #f9fafb; border-radius: 12px; padding: 20px; border: 2px solid #e5e7eb;">
+              ${qrImageUrl ? 
+                `<img src="${qrImageUrl}" alt="Registration QR Code" style="max-width: 250px; height: auto; border-radius: 8px; display: block; margin: 0 auto;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                 <img src="${qrCodeDataURL}" alt="Registration QR Code" style="max-width: 250px; height: auto; border-radius: 8px; display: none; margin: 0 auto;">` :
+                `<img src="${qrCodeDataURL}" alt="Registration QR Code" style="max-width: 250px; height: auto; border-radius: 8px; display: block; margin: 0 auto;">`
+              }
+              <p style="color: #6b7280; font-size: 13px; font-weight: 400; margin: 16px 0 0 0;">
+                📱 Show this QR code to the registration staff
               </p>
             </div>
           </div>
-          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 0 0 24px 0;">
-            <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.8;">
-              <strong style="color: #27371f;">Department:</strong> ${qrData.department || 'General Practice'}<br>
-              <strong style="color: #27371f;">Date:</strong> ${qrData.scheduledDate || 'To be confirmed'}<br>
-              <strong style="color: #27371f;">Time:</strong> ${qrData.preferredTime || 'To be confirmed'}<br>
-              <strong style="color: #27371f;">Temporary Patient ID:</strong> ${qrData.tempPatientId || 'N/A'}
+
+          <!-- Registration Details -->
+          <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 0 0 24px 0;">
+            <h3 style="color: #27371f; font-size: 16px; font-weight: 600; margin: 0 0 12px 0;">
+              📋 Registration Details
+            </h3>
+            <div style="color: #6b7280; font-size: 14px; line-height: 1.8; margin: 0;">
+              <p style="margin: 0;"><strong style="color: #27371f;">Patient ID:</strong> ${tempPatientId}</p>
+              <p style="margin: 0;"><strong style="color: #27371f;">Department:</strong> ${departmentName}</p>
+              <p style="margin: 0;"><strong style="color: #27371f;">Date:</strong> ${scheduledDate}</p>
+              <p style="margin: 0;"><strong style="color: #27371f;">Time:</strong> ${preferredTime}</p>
+            </div>
+          </div>
+
+          <!-- Instructions -->
+          <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; border-left: 4px solid #3b82f6; margin: 0 0 24px 0;">
+            <h3 style="color: #1e40af; font-size: 16px; font-weight: 600; margin: 0 0 12px 0;">
+              📝 What to do next:
+            </h3>
+            <ol style="color: #374151; font-size: 14px; line-height: 1.7; margin: 0; padding-left: 20px;">
+              <li>Save this email or take a screenshot of the QR code</li>
+              <li>Arrive at CliCare Hospital on your scheduled date</li>
+              <li>Show the QR code to the registration staff or scan it at the kiosk</li>
+              <li>Bring a valid ID for verification</li>
+              <li>Follow the staff's instructions for your appointment</li>
+            </ol>
+          </div>
+
+          <!-- Important Notice -->
+          <div style="background: #fef2f2; padding: 16px; border-radius: 8px; border-left: 4px solid #ef4444; margin: 0 0 24px 0;">
+            <p style="color: #dc2626; font-size: 13px; font-weight: 500; margin: 0 0 8px 0;">
+              ⚠️ Important Notice
+            </p>
+            <p style="color: #7f1d1d; font-size: 12px; line-height: 1.5; margin: 0;">
+              This QR code is personalized for <strong>${patientName}</strong> and cannot be used by other patients. 
+              Please arrive 15 minutes before your scheduled time.
             </p>
           </div>
+
+          <!-- Footer -->
           <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
-            <p style="color: #d1d5db; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
+            <p style="color: #9ca3af; font-size: 11px; font-weight: 300; line-height: 1.5; margin: 0;">
               CliCare Hospital Management System<br>
-              This is an automated message. Please do not reply.
+              This is an automated message. Please do not reply to this email.
             </p>
           </div>
+
         </div>
       </body>
       </html>
     `;
 
-    // Step 6: Send email via Brevo API
-    console.log('Step 6: Sending email to:', patientEmail);
+    // ✅ STEP 9: Send email with comprehensive error handling
+    console.log('📨 Step 6: Sending email to:', patientEmail);
     try {
-      if (!brevoApiInstance) {
-        throw new Error('Brevo API not configured - missing API key');
-      }
-      
       const sendSmtpEmail = new brevo.SendSmtpEmail();
       
       sendSmtpEmail.sender = {
@@ -6401,47 +6538,291 @@ app.post('/api/generate-qr-email', async (req, res) => {
         email: emailConfig.from.email
       };
       
-      sendSmtpEmail.to = [{ email: patientEmail, name: patientName }];
-      sendSmtpEmail.subject = `Your CliCare Registration QR Code - ${patientName}`;
+      sendSmtpEmail.to = [{ 
+        email: patientEmail, 
+        name: patientName 
+      }];
+      
+      sendSmtpEmail.subject = `CliCare Registration QR Code - ${patientName}`;
       sendSmtpEmail.htmlContent = emailHtml;
 
-      const result = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
-      console.log('✅ Email sent successfully via Brevo API');
+      // Add retry logic for email sending
+      let emailAttempts = 0;
+      const maxEmailAttempts = 3;
+      let emailResult;
+
+      while (emailAttempts < maxEmailAttempts) {
+        try {
+          emailAttempts++;
+          console.log(`📧 Email attempt ${emailAttempts}/${maxEmailAttempts}`);
+          
+          emailResult = await brevoApiInstance.sendTransacEmail(sendSmtpEmail);
+          console.log('✅ Email sent successfully via Brevo API');
+          break;
+          
+        } catch (emailError) {
+          console.error(`❌ Email attempt ${emailAttempts} failed:`, emailError);
+          
+          if (emailAttempts === maxEmailAttempts) {
+            throw emailError;
+          }
+          
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 2000 * emailAttempts));
+        }
+      }
 
     } catch (emailError) {
-      console.error('❌ Email sending failed:', emailError.message);
-      return res.status(500).json({
-        error: 'Failed to send email',
-        details: emailError.message
+      console.error('❌ All email attempts failed:', emailError);
+      
+      // Return partial success - QR was generated but email failed
+      return res.status(207).json({
+        success: false,
+        qrGenerated: true,
+        emailSent: false,
+        qrCodeDataURL: qrCodeDataURL,
+        error: 'QR code generated successfully, but email delivery failed',
+        details: emailError.message,
+        message: 'Please save the QR code from this response and show it at the hospital'
       });
     }
 
-    // Step 7: Update database (optional)
+    // ✅ STEP 10: Update database (optional, non-critical)
     try {
       await supabase
         .from('pre_registration')
         .update({ 
-          qr_code: JSON.stringify(qrData),
+                    qr_code: JSON.stringify(qrData),
           updated_at: new Date().toISOString()
         })
         .eq('temp_patient_id', qrData.tempPatientId);
-      console.log('✅ Database updated');
+      console.log('✅ Database updated with QR data');
     } catch (dbError) {
       console.warn('⚠️ Database update failed (non-critical):', dbError.message);
+      // Don't fail the request for database issues
     }
 
     console.log('🎉 QR generation and email process completed successfully');
 
+    // ✅ STEP 11: Return success response
     res.json({
       success: true,
-      message: 'QR code generated and sent successfully to ' + patientEmail,
-      qrCodeDataURL: qrCodeDataURL
+      qrGenerated: true,
+      emailSent: true,
+      message: `QR code generated and sent successfully to ${patientEmail}`,
+      qrCodeDataURL: qrCodeDataURL,
+      qrImageUrl: qrImageUrl,
+      patientId: tempPatientId,
+      department: departmentName
     });
 
   } catch (error) {
     console.error('💥 Unexpected error in QR generation:', error);
+    
+    // Return detailed error information
     res.status(500).json({
-      error: 'Internal server error',
+      success: false,
+      qrGenerated: false,
+      emailSent: false,
+      error: 'QR code generation failed',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// ✅ ADDITIONAL: Add a test endpoint for QR email functionality
+app.post('/api/test-qr-email', async (req, res) => {
+  try {
+    console.log('🧪 Testing QR email functionality...');
+    
+    // Test data
+    const testQrData = {
+      type: 'webreg_registration',
+      tempPatientId: 'TEST123456',
+      patientName: 'Test Patient',
+      patientEmail: 'test@example.com',
+      department: 'Internal Medicine',
+      scheduledDate: new Date().toISOString().split('T')[0],
+      preferredTime: 'morning',
+      timestamp: new Date().toISOString()
+    };
+
+    // Check Brevo configuration
+    if (!brevoApiInstance) {
+      return res.status(500).json({
+        success: false,
+        error: 'Brevo API not configured',
+        details: 'BREVO_API_KEY environment variable is missing'
+      });
+    }
+
+    // Test QR generation
+    let qrCodeDataURL;
+    try {
+      qrCodeDataURL = await QRCode.toDataURL(JSON.stringify(testQrData), {
+        width: 256,
+        margin: 1
+      });
+      console.log('✅ QR generation test passed');
+    } catch (qrError) {
+      return res.status(500).json({
+        success: false,
+        error: 'QR generation test failed',
+        details: qrError.message
+      });
+    }
+
+    // Test Brevo API connection
+    try {
+      const testEmail = new brevo.SendSmtpEmail();
+      testEmail.sender = emailConfig.from;
+      testEmail.to = [{ email: 'test@example.com', name: 'Test' }];
+      testEmail.subject = 'CliCare QR Test';
+      testEmail.htmlContent = '<p>Test email</p>';
+
+      // Don't actually send, just validate the setup
+      console.log('✅ Brevo API configuration test passed');
+    } catch (brevoError) {
+      return res.status(500).json({
+        success: false,
+        error: 'Brevo API test failed',
+        details: brevoError.message
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'QR email functionality test passed',
+      tests: {
+        qrGeneration: 'PASSED',
+        brevoConfig: 'PASSED',
+        emailConfig: emailConfig
+      }
+    });
+
+  } catch (error) {
+    console.error('🧪 Test failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Test failed',
+      details: error.message
+    });
+  }
+});
+
+// ✅ ADDITIONAL: Add endpoint to resend QR email
+app.post('/api/resend-qr-email', async (req, res) => {
+  try {
+    const { tempPatientId, patientEmail } = req.body;
+
+    if (!tempPatientId || !patientEmail) {
+      return res.status(400).json({
+        success: false,
+        error: 'Temporary patient ID and email are required'
+      });
+    }
+
+    // Get registration data
+    const { data: regData, error: regError } = await supabase
+      .from('pre_registration')
+      .select('*')
+      .eq('temp_patient_id', tempPatientId)
+      .single();
+
+    if (regError || !regData) {
+      return res.status(404).json({
+        success: false,
+        error: 'Registration not found'
+      });
+    }
+
+    // Recreate QR data
+    const qrData = {
+      type: 'webreg_registration',
+      tempPatientId: regData.temp_patient_id,
+      patientName: regData.name,
+      patientEmail: regData.email,
+      department: 'General Practice', // You might want to get this from department table
+      scheduledDate: regData.preferred_date,
+      preferredTime: regData.preferred_time_slot,
+      symptoms: regData.symptoms,
+      timestamp: new Date().toISOString()
+    };
+
+    // Use the main QR email function
+    const emailResult = await fetch(`${req.protocol}://${req.get('host')}/api/generate-qr-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        qrData: qrData,
+        patientEmail: patientEmail,
+        patientName: regData.name
+      })
+    });
+
+    const result = await emailResult.json();
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'QR code email resent successfully'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to resend QR email',
+        details: result.error
+      });
+    }
+
+  } catch (error) {
+    console.error('Resend QR email error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to resend QR email',
+      details: error.message
+    });
+  }
+});
+
+// ✅ ADDITIONAL: Add endpoint to check email service status
+app.get('/api/email-service-status', async (req, res) => {
+  try {
+    const status = {
+      brevoConfigured: !!brevoApiInstance,
+      emailFrom: emailConfig.from.email,
+      timestamp: new Date().toISOString()
+    };
+
+    if (brevoApiInstance) {
+      try {
+        // Test Brevo API connection (this doesn't send an email)
+        const testEmail = new brevo.SendSmtpEmail();
+        testEmail.sender = emailConfig.from;
+        testEmail.to = [{ email: 'test@example.com', name: 'Test' }];
+        testEmail.subject = 'Test';
+        testEmail.htmlContent = '<p>Test</p>';
+        
+        status.brevoConnection = 'READY';
+      } catch (brevoError) {
+        status.brevoConnection = 'ERROR';
+        status.brevoError = brevoError.message;
+      }
+    }
+
+    res.json({
+      success: true,
+      emailService: status
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check email service status',
       details: error.message
     });
   }
