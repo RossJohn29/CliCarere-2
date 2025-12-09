@@ -43,7 +43,8 @@ import {
   isCameraAvailable,
   initializeCamera,
   cleanupCamera,
-  captureImageFromVideo
+  captureImageFromVideo,
+  uploadIDImage 
 } from '../../services/tesseractOCR';
 
 const KioskRegistration = () => {
@@ -535,134 +536,136 @@ const KioskRegistration = () => {
     }
   };
 
-  const processIDImageWithOCR = async (imageData) => {
-    if (ocrProcessing || !imageData) return;
+const processIDImageWithOCR = async (imageData) => {
+  if (ocrProcessing || !imageData) return;
+  
+  if (!selectedIDType) {
+    setCameraError('Please select an ID type first');
+    return;
+  }
+  
+  setOcrProcessing(true);
+  
+  try {
+    const result = await processIDWithOCR(imageData, selectedIDType);
     
-    if (!selectedIDType) {
-      setCameraError('Please select an ID type first');
-      return;
-    }
-    
-    setOcrProcessing(true);
-    
-    try {
-      const result = await processIDWithOCR(imageData, selectedIDType);
+    if (result.success && result.name) {
+      // Handle different ID types with their specific fields
+      const updateData = { 
+        fullName: result.name,
+        idType: selectedIDType,
+        idNumber: result.idNumber || ''
+      };
       
-      if (result.success && result.name) {
-        // Handle different ID types with their specific fields
-        const updateData = { 
-          fullName: result.name,
-          idType: selectedIDType,
-          idNumber: result.idNumber || '' // ✅ FIX: Capture ID number from OCR
-        };
-        
-        // PhilHealth: populate name, sex, birthday, and address
-        if (selectedIDType === 'philhealth') {
-          if (result.sex) {
-            updateData.sex = result.sex;
-          }
-          if (result.birthday) {
-            updateData.birthday = result.birthday;
-            updateData.age = calculateAge(result.birthday);
-          }
-          if (result.address) {
-            updateData.address = result.address;
-          }
+      // PhilHealth: populate name, sex, birthday, and address
+      if (selectedIDType === 'philhealth') {
+        if (result.sex) {
+          updateData.sex = result.sex;
         }
-        // Driver's License: populate name, sex, birthday, and address
-        else if (selectedIDType === 'drivers_license') {
-          if (result.sex) {
-            updateData.sex = result.sex;
-          }
-          if (result.birthday) {
-            updateData.birthday = result.birthday;
-            updateData.age = calculateAge(result.birthday);
-          }
-          if (result.address) {
-            updateData.address = result.address;
-          }
+        if (result.birthday) {
+          updateData.birthday = result.birthday;
+          updateData.age = calculateAge(result.birthday);
         }
-        // UMID: populate sex, birthday, and address
-        else if (selectedIDType === 'umid') {
-          if (result.sex) {
-            updateData.sex = result.sex;
-          }
-          if (result.birthday) {
-            updateData.birthday = result.birthday;
-            updateData.age = calculateAge(result.birthday);
-          }
-          if (result.address) {
-            updateData.address = result.address;
-          }
+        if (result.address) {
+          updateData.address = result.address;
         }
-        // PhilSys or Postal ID: populate birthday and address
-        else if (selectedIDType === 'philsys' || selectedIDType === 'postal') {
-          if (result.birthday) {
-            updateData.birthday = result.birthday;
-            updateData.age = calculateAge(result.birthday);
-          }
-          if (result.address) {
-            updateData.address = result.address;
-          }
-        }
-        
-        setFormData((prev) => ({ 
-          ...prev, 
-          ...updateData
-        }));
-        
-        setCapturedIDImage(imageData);
-        
-        setShowCameraModal(false);
-        setError('');
-        
-        // Show appropriate success message for each ID type
-        let successMessage = `${ID_TYPES.find(t => t.value === selectedIDType)?.label} scanned successfully!`;
-        
-        if (selectedIDType === 'philhealth' && result.sex && result.birthday && result.address) {
-          successMessage += ' Name, sex, birthday, and address extracted.';
-        } else if (selectedIDType === 'philhealth' && (result.sex || result.birthday || result.address)) {
-          const extracted = [];
-          if (result.sex) extracted.push('sex');
-          if (result.birthday) extracted.push('birthday');
-          if (result.address) extracted.push('address');
-          successMessage += ` Name and ${extracted.join(', ')} extracted.`;
-        } else if (selectedIDType === 'drivers_license' && result.sex && result.birthday && result.address) {
-          successMessage += ' Name, sex, birthday, and address extracted.';
-        } else if (selectedIDType === 'drivers_license' && (result.sex || result.birthday || result.address)) {
-          const extracted = [];
-          if (result.sex) extracted.push('sex');
-          if (result.birthday) extracted.push('birthday');
-          if (result.address) extracted.push('address');
-          successMessage += ` Name and ${extracted.join(', ')} extracted.`;
-        } else if (selectedIDType === 'umid' && result.sex && result.birthday && result.address) {
-          successMessage += ' Name, sex, birthday, and address extracted.';
-        } else if (selectedIDType === 'umid' && (result.sex || result.birthday || result.address)) {
-          const extracted = [];
-          if (result.sex) extracted.push('sex');
-          if (result.birthday) extracted.push('birthday');
-          if (result.address) extracted.push('address');
-          successMessage += ` Name and ${extracted.join(', ')} extracted.`;
-        } else if ((selectedIDType === 'philsys' || selectedIDType === 'postal') && result.birthday && result.address) {
-          successMessage += ' Name, birthday, and address extracted.';
-        } else if ((selectedIDType === 'philsys' || selectedIDType === 'postal') && (result.birthday || result.address)) {
-          successMessage += ' Name and ' + (result.birthday ? 'birthday' : 'address') + ' extracted.';
-        } else if (selectedIDType === 'pagibig') {
-          successMessage += ' Name extracted.';
-        } else if (selectedIDType === 'drivers_license') {
-          successMessage += ' Name extracted.';
-        }
-        
-        showToastNotification(successMessage, 'success');
-      } else {
-        setCameraError(result.message || 'Failed to extract information from ID');
       }
-    } catch (err) {
-      setCameraError('Failed to process ID image. Please try again.');
-    } finally {
-      setOcrProcessing(false);
+      // Driver's License: populate name, sex, birthday, and address
+      else if (selectedIDType === 'drivers_license') {
+        if (result.sex) {
+          updateData.sex = result.sex;
+        }
+        if (result.birthday) {
+          updateData.birthday = result.birthday;
+          updateData.age = calculateAge(result.birthday);
+        }
+        if (result.address) {
+          updateData.address = result.address;
+        }
+      }
+      // UMID: populate sex, birthday, and address
+      else if (selectedIDType === 'umid') {
+        if (result.sex) {
+          updateData.sex = result.sex;
+        }
+        if (result.birthday) {
+          updateData.birthday = result.birthday;
+          updateData.age = calculateAge(result.birthday);
+        }
+        if (result.address) {
+          updateData.address = result.address;
+        }
+      }
+      // PhilSys or Postal ID: populate birthday and address
+      else if (selectedIDType === 'philsys' || selectedIDType === 'postal') {
+        if (result.birthday) {
+          updateData.birthday = result.birthday;
+          updateData.age = calculateAge(result.birthday);
+        }
+        if (result.address) {
+          updateData.address = result.address;
+        }
+      }
+      
+      setFormData((prev) => ({ 
+        ...prev, 
+        ...updateData
+      }));
+      
+      // ✅ SAVE CAPTURED IMAGE FOR LATER UPLOAD (during form submission)
+      setCapturedIDImage(imageData);
+      
+      setShowCameraModal(false);
+      setError('');
+      
+      // Show appropriate success message for each ID type
+      let successMessage = `${ID_TYPES.find(t => t.value === selectedIDType)?.label} scanned successfully!`;
+      
+      if (selectedIDType === 'philhealth' && result.sex && result.birthday && result.address) {
+        successMessage += ' Name, sex, birthday, and address extracted.';
+      } else if (selectedIDType === 'philhealth' && (result.sex || result.birthday || result.address)) {
+        const extracted = [];
+        if (result.sex) extracted.push('sex');
+        if (result.birthday) extracted.push('birthday');
+        if (result.address) extracted.push('address');
+        successMessage += ` Name and ${extracted.join(', ')} extracted.`;
+      } else if (selectedIDType === 'drivers_license' && result.sex && result.birthday && result.address) {
+        successMessage += ' Name, sex, birthday, and address extracted.';
+      } else if (selectedIDType === 'drivers_license' && (result.sex || result.birthday || result.address)) {
+        const extracted = [];
+        if (result.sex) extracted.push('sex');
+        if (result.birthday) extracted.push('birthday');
+        if (result.address) extracted.push('address');
+        successMessage += ` Name and ${extracted.join(', ')} extracted.`;
+      } else if (selectedIDType === 'umid' && result.sex && result.birthday && result.address) {
+        successMessage += ' Name, sex, birthday, and address extracted.';
+      } else if (selectedIDType === 'umid' && (result.sex || result.birthday || result.address)) {
+        const extracted = [];
+        if (result.sex) extracted.push('sex');
+        if (result.birthday) extracted.push('birthday');
+        if (result.address) extracted.push('address');
+        successMessage += ` Name and ${extracted.join(', ')} extracted.`;
+      } else if ((selectedIDType === 'philsys' || selectedIDType === 'postal') && result.birthday && result.address) {
+        successMessage += ' Name, birthday, and address extracted.';
+      } else if ((selectedIDType === 'philsys' || selectedIDType === 'postal') && (result.birthday || result.address)) {
+        successMessage += ' Name and ' + (result.birthday ? 'birthday' : 'address') + ' extracted.';
+      } else if (selectedIDType === 'pagibig') {
+        successMessage += ' Name extracted.';
+      } else if (selectedIDType === 'drivers_license') {
+        successMessage += ' Name extracted.';
+      }
+      
+      successMessage += ' ID image saved for registration.';
+      showToastNotification(successMessage, 'success');
+    } else {
+      setCameraError(result.message || 'Failed to extract information from ID');
     }
-  };
+  } catch (err) {
+    setCameraError('Failed to process ID image. Please try again.');
+  } finally {
+    setOcrProcessing(false);
+  }
+};
 
   const uploadIDImage = async (imageData, patientId, idType) => {
     try {
@@ -1642,157 +1645,158 @@ const KioskRegistration = () => {
   };
 
 
-  const handleSubmit = async () => {
-    console.log('🚀 Form submission started');
-    console.log('🔍 Current qrScanResult:', qrScanResult);
-    console.log('🔍 QR scan result temp_id:', qrScanResult?.temp_id);
-    
-    // Get QR result from state or localStorage
-    let currentQrResult = qrScanResult;
-    
-    if (!currentQrResult) {
-      const stored = localStorage.getItem('kioskQrScanResult');
-      if (stored) {
-        try {
-          currentQrResult = JSON.parse(stored);
-          console.log('📦 Retrieved QR result from localStorage:', currentQrResult);
-        } catch (error) {
-          console.error('❌ Failed to parse stored QR result:', error);
-        }
+const handleSubmit = async () => {
+  console.log('🚀 Form submission started');
+  console.log('🔍 Current qrScanResult:', qrScanResult);
+  console.log('🔍 QR scan result temp_id:', qrScanResult?.temp_id);
+  
+  // Get QR result from state or localStorage
+  let currentQrResult = qrScanResult;
+  
+  if (!currentQrResult) {
+    const stored = localStorage.getItem('kioskQrScanResult');
+    if (stored) {
+      try {
+        currentQrResult = JSON.parse(stored);
+        console.log('📦 Retrieved QR result from localStorage:', currentQrResult);
+      } catch (error) {
+        console.error('❌ Failed to parse stored QR result:', error);
       }
     }
-    
-    console.log('🔍 Final QR result to use:', currentQrResult);
-    
-    if (!validateStep(currentStep)) {
-      setError('Please complete all required fields');
-      return;
-    }
+  }
+  
+  console.log('🔍 Final QR result to use:', currentQrResult);
+  
+  if (!validateStep(currentStep)) {
+    setError('Please complete all required fields');
+    return;
+  }
 
-    setLoading(true);
-    setError('');
+  setLoading(true);
+  setError('');
 
-    try {
-      let result;
+  try {
+    let result;
+    
+    if (patientType === 'returning') {
+      result = await bookAppointmentForReturningPatient(patientData);
+    } else {
+      const calculatedAge = formData.age || calculateAge(formData.birthday);
       
-      if (patientType === 'returning') {
-        result = await bookAppointmentForReturningPatient(patientData);
-      } else {
-        const calculatedAge = formData.age || calculateAge(formData.birthday);
+      console.log('📤 About to call registerNewPatient with QR result:', currentQrResult);
+      
+      // ✅ STEP 1: Upload ID image BEFORE registration if captured
+      let idImageUrl = null;
+      if (capturedIDImage && selectedIDType) {
+        console.log('📤 Uploading ID image before registration...');
         
-        console.log('📤 About to call registerNewPatient with QR result:', currentQrResult);
+        // Generate temporary patient ID for upload
+        const tempUploadId = `TEMP_${Date.now()}`;
         
-        // ✅ FIX 1: Upload ID image BEFORE registration if captured
-        let idImageUrl = null;
-        if (capturedIDImage && selectedIDType) {
-          console.log('📤 Uploading ID image before registration...');
-          
-          // Generate temporary patient ID for upload (will be replaced with real ID after registration)
-          const tempUploadId = `TEMP_${Date.now()}`;
-          
-          idImageUrl = await uploadIDImage(
-            capturedIDImage,
-            tempUploadId,
-            selectedIDType
-          );
-          
-          if (idImageUrl) {
-            console.log('✅ ID image uploaded successfully:', idImageUrl);
-          } else {
-            console.warn('⚠️ ID image upload failed, continuing without image');
-          }
-        }
+        const uploadResult = await uploadIDImage(
+          capturedIDImage,
+          tempUploadId,
+          selectedIDType
+        );
         
-        // ✅ FIX 2: Include id_type, id_number, and id_image_url in registration data
-        const registrationData = {
-          ...formData,
-          age: calculatedAge,
-          temp_id: currentQrResult?.temp_id || null,
-          id_type: selectedIDType || null,
-          id_number: formData.idNumber || null,
-          id_image_url: idImageUrl || null // Include the uploaded image URL
-        };
-        
-        console.log('📤 Submitting registration with ID data:', {
-          id_type: registrationData.id_type,
-          id_number: registrationData.id_number,
-          id_image_url: registrationData.id_image_url
-        });
-        
-        result = await registerNewPatient(registrationData);
-        
-        // ✅ FIX 3: Update image path with real patient ID after registration
-        if (idImageUrl && result.patient?.patient_id) {
-          console.log('🔄 Updating ID image path with real patient ID...');
-          
-          // Re-upload with correct patient ID
-          const finalImageUrl = await uploadIDImage(
-            capturedIDImage,
-            result.patient.patient_id,
-            selectedIDType
-          );
-          
-          if (finalImageUrl) {
-            console.log('✅ ID image path updated with real patient ID');
-            
-            // Update the database with the final image URL
-            try {
-              await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/${result.patient.patient_id}/update-id-image`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                  id_image_url: finalImageUrl
-                })
-              });
-              console.log('✅ Database updated with final image URL');
-            } catch (updateError) {
-              console.error('❌ Failed to update image URL in database:', updateError);
-            }
-          }
+        if (uploadResult.success) {
+          idImageUrl = uploadResult.publicUrl;
+          console.log('✅ ID image uploaded successfully:', idImageUrl);
+        } else {
+          console.warn('⚠️ ID image upload failed, continuing without image');
         }
       }
-
-      // Clear localStorage after successful registration
-      if (currentQrResult?.temp_id) {
-        localStorage.removeItem('kioskQrScanResult');
-        console.log('🗑️ Cleared QR result from localStorage after successful registration');
-      }
-
-      const patientId = result.patient?.patient_id || result.visit?.patient_id || 'UNKNOWN';
-      const recommendedDepartment = await generateDepartmentRecommendation();
-
-      showToastNotification('Registration completed successfully!', 'success');
-
-      const registrationResult = {
-        patientId: result.patient?.patient_id || patientId,
-        recommendedDepartment: result.recommendedDepartment || recommendedDepartment,
-        queue_number: result.queue_number || result.queue?.queue_no || Math.floor(Math.random() * 50) + 1,
-        estimated_wait: result.estimated_wait || '15-30 minutes',
-        type: patientType === 'returning' ? 'appointment' : 'registration',
-        message: patientType === 'returning' ? 
-          'Appointment booked successfully!' : 
-          'Registration completed successfully!'
+      
+      // ✅ STEP 2: Include id_type, id_number, and id_image_url in registration data
+      const registrationData = {
+        ...formData,
+        age: calculatedAge,
+        temp_id: currentQrResult?.temp_id || null,
+        id_type: selectedIDType || null,
+        id_number: formData.idNumber || null,
+        id_image_url: idImageUrl  // ✅ Include the uploaded image URL
       };
+      
+      console.log('📤 Submitting registration with ID data:', {
+        id_type: registrationData.id_type,
+        id_number: registrationData.id_number,
+        id_image_url: registrationData.id_image_url
+      });
+      
+      result = await registerNewPatient(registrationData);
+      
+      // ✅ STEP 3: Update image path with real patient ID after registration
+      if (idImageUrl && result.patient?.patient_id && capturedIDImage) {
+        console.log('🔄 Updating ID image path with real patient ID...');
+        
+        // Re-upload with correct patient ID
+        const finalUploadResult = await uploadIDImage(
+          capturedIDImage,
+          result.patient.patient_id,
+          selectedIDType
+        );
+        
+        if (finalUploadResult.success) {
+          console.log('✅ ID image path updated with real patient ID');
+          
+          // Update the database with the final image URL
+          try {
+            await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/${result.patient.patient_id}/update-id-image`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                id_image_url: finalUploadResult.publicUrl
+              })
+            });
+            console.log('✅ Database updated with final image URL');
+          } catch (updateError) {
+            console.error('❌ Failed to update image URL in database:', updateError);
+          }
+        }
+      }
+    }
 
-      setRegistrationResult(registrationResult);
+    // Clear localStorage after successful registration
+    if (currentQrResult?.temp_id) {
+      localStorage.removeItem('kioskQrScanResult');
+      console.log('🗑️ Cleared QR result from localStorage after successful registration');
+    }
+
+    const patientId = result.patient?.patient_id || result.visit?.patient_id || 'UNKNOWN';
+    const recommendedDepartment = await generateDepartmentRecommendation();
+
+    showToastNotification('Registration completed successfully!', 'success');
+
+    const registrationResult = {
+      patientId: result.patient?.patient_id || patientId,
+      recommendedDepartment: result.recommendedDepartment || recommendedDepartment,
+      queue_number: result.queue_number || result.queue?.queue_no || Math.floor(Math.random() * 50) + 1,
+      estimated_wait: result.estimated_wait || '15-30 minutes',
+      type: patientType === 'returning' ? 'appointment' : 'registration',
+      message: patientType === 'returning' ? 
+        'Appointment booked successfully!' : 
+        'Registration completed successfully!'
+    };
+
+    setRegistrationResult(registrationResult);
+    
+    setTimeout(() => {
+      setShowSuccessModal(true);
       
       setTimeout(() => {
-        setShowSuccessModal(true);
-        
-        setTimeout(() => {
-          handleAutomaticPrint(registrationResult);
-        }, 1500);
-        
-      }, 1000);
+        handleAutomaticPrint(registrationResult);
+      }, 1500);
+      
+    }, 1000);
 
-    } catch (err) {
-      console.error('❌ Submit error:', err);
-      setError(err.message || 'Registration failed. Please check your information and try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  } catch (err) {
+    console.error('❌ Submit error:', err);
+    setError(err.message || 'Registration failed. Please check your information and try again.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleSuccessModalClose = () => {
     setShowSuccessModal(false);

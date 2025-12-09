@@ -8622,6 +8622,106 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
   }
 });
 
+// PATCH /api/patient/:patientId/update-id-image - Update patient's ID image URL
+app.patch('/api/patient/:patientId/update-id-image', async (req, res) => {
+  const { patientId } = req.params;
+  const { id_image_url } = req.body;
+  
+  try {
+    const { data: result, error } = await supabase
+      .from('outpatient')
+      .update({ 
+        id_image_url: id_image_url,
+        updated_at: new Date().toISOString()
+      })
+      .eq('patient_id', patientId)
+      .select('patient_id, id_image_url')
+      .single();
+
+    if (error) {
+      console.error('❌ Update error:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to update ID image URL',
+        details: error.message
+      });
+    }
+
+    if (!result) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Patient not found' 
+      });
+    }
+
+    console.log('✅ Updated ID image URL for patient:', patientId);
+
+    res.json({ 
+      success: true, 
+      message: 'ID image URL updated successfully',
+      patient_id: result.patient_id,
+      id_image_url: result.id_image_url
+    });
+  } catch (error) {
+    console.error('❌ Error updating ID image URL:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update ID image URL',
+      details: error.message
+    });
+  }
+});
+
+// PATCH /api/temp-registration/:tempId/update-id-image - Update temp registration's ID image URL
+app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => {
+  const { tempId } = req.params;
+  const { id_image_url } = req.body;
+  
+  try {
+    const { data: result, error } = await supabase
+      .from('pre_registration')
+      .update({ 
+        id_image_url: id_image_url,
+        updated_at: new Date().toISOString()
+      })
+      .eq('temp_id', tempId)
+      .select('temp_id, temp_patient_id, id_image_url')
+      .single();
+
+    if (error) {
+      console.error('❌ Update error:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to update ID image URL',
+        details: error.message
+      });
+    }
+
+    if (!result) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Temporary registration not found' 
+      });
+    }
+
+    console.log('✅ Updated ID image URL for temp registration:', tempId);
+
+    res.json({ 
+      success: true, 
+      message: 'ID image URL updated successfully',
+      temp_id: result.temp_id,
+      temp_patient_id: result.temp_patient_id,
+      id_image_url: result.id_image_url
+    });
+  } catch (error) {
+    console.error('❌ Error updating ID image URL:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update ID image URL',
+      details: error.message
+    });
+  }
+});
 
 // Start server
 app.listen(PORT, () => {

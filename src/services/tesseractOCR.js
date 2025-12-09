@@ -2279,6 +2279,66 @@ const extractUMIDIDNumber = (lines) => {
     }
   };
 
+  /**
+   * Upload ID image to backend and get URL
+   * @param {string} imageData - Base64 image data
+   * @param {string} patientId - Patient ID (temp or permanent)
+   * @param {string} idType - Type of ID being uploaded
+   * @returns {Promise<{success: boolean, publicUrl?: string, error?: string}>}
+   */
+  export const uploadIDImage = async (imageData, patientId, idType) => {
+    try {
+      console.log('📤 Uploading ID image to backend...');
+      
+      // Convert base64 to blob
+      const base64Data = imageData.split(',')[1];
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/jpeg' });
+      
+      // Create FormData
+      const formData = new FormData();
+      const timestamp = Date.now();
+      const fileName = `${patientId}_${idType}_${timestamp}.jpg`;
+      formData.append('file', blob, fileName);
+      formData.append('patientId', patientId);
+      formData.append('idType', idType);
+      
+      // Upload to backend
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload-id-image`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log('✅ ID image uploaded successfully:', result.publicUrl);
+        return {
+          success: true,
+          publicUrl: result.publicUrl,
+          fileName: result.fileName
+        };
+      } else {
+        console.error('❌ ID image upload failed:', result.error);
+        return {
+          success: false,
+          error: result.error || 'Upload failed'
+        };
+      }
+    } catch (error) {
+      console.error('❌ ID image upload error:', error);
+      return {
+        success: false,
+        error: error.message || 'Upload failed'
+      };
+    }
+  };
+
   // Main export
   export const processIDWithOCR = processIDWithOCREnhanced;
 
@@ -2313,5 +2373,6 @@ const extractUMIDIDNumber = (lines) => {
     filterNoiseLines,
     detectIDInFrame,
     cropAndPreprocessID,
-    startAutoCapture
+    startAutoCapture,
+    uploadIDImage
   };

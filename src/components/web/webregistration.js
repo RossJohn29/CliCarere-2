@@ -28,7 +28,8 @@
     isCameraAvailable,
     initializeCamera,
     cleanupCamera,
-    captureImageFromVideo
+    captureImageFromVideo,
+    uploadIDImage  
   } from '../../services/tesseractOCR';
 
   const WebRegistration = () => {
@@ -856,7 +857,7 @@ const processIDImageWithOCR = async (imageData) => {
         ...updateData
       }));
       
-      // ✅ NEW: Save captured image for later upload
+      // ✅ SAVE CAPTURED IMAGE FOR LATER UPLOAD (during form submission)
       setCapturedIDImage(imageData);
       
       setShowCameraModal(false);
@@ -897,6 +898,7 @@ const processIDImageWithOCR = async (imageData) => {
         successMessage += ' Name extracted.';
       }
       
+      successMessage += ' ID image saved for registration.';
       showToastNotification(successMessage, 'success');
     } else {
       setCameraError(result.message || 'Failed to extract information from ID');
@@ -907,7 +909,6 @@ const processIDImageWithOCR = async (imageData) => {
     setOcrProcessing(false);
   }
 };
-
 
     const uploadIDImage = async (imageData, patientId, idType) => {
       try {
@@ -1209,13 +1210,14 @@ const handleSubmit = async () => {
       // Generate temporary patient ID for upload
       const tempUploadId = `TEMP_${Date.now()}`;
       
-      idImageUrl = await uploadIDImageToSupabase(
+      const uploadResult = await uploadIDImage(
         capturedIDImage,
         tempUploadId,
         selectedIDType
       );
       
-      if (idImageUrl) {
+      if (uploadResult.success) {
+        idImageUrl = uploadResult.publicUrl;
         console.log('✅ ID image uploaded successfully:', idImageUrl);
       } else {
         console.warn('⚠️ ID image upload failed, continuing without image');
@@ -1248,7 +1250,7 @@ const handleSubmit = async () => {
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       id_type: selectedIDType || null,
       id_number: formData.idNumber || null,
-      id_image_url: idImageUrl || null // ✅ Include uploaded image URL
+      id_image_url: idImageUrl  // ✅ Include uploaded image URL
     };
 
     console.log('📤 Submitting registration with ID data:', {
@@ -1291,18 +1293,18 @@ const handleSubmit = async () => {
     const tempRegId = result.temp_id;
     const tempPatientId = result.temp_patient_id;
 
-    // ✅ STEP 3: Update image path with real temp patient ID
+    // ✅ STEP 3: Update image path with real temp patient ID if needed
     if (idImageUrl && tempPatientId && capturedIDImage) {
       console.log('🔄 Updating ID image path with temp patient ID...');
       
       // Re-upload with correct temp patient ID
-      const finalImageUrl = await uploadIDImageToSupabase(
+      const finalUploadResult = await uploadIDImage(
         capturedIDImage,
         tempPatientId,
         selectedIDType
       );
       
-      if (finalImageUrl) {
+      if (finalUploadResult.success) {
         console.log('✅ ID image path updated with temp patient ID');
         
         // Update the database with the final image URL
@@ -1312,7 +1314,7 @@ const handleSubmit = async () => {
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({
-              id_image_url: finalImageUrl
+              id_image_url: finalUploadResult.publicUrl
             })
           });
           console.log('✅ Database updated with final image URL');
