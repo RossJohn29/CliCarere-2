@@ -5550,62 +5550,86 @@ app.post('/api/temp-registration', async (req, res) => {
     status,
     created_date,
     expires_at,
-    id_type,        // ✅ NEW
-    id_number,      // ✅ NEW
-    id_image_url    // ✅ NEW
+    id_type,
+    id_number,
+    id_image_url
   } = req.body;
 
   try {
-    // Check for duplicates
-    const duplicateCheck = await db.query(
-      `SELECT temp_patient_id FROM pre_registration 
-       WHERE LOWER(email) = LOWER($1) OR contact_no = $2`,
-      [email, contact_no]
-    );
+    // Check for duplicates using Supabase
+    const { data: duplicateCheck, error: duplicateError } = await supabase
+      .from('pre_registration')
+      .select('temp_patient_id, email, contact_no')
+      .or(`email.ilike.${email},contact_no.eq.${contact_no}`)
+      .limit(1);
 
-    if (duplicateCheck.rows.length > 0) {
+    if (duplicateCheck && duplicateCheck.length > 0) {
+      const isDuplicateEmail = duplicateCheck[0].email?.toLowerCase() === email.toLowerCase();
       return res.status(400).json({
         success: false,
         error: 'A registration with this email or contact number already exists',
-        field: duplicateCheck.rows[0].email === email.toLowerCase() ? 'email' : 'phone'
+        field: isDuplicateEmail ? 'email' : 'phone'
       });
     }
 
     // Generate temp patient ID
-    const tempIdResult = await db.query(
-      `SELECT COALESCE(MAX(CAST(SUBSTRING(temp_patient_id FROM 5) AS INTEGER)), 0) + 1 as next_id 
-       FROM pre_registration WHERE temp_patient_id LIKE 'TEMP%'`
-    );
-    const nextId = tempIdResult.rows[0].next_id;
+    const { data: maxIdData, error: maxIdError } = await supabase
+      .from('pre_registration')
+      .select('temp_patient_id')
+      .like('temp_patient_id', 'TEMP%')
+      .order('temp_patient_id', { ascending: false })
+      .limit(1);
+
+    let nextId = 1;
+    if (maxIdData && maxIdData.length > 0) {
+      const lastId = maxIdData[0].temp_patient_id;
+      const numPart = parseInt(lastId.substring(4));
+      nextId = numPart + 1;
+    }
+    
     const temp_patient_id = `TEMP${String(nextId).padStart(6, '0')}`;
 
-    // Insert temporary registration with ID fields
-    const result = await db.query(
-      `INSERT INTO pre_registration (
-        temp_patient_id, name, birthday, age, sex, address,
-        contact_no, email, emergency_contact_name,
-        emergency_contact_relationship, emergency_contact_no,
-        symptoms, duration, severity, previous_treatment,
-        allergies, medications, preferred_date, preferred_time_slot,
-        scheduled_date, status, created_date, expires_at,
-        id_type, id_number, id_image_url
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
-      ) RETURNING temp_id, temp_patient_id`,
-      [
-        temp_patient_id, name, birthday, age, sex, address,
-        contact_no, email, emergency_contact_name,
-        emergency_contact_relationship, emergency_contact_no,
-        symptoms, duration, severity, previous_treatment,
-        allergies, medications, preferred_date, preferred_time_slot,
-        scheduled_date, status || 'pending', created_date, expires_at,
-        id_type, id_number, id_image_url  // ✅ Save ID fields
-      ]
-    );
+    // Insert temporary registration with ID fields using Supabase
+    const { data: insertedData, error: insertError } = await supabase
+      .from('pre_registration')
+      .insert({
+        temp_patient_id,
+        name,
+        birthday,
+        age,
+        sex,
+        address,
+        contact_no,
+        email,
+        emergency_contact_name,
+        emergency_contact_relationship,
+        emergency_contact_no,
+        symptoms,
+        duration,
+        severity,
+        previous_treatment,
+        allergies,
+        medications,
+        preferred_date,
+        preferred_time_slot,
+        scheduled_date,
+        status: status || 'pending',
+        created_date,
+        expires_at,
+        id_type,
+        id_number,
+        id_image_url
+      })
+      .select('temp_id, temp_patient_id')
+      .single();
 
-    const tempId = result.rows[0].temp_id;
-    const tempPatientId = result.rows[0].temp_patient_id;
+    if (insertError) {
+      console.error('❌ Insert error:', insertError);
+      throw insertError;
+    }
+
+    const tempId = insertedData.temp_id;
+    const tempPatientId = insertedData.temp_patient_id;
 
     console.log('✅ Temp registration created with ID info:', {
       temp_id: tempId,
