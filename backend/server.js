@@ -2545,7 +2545,7 @@ app.post('/api/admin/analyze-data', authenticateToken, async (req, res) => {
     // ============================================================================
     // ENHANCED GEMINI PROMPT WITH TIME DATA
     // ============================================================================
-    const model = genAI.getGenerativeModel({ model: "gemini-3-pro-preview" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
     // Find peak hour and busiest day
     const peakHour = Object.entries(contextData.timeData.hourlyRegistrations)
@@ -9024,8 +9024,7 @@ app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => 
   }
 });
 
-// Upload ID image to Supabase Storage
-// FIXED: Upload ID image to Supabase Storage with proper database updates
+// FIXED: Upload ID image to Supabase Storage
 app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
   try {
     console.log('📥 Upload ID image request received');
@@ -9038,11 +9037,12 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       });
     }
 
-    const { patientId, idType } = req.body;
+    const { patientId, idType, idNumber } = req.body;
     
     console.log('📥 Upload params:', { 
       patientId, 
       idType, 
+      idNumber,
       fileSize: req.file.size,
       fileName: req.file.originalname 
     });
@@ -9054,10 +9054,10 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       });
     }
 
-    // ✅ STEP 1: Check if this is temp registration and get temp_id
-    let actualPatientId = patientId;
+    // ✅ STEP 1: Determine if this is temp registration or permanent patient
     let tempId = null;
     let recordType = null;
+    let actualPatientId = patientId;
 
     if (patientId.startsWith('TEMP')) {
       // Get the actual temp_id from database
@@ -9080,7 +9080,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       
       console.log('📋 Found temp registration:', { tempId, actualPatientId });
 
-      // ✅ STEP 2: Delete existing ID image if any (enforce single ID per registration)
+      // ✅ Delete existing ID image if any (enforce single ID per registration)
       const { data: existingReg } = await supabase
         .from('pre_registration')
         .select('id_image_url')
@@ -9148,7 +9148,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       }
     }
 
-    // ✅ STEP 3: Upload new file with proper naming
+    // ✅ STEP 2: Upload new file with proper naming
     const timestamp = Date.now();
     const fileExt = path.extname(req.file.originalname) || '.jpg';
     
@@ -9176,7 +9176,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
 
     console.log('✅ File uploaded successfully:', data.path);
 
-    // ✅ STEP 4: Get public URL
+    // ✅ STEP 3: Get public URL
     const { data: publicUrlData } = supabase.storage
       .from('outpatient_id')
       .getPublicUrl(fileName);
@@ -9184,7 +9184,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
     const publicUrl = publicUrlData.publicUrl;
     console.log('✅ Public URL generated:', publicUrl);
 
-    // ✅ STEP 5: Update database with URL
+    // ✅ STEP 4: Update the correct database table with URL
     let updateResult = null;
 
     if (recordType === 'pre_registration') {
@@ -9194,11 +9194,12 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
         .from('pre_registration')
         .update({ 
           id_type: idType,
+          id_number: idNumber || null,
           id_image_url: publicUrl,
           updated_at: new Date().toISOString()
         })
         .eq('temp_id', tempId)
-        .select('temp_id, temp_patient_id, name, id_type, id_image_url')
+        .select('temp_id, temp_patient_id, name, id_type, id_number, id_image_url')
         .single();
 
       if (tempUpdateError) {
@@ -9226,10 +9227,11 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
         .from('outpatient')
         .update({ 
           id_type: idType,
+          id_number: idNumber || null,
           id_image_url: publicUrl
         })
         .eq('patient_id', actualPatientId)
-        .select('id, patient_id, name, id_type, id_image_url')
+        .select('id, patient_id, name, id_type, id_number, id_image_url')
         .single();
 
       if (patientUpdateError) {
@@ -9251,7 +9253,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       console.log('✅ Outpatient updated successfully:', updateResult);
     }
 
-    // ✅ STEP 6: Return success response
+    // ✅ STEP 5: Return success response
     res.json({
       success: true,
       message: 'ID image uploaded and database updated successfully',
