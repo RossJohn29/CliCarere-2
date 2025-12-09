@@ -1647,8 +1647,6 @@ const processIDImageWithOCR = async (imageData) => {
 
 const handleSubmit = async () => {
   console.log('🚀 Form submission started');
-  console.log('🔍 Current qrScanResult:', qrScanResult);
-  console.log('🔍 QR scan result temp_id:', qrScanResult?.temp_id);
   
   // Get QR result from state or localStorage
   let currentQrResult = qrScanResult;
@@ -1661,11 +1659,10 @@ const handleSubmit = async () => {
         console.log('📦 Retrieved QR result from localStorage:', currentQrResult);
       } catch (error) {
         console.error('❌ Failed to parse stored QR result:', error);
+        currentQrResult = null;
       }
     }
   }
-  
-  console.log('🔍 Final QR result to use:', currentQrResult);
   
   if (!validateStep(currentStep)) {
     setError('Please complete all required fields');
@@ -1683,27 +1680,31 @@ const handleSubmit = async () => {
     } else {
       const calculatedAge = formData.age || calculateAge(formData.birthday);
       
-      console.log('📤 About to call registerNewPatient with QR result:', currentQrResult);
-      
       // ✅ STEP 1: Upload ID image BEFORE registration if captured
       let idImageUrl = null;
       if (capturedIDImage && selectedIDType) {
         console.log('📤 Uploading ID image before registration...');
         
-        // Generate temporary patient ID for upload
-        const tempUploadId = `TEMP_${Date.now()}`;
-        
-        const uploadResult = await uploadIDImage(
-          capturedIDImage,
-          tempUploadId,
-          selectedIDType
-        );
-        
-        if (uploadResult.success) {
-          idImageUrl = uploadResult.publicUrl;
-          console.log('✅ ID image uploaded successfully:', idImageUrl);
-        } else {
-          console.warn('⚠️ ID image upload failed, continuing without image');
+        try {
+          // Generate temporary patient ID for upload
+          const tempUploadId = `TEMP_${Date.now()}`;
+          
+          const uploadResult = await uploadIDImage(
+            capturedIDImage,
+            tempUploadId,
+            selectedIDType
+          );
+          
+          if (uploadResult && uploadResult.success && uploadResult.publicUrl) {
+            idImageUrl = uploadResult.publicUrl;
+            console.log('✅ ID image uploaded successfully:', idImageUrl);
+          } else {
+            console.warn('⚠️ ID image upload failed:', uploadResult?.error || 'Unknown error');
+            // Continue without image
+          }
+        } catch (uploadError) {
+          console.warn('⚠️ ID image upload error:', uploadError);
+          // Continue without image
         }
       }
       
@@ -1726,33 +1727,38 @@ const handleSubmit = async () => {
       result = await registerNewPatient(registrationData);
       
       // ✅ STEP 3: Update image path with real patient ID after registration
-      if (idImageUrl && result.patient?.patient_id && capturedIDImage) {
+      if (idImageUrl && result?.patient?.patient_id && capturedIDImage) {
         console.log('🔄 Updating ID image path with real patient ID...');
         
-        // Re-upload with correct patient ID
-        const finalUploadResult = await uploadIDImage(
-          capturedIDImage,
-          result.patient.patient_id,
-          selectedIDType
-        );
-        
-        if (finalUploadResult.success) {
-          console.log('✅ ID image path updated with real patient ID');
+        try {
+          // Re-upload with correct patient ID
+          const finalUploadResult = await uploadIDImage(
+            capturedIDImage,
+            result.patient.patient_id,
+            selectedIDType
+          );
           
-          // Update the database with the final image URL
-          try {
-            await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/patient/${result.patient.patient_id}/update-id-image`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({
-                id_image_url: finalUploadResult.publicUrl
-              })
-            });
-            console.log('✅ Database updated with final image URL');
-          } catch (updateError) {
-            console.error('❌ Failed to update image URL in database:', updateError);
+          if (finalUploadResult && finalUploadResult.success && finalUploadResult.publicUrl) {
+            console.log('✅ ID image path updated with real patient ID');
+            
+            // Update the database with the final image URL
+            const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+            try {
+              await fetch(`${apiUrl}/api/patient/${result.patient.patient_id}/update-id-image`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  id_image_url: finalUploadResult.publicUrl
+                })
+              });
+              console.log('✅ Database updated with final image URL');
+            } catch (updateError) {
+              console.error('❌ Failed to update image URL in database:', updateError);
+            }
           }
+        } catch (reuploadError) {
+          console.warn('⚠️ Failed to re-upload with patient ID:', reuploadError);
         }
       }
     }
@@ -1760,19 +1766,19 @@ const handleSubmit = async () => {
     // Clear localStorage after successful registration
     if (currentQrResult?.temp_id) {
       localStorage.removeItem('kioskQrScanResult');
-      console.log('🗑️ Cleared QR result from localStorage after successful registration');
+      console.log('🗑️ Cleared QR result from localStorage');
     }
 
-    const patientId = result.patient?.patient_id || result.visit?.patient_id || 'UNKNOWN';
+    const patientId = result?.patient?.patient_id || result?.visit?.patient_id || 'UNKNOWN';
     const recommendedDepartment = await generateDepartmentRecommendation();
 
     showToastNotification('Registration completed successfully!', 'success');
 
     const registrationResult = {
-      patientId: result.patient?.patient_id || patientId,
-      recommendedDepartment: result.recommendedDepartment || recommendedDepartment,
-      queue_number: result.queue_number || result.queue?.queue_no || Math.floor(Math.random() * 50) + 1,
-      estimated_wait: result.estimated_wait || '15-30 minutes',
+      patientId: result?.patient?.patient_id || patientId,
+      recommendedDepartment: result?.recommendedDepartment || recommendedDepartment,
+      queue_number: result?.queue_number || result?.queue?.queue_no || Math.floor(Math.random() * 50) + 1,
+      estimated_wait: result?.estimated_wait || '15-30 minutes',
       type: patientType === 'returning' ? 'appointment' : 'registration',
       message: patientType === 'returning' ? 
         'Appointment booked successfully!' : 
@@ -1792,7 +1798,7 @@ const handleSubmit = async () => {
 
   } catch (err) {
     console.error('❌ Submit error:', err);
-    setError(err.message || 'Registration failed. Please check your information and try again.');
+    setError(err?.message || 'Registration failed. Please check your information and try again.');
   } finally {
     setLoading(false);
   }

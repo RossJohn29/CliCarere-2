@@ -1202,25 +1202,31 @@ const handleSubmit = async () => {
   try {
     const calculatedAge = formData.age || calculateAge(formData.birthday);
 
-    // ✅ STEP 1: Upload ID image FIRST if captured
+    // ✅ STEP 1: Upload ID image FIRST if captured (with proper null checks)
     let idImageUrl = null;
     if (capturedIDImage && selectedIDType) {
       console.log('📤 Uploading ID image before registration...');
       
-      // Generate temporary patient ID for upload
-      const tempUploadId = `TEMP_${Date.now()}`;
-      
-      const uploadResult = await uploadIDImage(
-        capturedIDImage,
-        tempUploadId,
-        selectedIDType
-      );
-      
-      if (uploadResult.success) {
-        idImageUrl = uploadResult.publicUrl;
-        console.log('✅ ID image uploaded successfully:', idImageUrl);
-      } else {
-        console.warn('⚠️ ID image upload failed, continuing without image');
+      try {
+        // Generate temporary patient ID for upload
+        const tempUploadId = `TEMP_${Date.now()}`;
+        
+        const uploadResult = await uploadIDImage(
+          capturedIDImage,
+          tempUploadId,
+          selectedIDType
+        );
+        
+        if (uploadResult && uploadResult.success && uploadResult.publicUrl) {
+          idImageUrl = uploadResult.publicUrl;
+          console.log('✅ ID image uploaded successfully:', idImageUrl);
+        } else {
+          console.warn('⚠️ ID image upload failed:', uploadResult?.error || 'Unknown error');
+          // Continue without image - don't block registration
+        }
+      } catch (uploadError) {
+        console.warn('⚠️ ID image upload error:', uploadError);
+        // Continue without image - don't block registration
       }
     }
 
@@ -1228,7 +1234,7 @@ const handleSubmit = async () => {
     const registrationData = {
       name: formData.fullName,
       birthday: formData.birthday,
-      age: parseInt(calculatedAge),
+      age: parseInt(calculatedAge) || 0,
       sex: formData.sex,
       address: formData.address,
       contact_no: cleanPhoneNumber(formData.contactNumber),
@@ -1237,8 +1243,8 @@ const handleSubmit = async () => {
       emergency_contact_relationship: formData.emergencyRelationship,
       emergency_contact_no: cleanPhoneNumber(formData.emergencyContactNumber),
       symptoms: formData.selectedSymptoms.join(', '),
-      duration: formData.duration,
-      severity: formData.severity,
+      duration: formData.duration || null,
+      severity: formData.severity || null,
       previous_treatment: formData.previousTreatment || null,
       allergies: formData.allergies || null,
       medications: formData.medications || null,
@@ -1250,7 +1256,7 @@ const handleSubmit = async () => {
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       id_type: selectedIDType || null,
       id_number: formData.idNumber || null,
-      id_image_url: idImageUrl  // ✅ Include uploaded image URL
+      id_image_url: idImageUrl  // ✅ Include uploaded image URL (can be null)
     };
 
     console.log('📤 Submitting registration with ID data:', {
@@ -1259,7 +1265,9 @@ const handleSubmit = async () => {
       id_image_url: registrationData.id_image_url
     });
 
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration`, {
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+    
+    const response = await fetch(`${apiUrl}/api/temp-registration`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1271,7 +1279,7 @@ const handleSubmit = async () => {
     const result = await response.json();
 
     if (!response.ok) {
-      if (result.field) {
+      if (result && result.field) {
         setFieldErrors(prev => ({
           ...prev,
           [result.field === 'phone' ? 'contactNumber' : result.field]: result.error
@@ -1287,40 +1295,48 @@ const handleSubmit = async () => {
           }
         }, 100);
       }
-      throw new Error(result.error || 'Registration failed');
+      throw new Error(result?.error || 'Registration failed');
     }
 
-    const tempRegId = result.temp_id;
-    const tempPatientId = result.temp_patient_id;
+    const tempRegId = result?.temp_id;
+    const tempPatientId = result?.temp_patient_id;
+
+    if (!tempPatientId) {
+      throw new Error('Failed to get patient ID from registration');
+    }
 
     // ✅ STEP 3: Update image path with real temp patient ID if needed
-    if (idImageUrl && tempPatientId && capturedIDImage) {
+    if (idImageUrl && tempPatientId && capturedIDImage && tempRegId) {
       console.log('🔄 Updating ID image path with temp patient ID...');
       
-      // Re-upload with correct temp patient ID
-      const finalUploadResult = await uploadIDImage(
-        capturedIDImage,
-        tempPatientId,
-        selectedIDType
-      );
-      
-      if (finalUploadResult.success) {
-        console.log('✅ ID image path updated with temp patient ID');
+      try {
+        // Re-upload with correct temp patient ID
+        const finalUploadResult = await uploadIDImage(
+          capturedIDImage,
+          tempPatientId,
+          selectedIDType
+        );
         
-        // Update the database with the final image URL
-        try {
-          await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration/${tempRegId}/update-id-image`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              id_image_url: finalUploadResult.publicUrl
-            })
-          });
-          console.log('✅ Database updated with final image URL');
-        } catch (updateError) {
-          console.error('❌ Failed to update image URL in database:', updateError);
+        if (finalUploadResult && finalUploadResult.success && finalUploadResult.publicUrl) {
+          console.log('✅ ID image path updated with temp patient ID');
+          
+          // Update the database with the final image URL
+          try {
+            await fetch(`${apiUrl}/api/temp-registration/${tempRegId}/update-id-image`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                id_image_url: finalUploadResult.publicUrl
+              })
+            });
+            console.log('✅ Database updated with final image URL');
+          } catch (updateError) {
+            console.error('❌ Failed to update image URL in database:', updateError);
+          }
         }
+      } catch (reuploadError) {
+        console.warn('⚠️ Failed to re-upload with patient ID:', reuploadError);
       }
     }
 
@@ -1350,10 +1366,6 @@ const handleSubmit = async () => {
 
     console.log('🔍 Generated QR Data:', qrData);
 
-    if (!qrData.tempPatientId || !qrData.patientName || !qrData.patientEmail) {
-      throw new Error('QR code generation failed - missing required data');
-    }
-
     setRegistrationResult({
       tempPatientId: tempPatientId,
       type: 'registration'
@@ -1361,7 +1373,7 @@ const handleSubmit = async () => {
 
     // Send QR code email
     try {
-      const qrResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/generate-qr-email`, {
+      const qrResponse = await fetch(`${apiUrl}/api/generate-qr-email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1382,6 +1394,7 @@ const handleSubmit = async () => {
         showToastNotification('Registration completed successfully! Check your email for the QR code.', 'success');
       }
     } catch (emailError) {
+      console.error('Email error:', emailError);
       showToastNotification('Registration completed, but QR code email failed. Please visit the reception desk.', 'warning');
     }
 
@@ -1390,8 +1403,9 @@ const handleSubmit = async () => {
     }, 500);
 
   } catch (err) {
-    setError(err.message || 'Registration failed. Please check your internet connection and try again.');
-    showToastNotification(err.message || 'Registration failed. Please try again.', 'error');
+    console.error('Submit error:', err);
+    setError(err?.message || 'Registration failed. Please check your internet connection and try again.');
+    showToastNotification(err?.message || 'Registration failed. Please try again.', 'error');
   } finally {
     setLoading(false);
   }
