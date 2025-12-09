@@ -9024,7 +9024,7 @@ app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => 
   }
 });
 
-// FIXED: Upload ID image to Supabase Storage
+// FIXED: Upload ID image with actual temp_id as folder name
 app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
   try {
     console.log('📥 Upload ID image request received');
@@ -9058,6 +9058,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
     let tempId = null;
     let recordType = null;
     let actualPatientId = patientId;
+    let folderName = null;
 
     if (patientId.startsWith('TEMP')) {
       // Get the actual temp_id from database
@@ -9077,8 +9078,13 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       tempId = tempReg.temp_id;
       actualPatientId = tempReg.temp_patient_id;
       recordType = 'pre_registration';
+      folderName = tempId.toString(); // ✅ Use actual temp_id as folder name (e.g., "123")
       
-      console.log('📋 Found temp registration:', { tempId, actualPatientId });
+      console.log('📋 Found temp registration:', { 
+        tempId, 
+        actualPatientId, 
+        folderName 
+      });
 
       // ✅ Delete existing ID image if any (enforce single ID per registration)
       const { data: existingReg } = await supabase
@@ -9121,6 +9127,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       }
 
       recordType = 'outpatient';
+      folderName = actualPatientId; // ✅ Use patient_id as folder name (e.g., "PAT000000001")
       
       // ✅ Delete existing ID image if any
       const { data: existingPatient } = await supabase
@@ -9148,15 +9155,18 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       }
     }
 
-    // ✅ STEP 2: Upload new file with proper naming
+    // ✅ STEP 2: Upload new file with actual temp_id as folder
     const timestamp = Date.now();
     const fileExt = path.extname(req.file.originalname) || '.jpg';
     
-    // Use temp_id for folder structure: TEMP_123/drivers_license_timestamp.jpg
-    const folderName = tempId ? `TEMP_${tempId}` : actualPatientId;
+    // ✅ NEW FORMAT: Use actual temp_id as folder name
+    // Examples: 
+    // - Temp registration: "123/philhealth_1765254897376.jpg" (where 123 is the temp_id)
+    // - Permanent patient: "PAT000000001/philhealth_1765254897376.jpg"
     const fileName = `${folderName}/${idType}_${timestamp}${fileExt}`;
     
-    console.log('📤 Uploading file with structure:', fileName);
+    console.log('📤 Uploading file with new structure:', fileName);
+    console.log('📁 Folder name (temp_id):', folderName);
 
     const { data, error } = await supabase.storage
       .from('outpatient_id')
@@ -9174,7 +9184,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       });
     }
 
-    console.log('✅ File uploaded successfully:', data.path);
+    console.log('✅ File uploaded successfully to:', data.path);
 
     // ✅ STEP 3: Get public URL
     const { data: publicUrlData } = supabase.storage
@@ -9264,6 +9274,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       updatedRecord: updateResult,
       patientId: actualPatientId,
       tempId: tempId,
+      folderName: folderName, // ✅ Return the actual folder name used
       idType: idType
     });
 
@@ -10118,27 +10129,42 @@ app.post('/api/admin/cleanup-orphaned-id-images', authenticateToken, async (req,
   }
 });
 
-// Helper function to check if image is referenced
+// UPDATED: Cleanup function to work with new folder structure
 const checkIfImageIsReferenced = async (imagePath) => {
-  // Check in pre_registration table
-  const { data: tempReg } = await supabase
-    .from('pre_registration')
-    .select('temp_id')
-    .like('id_image_url', `%${imagePath}%`)
-    .limit(1);
+  // Extract folder name and file name from path
+  const pathParts = imagePath.split('/');
+  if (pathParts.length !== 2) return false;
+  
+  const [folderName, fileName] = pathParts;
+  
+  // Check if folder name is a number (temp_id) or starts with PAT (patient_id)
+  if (!isNaN(folderName)) {
+    // This is a temp_id folder, check pre_registration table
+    const { data: tempReg } = await supabase
+      .from('pre_registration')
+      .select('temp_id')
+      .eq('temp_id', parseInt(folderName))
+      .like('id_image_url', `%${imagePath}%`)
+      .limit(1);
 
-  if (tempReg && tempReg.length > 0) {
-    return true;
+    if (tempReg && tempReg.length > 0) {
+      return true;
+    }
+  } else if (folderName.startsWith('PAT')) {
+    // This is a patient_id folder, check outpatient table
+    const { data: patient } = await supabase
+      .from('outpatient')
+      .select('id')
+      .eq('patient_id', folderName)
+      .like('id_image_url', `%${imagePath}%`)
+      .limit(1);
+
+    if (patient && patient.length > 0) {
+      return true;
+    }
   }
-
-  // Check in outpatient table
-  const { data: patient } = await supabase
-    .from('outpatient')
-    .select('id')
-    .like('id_image_url', `%${imagePath}%`)
-    .limit(1);
-
-  return patient && patient.length > 0;
+  
+  return false;
 };
 
 // PATCH /api/temp-registration/:tempId/update-id-image - Update temp registration's ID image URL
