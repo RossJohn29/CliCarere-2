@@ -124,28 +124,29 @@ const KioskRegistration = () => {
     appointmentTime: ''
   });
 
-  const [formData, setFormData] = useState({
-    fullName: '', 
-    sex: '', 
-    birthday: '', 
-    age: '', 
-    address: '', 
-    contactNumber: '',
-    email: '', 
-    emergencyContactName: '', 
-    emergencyContactNumber: '', 
-    emergencyRelationship: '',
-    idType: '', 
-    selectedSymptoms: [], 
-    preferredTime: '', 
-    duration: '',
-    severity: '', 
-    previousTreatment: '', 
-    allergies: '', 
-    medications: '', 
-    preferredDate: '', 
-    appointmentTime: ''
-  });
+const [formData, setFormData] = useState({
+  fullName: '', 
+  sex: '', 
+  birthday: '', 
+  age: '', 
+  address: '', 
+  contactNumber: '',
+  email: '', 
+  emergencyContactName: '', 
+  emergencyContactNumber: '', 
+  emergencyRelationship: '',
+  idType: '',           // ✅ ADD: ID type field
+  idNumber: '',         // ✅ ADD: ID number field
+  selectedSymptoms: [], 
+  preferredTime: '', 
+  duration: '',
+  severity: '', 
+  previousTreatment: '', 
+  allergies: '', 
+  medications: '', 
+  preferredDate: '', 
+  appointmentTime: ''
+});
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -303,16 +304,21 @@ const registerNewPatient = async (data) => {
   console.log('📥 registerNewPatient called with data:', {
     name: data.fullName,
     id_type: data.id_type,
-    id_number: data.id_number,
-    id_image_url: data.id_image_url ? 'URL provided' : 'null'
+    id_number: data.id_number
   });
   
+  // ✅ Get QR result data including ID information
   let currentQrResult = qrScanResult;
   if (!currentQrResult) {
     const stored = localStorage.getItem('kioskQrScanResult');
     if (stored) {
       try {
         currentQrResult = JSON.parse(stored);
+        console.log('📦 Retrieved QR result from localStorage:', {
+          temp_id: currentQrResult?.temp_id,
+          id_type: currentQrResult?.id_type,
+          id_number: currentQrResult?.id_number
+        });
       } catch (error) {
         console.error('❌ Failed to parse stored QR result:', error);
       }
@@ -321,7 +327,33 @@ const registerNewPatient = async (data) => {
   
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
   
-  // ✅ Build request body with ID fields
+  // ✅ STEP 1: Upload ID image FIRST if captured (before registration)
+  let idImageUrl = null;
+  if (capturedIDImage && selectedIDType) {
+    console.log('📤 Step 1: Uploading ID image before registration...');
+    
+    try {
+      // Create a temporary upload using current timestamp
+      const tempUploadId = `TEMP${Date.now()}`;
+      
+      const uploadResult = await uploadIDImage(
+        capturedIDImage,
+        tempUploadId,
+        selectedIDType
+      );
+      
+      if (uploadResult && uploadResult.success && uploadResult.publicUrl) {
+        idImageUrl = uploadResult.publicUrl;
+        console.log('✅ ID image uploaded successfully:', idImageUrl);
+      } else {
+        console.warn('⚠️ ID image upload failed, continuing without image');
+      }
+    } catch (uploadError) {
+      console.warn('⚠️ ID image upload error:', uploadError);
+    }
+  }
+  
+  // ✅ STEP 2: Build request body with ID fields
   const requestBody = {
     name: data.fullName,
     birthday: data.birthday,
@@ -340,13 +372,14 @@ const registerNewPatient = async (data) => {
     allergies: data.allergies || null,
     medications: data.medications || null,
     temp_id: currentQrResult?.temp_id || null,
-    // ✅ ID FIELDS
-    id_type: data.id_type || null,
-    id_number: data.id_number || null,
-    id_image_url: data.id_image_url || null
+    // ✅ ID FIELDS - Use from QR scan result OR form data OR captured image
+    id_type: currentQrResult?.id_type || data.id_type || selectedIDType || null,
+    id_number: currentQrResult?.id_number || data.id_number || null,
+    id_image_url: currentQrResult?.id_image_url || idImageUrl || null
   };
   
   console.log('📤 Sending registration with ID fields:', {
+    temp_id: requestBody.temp_id,
     id_type: requestBody.id_type,
     id_number: requestBody.id_number,
     id_image_url: requestBody.id_image_url ? 'URL included' : 'null'
@@ -364,6 +397,8 @@ const registerNewPatient = async (data) => {
   console.log('📥 Registration response:', {
     success: result.success,
     patient_id: result.patient?.patient_id,
+    id_type: result.patient?.id_type,
+    id_number: result.patient?.id_number,
     id_image_url: result.patient?.id_image_url ? 'saved' : 'not saved'
   });
   
@@ -668,47 +703,56 @@ const processIDImageWithOCR = async (imageData) => {
   }
 };
 
-  const uploadIDImage = async (imageData, patientId, idType) => {
-    try {
-      // Convert base64 to blob
-      const base64Data = imageData.split(',')[1];
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: 'image/jpeg' });
-      
-      // Create filename: patientId_idType_timestamp.jpg
-      const timestamp = Date.now();
-      const fileName = `${patientId}_${idType}_${timestamp}.jpg`;
-      
-      // Upload to Supabase
-      const formData = new FormData();
-      formData.append('file', blob, fileName);
-      formData.append('patientId', patientId);
-      formData.append('idType', idType);
-      
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload-id-image`, {
-        method: 'POST',
-        body: formData
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        console.log('✅ ID image uploaded successfully:', result.publicUrl);
-        return result.publicUrl;
-      } else {
-        console.error('❌ ID image upload failed:', result.error);
-        return null;
-      }
-    } catch (error) {
-      console.error('❌ ID image upload error:', error);
-      return null;
+// FIXED: Client-side upload function (for both webregistration.js and kioskregistration.js)
+const uploadIDImage = async (imageData, patientId, idType, idNumber = null) => {
+  try {
+    console.log('📤 Starting ID image upload:', { patientId, idType, idNumber });
+    
+    // Convert base64 to blob
+    const base64Data = imageData.split(',')[1];
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
-  };
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+    
+    // Create FormData
+    const formData = new FormData();
+    formData.append('file', blob, `${idType}_${Date.now()}.jpg`);
+    formData.append('patientId', patientId);
+    formData.append('idType', idType);
+    if (idNumber) {
+      formData.append('idNumber', idNumber);
+    }
+    
+    console.log('📤 Uploading with patientId:', patientId);
+    
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload-id-image`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      console.log('✅ ID image uploaded and saved to database:', {
+        publicUrl: result.publicUrl,
+        tempId: result.tempId,
+        fileName: result.fileName,
+        dbUpdated: !!result.updatedRecord
+      });
+      return result;
+    } else {
+      console.error('❌ ID image upload failed:', result.error);
+      return { success: false, error: result.error };
+    }
+  } catch (error) {
+    console.error('❌ ID image upload error:', error);
+    return { success: false, error: error.message };
+  }
+};
 
   const closeCameraModal = (focusFullName = false) => {
     setShowCameraModal(false);
@@ -893,83 +937,101 @@ const processIDImageWithOCR = async (imageData) => {
     }
   };
 
-  const processRegistrationQR = async (qrData) => {
-    try {
-      console.log('🔍 Processing registration QR:', qrData.tempPatientId);
-      
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration/${qrData.tempPatientId}`);
-      const result = await response.json();
-      console.log('🔍 Temp registration response:', result);
-      
-      if (!response.ok || !result.success) {
-        setQrError('Registration expired or not found.');
-        return;
-      }
-
-      const tempData = result.data;
-
-       console.log('🔍 Setting QR scan result with temp_id:', tempData.temp_id);
-      
-      // ✅ FIX: Ensure temp_id is captured correctly
-      if (!tempData.temp_id) {
-        console.error('❌ Missing temp_id in response:', tempData);
-        setQrError('Invalid registration data. Missing temp_id.');
-        return;
-      }
-      
-      console.log('✅ Temp registration found:', {
-        temp_id: tempData.temp_id,
-        temp_patient_id: tempData.temp_patient_id,
-        status: tempData.status
-      });
-      
-      // ✅ FIX: Store complete temp data including temp_id
-      const qrResult = {
-        temp_id: tempData.temp_id,
-        tempPatientId: qrData.tempPatientId,
-        name: tempData.name,
-        email: tempData.email,
-        contact_no: tempData.contact_no,
-        status: tempData.status,
-        ...tempData
-      };
-
-      setQrScanResult(qrResult);
-      // Store in localStorage as backup
-      localStorage.setItem('kioskQrScanResult', JSON.stringify(qrResult));
-      console.log('💾 Stored QR result in localStorage:', qrResult);
-
-      
-      // Auto-fill form
-      setFormData({
-        fullName: tempData.name || '',
-        sex: tempData.sex || '',
-        birthday: tempData.birthday || '',
-        age: tempData.age ? tempData.age.toString() : '',
-        address: tempData.address || '',
-        contactNumber: tempData.contact_no ? formatPhoneNumber(tempData.contact_no) : '',
-        email: tempData.email || '',
-        emergencyContactName: tempData.emergency_contact_name || '',
-        emergencyContactNumber: tempData.emergency_contact_no ? formatPhoneNumber(tempData.emergency_contact_no) : '',
-        emergencyRelationship: tempData.emergency_contact_relationship || '',
-        selectedSymptoms: tempData.symptoms ? tempData.symptoms.split(', ') : [],
-        duration: tempData.duration || '',
-        severity: tempData.severity || '',
-        previousTreatment: tempData.previous_treatment || '',
-        allergies: tempData.allergies || '',
-        medications: tempData.medications || '',
-        preferredDate: tempData.preferred_date || '',
-        appointmentTime: tempData.preferred_time_slot || ''
-      });
-
-      closeQrScanModal();
-      showToastNotification('Registration data loaded successfully!', 'success');
-      
-    } catch (err) {
-      console.error('❌ QR processing error:', err);
-      setQrError('Failed to process registration QR code.');
+const processRegistrationQR = async (qrData) => {
+  try {
+    console.log('🔍 Processing registration QR:', qrData.tempPatientId);
+    
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/temp-registration/${qrData.tempPatientId}`);
+    const result = await response.json();
+    console.log('🔍 Temp registration response:', result);
+    
+    if (!response.ok || !result.success) {
+      setQrError('Registration expired or not found.');
+      return;
     }
-  };
+
+    const tempData = result.data;
+
+    console.log('🔍 Setting QR scan result with temp_id and ID data:', {
+      temp_id: tempData.temp_id,
+      id_type: tempData.id_type,
+      id_number: tempData.id_number,
+      id_image_url: tempData.id_image_url
+    });
+    
+    // ✅ FIX: Ensure temp_id and ID data are captured correctly
+    if (!tempData.temp_id) {
+      console.error('❌ Missing temp_id in response:', tempData);
+      setQrError('Invalid registration data. Missing temp_id.');
+      return;
+    }
+    
+    console.log('✅ Temp registration found:', {
+      temp_id: tempData.temp_id,
+      temp_patient_id: tempData.temp_patient_id,
+      status: tempData.status,
+      id_type: tempData.id_type,
+      id_number: tempData.id_number
+    });
+    
+    // ✅ FIX: Store complete temp data including ALL ID fields
+    const qrResult = {
+      temp_id: tempData.temp_id,
+      tempPatientId: qrData.tempPatientId,
+      name: tempData.name,
+      email: tempData.email,
+      contact_no: tempData.contact_no,
+      status: tempData.status,
+      // ✅ CRITICAL: Include ID data from temp registration
+      id_type: tempData.id_type,
+      id_number: tempData.id_number,
+      id_image_url: tempData.id_image_url,
+      ...tempData
+    };
+
+    setQrScanResult(qrResult);
+    // Store in localStorage as backup
+    localStorage.setItem('kioskQrScanResult', JSON.stringify(qrResult));
+    console.log('💾 Stored QR result with ID data in localStorage:', qrResult);
+
+    // ✅ FIX: Auto-fill form INCLUDING ID data
+    setFormData({
+      fullName: tempData.name || '',
+      sex: tempData.sex || '',
+      birthday: tempData.birthday || '',
+      age: tempData.age ? tempData.age.toString() : '',
+      address: tempData.address || '',
+      contactNumber: tempData.contact_no ? formatPhoneNumber(tempData.contact_no) : '',
+      email: tempData.email || '',
+      emergencyContactName: tempData.emergency_contact_name || '',
+      emergencyContactNumber: tempData.emergency_contact_no ? formatPhoneNumber(tempData.emergency_contact_no) : '',
+      emergencyRelationship: tempData.emergency_contact_relationship || '',
+      selectedSymptoms: tempData.symptoms ? tempData.symptoms.split(', ') : [],
+      duration: tempData.duration || '',
+      severity: tempData.severity || '',
+      previousTreatment: tempData.previous_treatment || '',
+      allergies: tempData.allergies || '',
+      medications: tempData.medications || '',
+      preferredDate: tempData.preferred_date || '',
+      appointmentTime: tempData.preferred_time_slot || '',
+      // ✅ CRITICAL: Set ID data in form
+      idType: tempData.id_type || '',
+      idNumber: tempData.id_number || ''
+    });
+
+    // ✅ FIX: Also set the selected ID type for the UI
+    if (tempData.id_type) {
+      setSelectedIDType(tempData.id_type);
+    }
+
+    closeQrScanModal();
+    showToastNotification('Registration data loaded successfully with ID information!', 'success');
+    
+  } catch (err) {
+    console.error('❌ QR processing error:', err);
+    setQrError('Failed to process registration QR code.');
+  }
+};
 
   const stopQrScanning = () => {
     if (scanInterval) {
@@ -1649,22 +1711,6 @@ const processIDImageWithOCR = async (imageData) => {
 const handleSubmit = async () => {
   console.log('🚀 Form submission started');
   
-  // Get QR result from state or localStorage
-  let currentQrResult = qrScanResult;
-  
-  if (!currentQrResult) {
-    const stored = localStorage.getItem('kioskQrScanResult');
-    if (stored) {
-      try {
-        currentQrResult = JSON.parse(stored);
-        console.log('📦 Retrieved QR result from localStorage:', currentQrResult);
-      } catch (error) {
-        console.error('❌ Failed to parse stored QR result:', error);
-        currentQrResult = null;
-      }
-    }
-  }
-  
   if (!validateStep(currentStep)) {
     setError('Please complete all required fields');
     return;
@@ -1681,15 +1727,13 @@ const handleSubmit = async () => {
     } else {
       const calculatedAge = formData.age || calculateAge(formData.birthday);
       
-      // ✅ STEP 1: Upload ID image BEFORE registration if captured
+      // ✅ STEP 1: Upload ID image if captured (optional)
       let idImageUrl = null;
       if (capturedIDImage && selectedIDType) {
         console.log('📤 Uploading ID image before registration...');
         
         try {
-          // Generate temporary patient ID for upload
           const tempUploadId = `TEMP_${Date.now()}`;
-          
           const uploadResult = await uploadIDImage(
             capturedIDImage,
             tempUploadId,
@@ -1699,77 +1743,38 @@ const handleSubmit = async () => {
           if (uploadResult && uploadResult.success && uploadResult.publicUrl) {
             idImageUrl = uploadResult.publicUrl;
             console.log('✅ ID image uploaded successfully:', idImageUrl);
-          } else {
-            console.warn('⚠️ ID image upload failed:', uploadResult?.error || 'Unknown error');
-            // Continue without image
           }
         } catch (uploadError) {
           console.warn('⚠️ ID image upload error:', uploadError);
-          // Continue without image
         }
       }
       
-      // ✅ STEP 2: Include id_type, id_number, and id_image_url in registration data
+      // ✅ STEP 2: Include ALL ID data in registration (from form AND QR scan)
       const registrationData = {
         ...formData,
         age: calculatedAge,
-        temp_id: currentQrResult?.temp_id || null,
-        id_type: selectedIDType || null,
+        // ✅ CRITICAL: Include ID data from form (which may have been populated by QR scan)
+        id_type: formData.idType || selectedIDType || null,
         id_number: formData.idNumber || null,
-        id_image_url: idImageUrl  // ✅ Include the uploaded image URL
+        id_image_url: idImageUrl || null  // From new upload or existing
       };
       
-      console.log('📤 Submitting registration with ID data:', {
+      console.log('📤 Submitting registration with complete ID data:', {
         id_type: registrationData.id_type,
         id_number: registrationData.id_number,
-        id_image_url: registrationData.id_image_url
+        id_image_url: registrationData.id_image_url ? 'URL included' : 'null',
+        formIdType: formData.idType,
+        selectedIdType: selectedIDType
       });
       
       result = await registerNewPatient(registrationData);
-      
-      // ✅ STEP 3: Update image path with real patient ID after registration
-      if (idImageUrl && result?.patient?.patient_id && capturedIDImage) {
-        console.log('🔄 Updating ID image path with real patient ID...');
-        
-        try {
-          // Re-upload with correct patient ID
-          const finalUploadResult = await uploadIDImage(
-            capturedIDImage,
-            result.patient.patient_id,
-            selectedIDType
-          );
-          
-          if (finalUploadResult && finalUploadResult.success && finalUploadResult.publicUrl) {
-            console.log('✅ ID image path updated with real patient ID');
-            
-            // Update the database with the final image URL
-            const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-            try {
-              await fetch(`${apiUrl}/api/patient/${result.patient.patient_id}/update-id-image`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                  id_image_url: finalUploadResult.publicUrl
-                })
-              });
-              console.log('✅ Database updated with final image URL');
-            } catch (updateError) {
-              console.error('❌ Failed to update image URL in database:', updateError);
-            }
-          }
-        } catch (reuploadError) {
-          console.warn('⚠️ Failed to re-upload with patient ID:', reuploadError);
-        }
-      }
     }
 
     // Clear localStorage after successful registration
-    if (currentQrResult?.temp_id) {
-      localStorage.removeItem('kioskQrScanResult');
-      console.log('🗑️ Cleared QR result from localStorage');
-    }
+    localStorage.removeItem('kioskQrScanResult');
+    console.log('🗑️ Cleared QR result from localStorage');
 
+    // Rest of your existing success handling code...
     const patientId = result?.patient?.patient_id || result?.visit?.patient_id || 'UNKNOWN';
     const recommendedDepartment = await generateDepartmentRecommendation();
 
@@ -1790,11 +1795,9 @@ const handleSubmit = async () => {
     
     setTimeout(() => {
       setShowSuccessModal(true);
-      
       setTimeout(() => {
         handleAutomaticPrint(registrationResult);
       }, 1500);
-      
     }, 1000);
 
   } catch (err) {
@@ -1803,7 +1806,7 @@ const handleSubmit = async () => {
   } finally {
     setLoading(false);
   }
-};
+}; 
 
   const handleSuccessModalClose = () => {
     setShowSuccessModal(false);

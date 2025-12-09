@@ -910,47 +910,56 @@ const processIDImageWithOCR = async (imageData) => {
   }
 };
 
-    const uploadIDImage = async (imageData, patientId, idType) => {
-      try {
-        // Convert base64 to blob
-        const base64Data = imageData.split(',')[1];
-        const byteCharacters = atob(base64Data);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'image/jpeg' });
-        
-        // Create filename: patientId_idType_timestamp.jpg
-        const timestamp = Date.now();
-        const fileName = `${patientId}_${idType}_${timestamp}.jpg`;
-        
-        // Upload to Supabase
-        const formData = new FormData();
-        formData.append('file', blob, fileName);
-        formData.append('patientId', patientId);
-        formData.append('idType', idType);
-        
-        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload-id-image`, {
-          method: 'POST',
-          body: formData
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-          console.log('✅ ID image uploaded successfully:', result.publicUrl);
-          return result.publicUrl;
-        } else {
-          console.error('❌ ID image upload failed:', result.error);
-          return null;
-        }
-      } catch (error) {
-        console.error('❌ ID image upload error:', error);
-        return null;
-      }
-    };
+// FIXED: Client-side upload function (for both webregistration.js and kioskregistration.js)
+const uploadIDImage = async (imageData, patientId, idType, idNumber = null) => {
+  try {
+    console.log('📤 Starting ID image upload:', { patientId, idType, idNumber });
+    
+    // Convert base64 to blob
+    const base64Data = imageData.split(',')[1];
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+    
+    // Create FormData
+    const formData = new FormData();
+    formData.append('file', blob, `${idType}_${Date.now()}.jpg`);
+    formData.append('patientId', patientId);
+    formData.append('idType', idType);
+    if (idNumber) {
+      formData.append('idNumber', idNumber);
+    }
+    
+    console.log('📤 Uploading with patientId:', patientId);
+    
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/upload-id-image`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      console.log('✅ ID image uploaded and saved to database:', {
+        publicUrl: result.publicUrl,
+        tempId: result.tempId,
+        fileName: result.fileName,
+        dbUpdated: !!result.updatedRecord
+      });
+      return result;
+    } else {
+      console.error('❌ ID image upload failed:', result.error);
+      return { success: false, error: result.error };
+    }
+  } catch (error) {
+    console.error('❌ ID image upload error:', error);
+    return { success: false, error: error.message };
+  }
+};
 
     const closeCameraModal = (focusFullName = false) => {
       setShowCameraModal(false);
@@ -1203,33 +1212,8 @@ const handleSubmit = async () => {
     const calculatedAge = formData.age || calculateAge(formData.birthday);
     const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-    // ✅ STEP 1: Upload ID image FIRST if captured
-    let idImageUrl = null;
-    if (capturedIDImage && selectedIDType) {
-      console.log('📤 Step 1: Uploading ID image...');
-      
-      try {
-        const tempUploadId = `TEMP_${Date.now()}`;
-        
-        const uploadResult = await uploadIDImage(
-          capturedIDImage,
-          tempUploadId,
-          selectedIDType
-        );
-        
-        if (uploadResult && uploadResult.success && uploadResult.publicUrl) {
-          idImageUrl = uploadResult.publicUrl;
-          console.log('✅ ID image uploaded:', idImageUrl);
-        } else {
-          console.warn('⚠️ ID image upload failed, continuing without image');
-        }
-      } catch (uploadError) {
-        console.warn('⚠️ ID image upload error:', uploadError);
-      }
-    }
-
-    // ✅ STEP 2: Create registration WITH id_image_url in the request body
-    console.log('📤 Step 2: Creating registration with ID data...');
+    // ✅ STEP 1: Create registration WITHOUT image first
+    console.log('📤 Step 1: Creating registration...');
     
     const registrationData = {
       name: formData.fullName,
@@ -1254,17 +1238,11 @@ const handleSubmit = async () => {
       status: 'completed',
       created_date: new Date().toISOString().split('T')[0],
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      // ✅ ID FIELDS - These are the key fields
-      id_type: selectedIDType || null,
-      id_number: formData.idNumber || null,
-      id_image_url: idImageUrl  // ✅ This is the uploaded image URL
+      // Don't send ID data yet - will be updated after image upload
+      id_type: null,
+      id_number: null,
+      id_image_url: null
     };
-
-    console.log('📤 Registration payload ID fields:', {
-      id_type: registrationData.id_type,
-      id_number: registrationData.id_number,
-      id_image_url: registrationData.id_image_url ? 'URL included' : 'null'
-    });
 
     const response = await fetch(`${apiUrl}/api/temp-registration`, {
       method: 'POST',
@@ -1277,12 +1255,6 @@ const handleSubmit = async () => {
 
     const result = await response.json();
     
-    console.log('📥 Registration response:', {
-      success: result.success,
-      temp_id: result.temp_id,
-      id_image_url: result.id_image_url ? 'returned' : 'not returned'
-    });
-
     if (!response.ok) {
       if (result && result.field) {
         setFieldErrors(prev => ({
@@ -1297,43 +1269,37 @@ const handleSubmit = async () => {
     const tempRegId = result?.temp_id;
     const tempPatientId = result?.temp_patient_id;
 
-    if (!tempPatientId) {
-      throw new Error('Failed to get patient ID from registration');
+    if (!tempPatientId || !tempRegId) {
+      throw new Error('Failed to get registration IDs');
     }
 
-    // ✅ STEP 3: Re-upload with correct patient ID and update database
-    if (capturedIDImage && selectedIDType && tempPatientId && tempRegId) {
-      console.log('📤 Step 3: Re-uploading with correct patient ID...');
+    console.log('✅ Registration created:', { tempRegId, tempPatientId });
+
+    // ✅ STEP 2: Upload ID image if captured (this now also updates database)
+    if (capturedIDImage && selectedIDType) {
+      console.log('📤 Step 2: Uploading ID image and updating database...');
       
       try {
-        const finalUploadResult = await uploadIDImage(
+        const uploadResult = await uploadIDImage(
           capturedIDImage,
           tempPatientId,
-          selectedIDType
+          selectedIDType,
+          formData.idNumber
         );
         
-        if (finalUploadResult && finalUploadResult.success && finalUploadResult.publicUrl) {
-          console.log('✅ Final upload successful:', finalUploadResult.publicUrl);
-          
-          // Update database with final URL
-          const updateResponse = await fetch(`${apiUrl}/api/temp-registration/${tempRegId}/update-id-image`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              id_image_url: finalUploadResult.publicUrl
-            })
-          });
-          
-          const updateResult = await updateResponse.json();
-          console.log('📥 Update response:', updateResult);
+        if (uploadResult && uploadResult.success) {
+          console.log('✅ ID image uploaded and database updated:', uploadResult.publicUrl);
+        } else {
+          console.warn('⚠️ ID image upload failed:', uploadResult?.error);
+          // Don't fail the entire registration
         }
-      } catch (reuploadError) {
-        console.warn('⚠️ Re-upload failed:', reuploadError);
+      } catch (uploadError) {
+        console.warn('⚠️ ID image upload error:', uploadError);
+        // Don't fail the entire registration
       }
     }
 
-    // Generate QR code data
+    // ✅ STEP 3: Generate QR and send email
     const qrData = {
       type: 'webreg_registration',
       source: 'web_registration',

@@ -8903,128 +8903,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
   }
 });
 
-// PATCH /api/patient/:patientId/update-id-image
-app.patch('/api/patient/:patientId/update-id-image', async (req, res) => {
-  const { patientId } = req.params;
-  const { id_image_url } = req.body;
-  
-  try {
-    await db.query(
-      'UPDATE patients SET id_image_url = $1 WHERE patient_id = $2',
-      [id_image_url, patientId]
-    );
-    res.json({ success: true, message: 'ID image URL updated successfully' });
-  } catch (error) {
-    console.error('Error updating ID image URL:', error);
-    res.status(500).json({ success: false, error: 'Failed to update ID image URL' });
-  }
-});
 
-// PATCH /api/temp-registration/:tempId/update-id-image
-app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => {
-  const { tempId } = req.params;
-  const { id_image_url } = req.body;
-  
-  try {
-    await db.query(
-      'UPDATE temp_registration SET id_image_url = $1 WHERE temp_id = $2',
-      [id_image_url, tempId]
-    );
-    res.json({ success: true, message: 'ID image URL updated successfully' });
-  } catch (error) {
-    console.error('Error updating ID image URL:', error);
-    res.status(500).json({ success: false, error: 'Failed to update ID image URL' });
-  }
-});
-
-// PATCH /api/patient/:patientId/update-id-image
-app.patch('/api/patient/:patientId/update-id-image', async (req, res) => {
-  const { patientId } = req.params;
-  const { id_image_url } = req.body;
-  
-  try {
-    const result = await db.query(
-      'UPDATE outpatient SET id_image_url = $1 WHERE patient_id = $2 RETURNING patient_id, id_image_url',
-      [id_image_url, patientId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Patient not found' 
-      });
-    }
-
-    console.log('✅ Updated ID image URL for patient:', patientId);
-
-    res.json({ 
-      success: true, 
-      message: 'ID image URL updated successfully',
-      patient_id: result.rows[0].patient_id,
-      id_image_url: result.rows[0].id_image_url
-    });
-  } catch (error) {
-    console.error('❌ Error updating ID image URL:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to update ID image URL',
-      details: error.message
-    });
-  }
-});
-
-// PATCH /api/temp-registration/:tempId/update-id-image
-app.patch('/api/temp-registration/:tempId/update-id-image', async (req, res) => {
-  const { tempId } = req.params;
-  const { id_image_url } = req.body;
-  
-  try {
-    const { data: result, error } = await supabase
-      .from('pre_registration')
-      .update({ 
-        id_image_url: id_image_url,
-        updated_at: new Date().toISOString()
-      })
-      .eq('temp_id', tempId)
-      .select('temp_id, temp_patient_id, id_image_url')
-      .single();
-
-    if (error) {
-      console.error('❌ Update error:', error);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to update ID image URL',
-        details: error.message
-      });
-    }
-
-    if (!result) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Temporary registration not found' 
-      });
-    }
-
-    console.log('✅ Updated ID image URL for temp registration:', tempId);
-
-    res.json({ 
-      success: true, 
-      message: 'ID image URL updated successfully',
-      temp_id: result.temp_id,
-      temp_patient_id: result.temp_patient_id,
-      id_image_url: result.id_image_url
-    });
-  } catch (error) {
-    console.error('❌ Error updating ID image URL:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to update ID image URL',
-      details: error.message
-    });
-  }
-});
-
-// FIXED: Upload ID image with actual temp_id as folder name
 app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
   try {
     console.log('📥 Upload ID image request received');
@@ -9054,17 +8933,15 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       });
     }
 
-    // ✅ STEP 1: Determine if this is temp registration or permanent patient
+    // ✅ STEP 1: Determine record type and get existing image URL
     let tempId = null;
     let recordType = null;
-    let actualPatientId = patientId;
-    let folderName = null;
+    let existingImageUrl = null;
 
     if (patientId.startsWith('TEMP')) {
-      // Get the actual temp_id from database
       const { data: tempReg, error: tempError } = await supabase
         .from('pre_registration')
-        .select('temp_id, temp_patient_id')
+        .select('temp_id, temp_patient_id, id_image_url')
         .eq('temp_patient_id', patientId)
         .single();
 
@@ -9076,46 +8953,14 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       }
 
       tempId = tempReg.temp_id;
-      actualPatientId = tempReg.temp_patient_id;
       recordType = 'pre_registration';
-      folderName = tempId.toString(); // ✅ Use actual temp_id as folder name (e.g., "123")
+      existingImageUrl = tempReg.id_image_url;
       
-      console.log('📋 Found temp registration:', { 
-        tempId, 
-        actualPatientId, 
-        folderName 
-      });
-
-      // ✅ Delete existing ID image if any (enforce single ID per registration)
-      const { data: existingReg } = await supabase
-        .from('pre_registration')
-        .select('id_image_url')
-        .eq('temp_id', tempId)
-        .single();
-
-      if (existingReg && existingReg.id_image_url) {
-        console.log('🗑️ Deleting existing ID image for temp registration');
-        try {
-          // Extract file path from URL and delete from storage
-          const urlParts = existingReg.id_image_url.split('/');
-          const fileName = urlParts[urlParts.length - 1];
-          const folderName = urlParts[urlParts.length - 2];
-          const filePath = `${folderName}/${fileName}`;
-          
-          await supabase.storage
-            .from('outpatient_id')
-            .remove([filePath]);
-          
-          console.log('✅ Deleted existing file:', filePath);
-        } catch (deleteError) {
-          console.warn('⚠️ Failed to delete existing file:', deleteError);
-        }
-      }
+      console.log('📋 Found temp registration:', { tempId, existingImageUrl });
     } else {
-      // Regular patient ID
       const { data: patient, error: patientError } = await supabase
         .from('outpatient')
-        .select('id, patient_id')
+        .select('id, patient_id, id_image_url')
         .eq('patient_id', patientId)
         .single();
 
@@ -9127,52 +8972,40 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       }
 
       recordType = 'outpatient';
-      folderName = actualPatientId; // ✅ Use patient_id as folder name (e.g., "PAT000000001")
-      
-      // ✅ Delete existing ID image if any
-      const { data: existingPatient } = await supabase
-        .from('outpatient')
-        .select('id_image_url')
-        .eq('patient_id', patientId)
-        .single();
+      existingImageUrl = patient.id_image_url;
+    }
 
-      if (existingPatient && existingPatient.id_image_url) {
-        console.log('🗑️ Deleting existing ID image for patient');
-        try {
-          const urlParts = existingPatient.id_image_url.split('/');
-          const fileName = urlParts[urlParts.length - 1];
-          const folderName = urlParts[urlParts.length - 2];
-          const filePath = `${folderName}/${fileName}`;
-          
-          await supabase.storage
-            .from('outpatient_id')
-            .remove([filePath]);
-          
-          console.log('✅ Deleted existing file:', filePath);
-        } catch (deleteError) {
-          console.warn('⚠️ Failed to delete existing file:', deleteError);
-        }
+    // ✅ STEP 2: Delete existing file if present
+    if (existingImageUrl) {
+      console.log('🗑️ Deleting existing ID image');
+      try {
+        const urlParts = existingImageUrl.split('/');
+        const existingFileName = urlParts[urlParts.length - 1];
+        
+        await supabase.storage
+          .from('outpatient_id')
+          .remove([existingFileName]);
+        
+        console.log('✅ Deleted existing file:', existingFileName);
+      } catch (deleteError) {
+        console.warn('⚠️ Failed to delete existing file:', deleteError);
       }
     }
 
-    // ✅ STEP 2: Upload new file with actual temp_id as folder
+    // ✅ STEP 3: Upload new file (FLAT STRUCTURE - NO FOLDERS)
     const timestamp = Date.now();
     const fileExt = path.extname(req.file.originalname) || '.jpg';
     
-    // ✅ NEW FORMAT: Use actual temp_id as folder name
-    // Examples: 
-    // - Temp registration: "123/philhealth_1765254897376.jpg" (where 123 is the temp_id)
-    // - Permanent patient: "PAT000000001/philhealth_1765254897376.jpg"
-    const fileName = `${folderName}/${idType}_${timestamp}${fileExt}`;
+    // ✅ FLAT NAMING: patientId_idType_timestamp.jpg (NO SLASHES)
+    const fileName = `${patientId}_${idType}_${timestamp}${fileExt}`;
     
-    console.log('📤 Uploading file with new structure:', fileName);
-    console.log('📁 Folder name (temp_id):', folderName);
+    console.log('📤 Uploading file with flat structure:', fileName);
 
     const { data, error } = await supabase.storage
       .from('outpatient_id')
       .upload(fileName, req.file.buffer, {
         contentType: req.file.mimetype || 'image/jpeg',
-        upsert: true // This will replace if exists
+        upsert: false // Prevent accidental overwrites
       });
 
     if (error) {
@@ -9186,7 +9019,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
 
     console.log('✅ File uploaded successfully to:', data.path);
 
-    // ✅ STEP 3: Get public URL
+    // ✅ STEP 4: Get public URL
     const { data: publicUrlData } = supabase.storage
       .from('outpatient_id')
       .getPublicUrl(fileName);
@@ -9194,7 +9027,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
     const publicUrl = publicUrlData.publicUrl;
     console.log('✅ Public URL generated:', publicUrl);
 
-    // ✅ STEP 4: Update the correct database table with URL
+    // ✅ STEP 5: Update database immediately (NOT in separate endpoint)
     let updateResult = null;
 
     if (recordType === 'pre_registration') {
@@ -9209,7 +9042,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
           updated_at: new Date().toISOString()
         })
         .eq('temp_id', tempId)
-        .select('temp_id, temp_patient_id, name, id_type, id_number, id_image_url')
+        .select('temp_id, temp_patient_id, id_type, id_number, id_image_url')
         .single();
 
       if (tempUpdateError) {
@@ -9231,7 +9064,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       console.log('✅ Pre-registration updated successfully:', updateResult);
 
     } else {
-      console.log('📝 Updating outpatient table for patient_id:', actualPatientId);
+      console.log('📝 Updating outpatient table for patient_id:', patientId);
       
       const { data: patientUpdateData, error: patientUpdateError } = await supabase
         .from('outpatient')
@@ -9240,8 +9073,8 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
           id_number: idNumber || null,
           id_image_url: publicUrl
         })
-        .eq('patient_id', actualPatientId)
-        .select('id, patient_id, name, id_type, id_number, id_image_url')
+        .eq('patient_id', patientId)
+        .select('id, patient_id, id_type, id_number, id_image_url')
         .single();
 
       if (patientUpdateError) {
@@ -9263,7 +9096,7 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       console.log('✅ Outpatient updated successfully:', updateResult);
     }
 
-    // ✅ STEP 5: Return success response
+    // ✅ STEP 6: Return success response
     res.json({
       success: true,
       message: 'ID image uploaded and database updated successfully',
@@ -9272,9 +9105,8 @@ app.post('/api/upload-id-image', upload.single('file'), async (req, res) => {
       path: data.path,
       recordType: recordType,
       updatedRecord: updateResult,
-      patientId: actualPatientId,
+      patientId: patientId,
       tempId: tempId,
-      folderName: folderName, // ✅ Return the actual folder name used
       idType: idType
     });
 

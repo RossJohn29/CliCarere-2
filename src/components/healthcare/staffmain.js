@@ -1635,239 +1635,322 @@ useEffect(() => {
     );
   };
 
-  const renderPatientDetailsView = () => {
-    return (
-      <div className="staffmain-page-content">
-        <div className="staffmain-patient-details-container">
-          
-          {/* Profile Combined Card */}
-          <div className="staffmain-profile-combined-card">
+const renderPatientDetailsView = () => {
+  return (
+    <div className="staffmain-page-content">
+      <div className="staffmain-patient-details-container">
+        
+        {/* Profile Combined Card */}
+        <div className="staffmain-profile-combined-card">
 
-            <button 
-              onClick={() => {
-                setViewingPatientDetails(false);
-                setSelectedPatientDetails(null);
-                setPatientDetailsHistory([]);
-              }}
-              className="staffmain-back-btn"
-            >
-              <ArrowLeft size={20} /> Back
-            </button>
+          <button 
+            onClick={() => {
+              setViewingPatientDetails(false);
+              setSelectedPatientDetails(null);
+              setPatientDetailsHistory([]);
+            }}
+            className="staffmain-back-btn"
+          >
+            <ArrowLeft size={20} /> Back
+          </button>
 
-            <div className="staffmain-profile-header-section">
-              <div className="staffmain-profile-avatar">
-                {selectedPatientDetails.name ? selectedPatientDetails.name.charAt(0).toUpperCase() : 'P'}
+          <div className="staffmain-profile-header-section">
+            <div className="staffmain-profile-avatar">
+              {selectedPatientDetails.name ? selectedPatientDetails.name.charAt(0).toUpperCase() : 'P'}
+            </div>
+            <div className="staffmain-profile-header-info">
+              <div className="staffmain-profile-name-row">
+                <h2 className="staffmain-profile-name">{selectedPatientDetails.name}</h2>
               </div>
-              <div className="staffmain-profile-header-info">
-                <div className="staffmain-profile-name-row">
-                  <h2 className="staffmain-profile-name">{selectedPatientDetails.name}</h2>
+              <div className="staffmain-profile-meta">
+                <div className="staffmain-profile-meta-item">
+                  <span>ID: {selectedPatientDetails.patient_id}</span>
                 </div>
-                <div className="staffmain-profile-meta">
-                  <div className="staffmain-profile-meta-item">
-                    <span>ID: {selectedPatientDetails.patient_id}</span>
-                  </div>
-                  <div className="staffmain-profile-meta-item">
-                    <span>{selectedPatientDetails.age}y, {selectedPatientDetails.sex}</span>
-                  </div>
-                  <div className="staffmain-profile-meta-item">
-                    <span>Contact: {selectedPatientDetails.contact_no}</span>
-                  </div>
+                <div className="staffmain-profile-meta-item">
+                  <span>{selectedPatientDetails.age}y, {selectedPatientDetails.sex}</span>
+                </div>
+                <div className="staffmain-profile-meta-item">
+                  <span>Contact: {selectedPatientDetails.contact_no}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="staffmain-profile-tab-content">
+            <div className="staffmain-profile-section">
+              <h3 className="staffmain-profile-section-title">Personal Information</h3>
+              <div className="staffmain-profile-info-grid">
+                <div className="staffmain-profile-info-item">
+                  <label className="staffmain-profile-info-label">Birthday</label>
+                  <span className="staffmain-profile-info-value">
+                    {new Date(selectedPatientDetails.birthday).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="staffmain-profile-info-item">
+                  <label className="staffmain-profile-info-label">Age</label>
+                  <span className="staffmain-profile-info-value">{selectedPatientDetails.age} years</span>
+                </div>
+                <div className="staffmain-profile-info-item">
+                  <label className="staffmain-profile-info-label">Sex</label>
+                  <span className="staffmain-profile-info-value">{selectedPatientDetails.sex}</span>
+                </div>
+                <div className="staffmain-profile-info-item">
+                  <label className="staffmain-profile-info-label">Registration Date</label>
+                  <span className="staffmain-profile-info-value">
+                    {new Date(selectedPatientDetails.registration_date).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="staffmain-profile-info-item">
+                  <label className="staffmain-profile-info-label">Phone</label>
+                  <span className="staffmain-profile-info-value">{selectedPatientDetails.contact_no}</span>
+                </div>
+                <div className="staffmain-profile-info-item">
+                  <label className="staffmain-profile-info-label">Email</label>
+                  <span className="staffmain-profile-info-value">{selectedPatientDetails.email}</span>
+                </div>
+                <div className="staffmain-profile-info-item">
+                  <label className="staffmain-profile-info-label">Address</label>
+                  <span className="staffmain-profile-info-value">{selectedPatientDetails.address}</span>
+                </div>
+                {/* ✅ ID Information */}
+                <div className="staffmain-profile-info-item">
+                  <label className="staffmain-profile-info-label">ID Type</label>
+                  <span className="staffmain-profile-info-value">
+                    {selectedPatientDetails.id_type || 'Not provided'}
+                  </span>
+                </div>
+                <div className="staffmain-profile-info-item">
+                  <label className="staffmain-profile-info-label">ID Number</label>
+                  <span className="staffmain-profile-info-value">
+                    {selectedPatientDetails.id_number || 'Not provided'}
+                  </span>
                 </div>
               </div>
             </div>
 
-            <div className="staffmain-profile-tab-content">
+            {/* ✅ NEW: ID Verification Section */}
+            {(selectedPatientDetails.id_type || selectedPatientDetails.id_number || selectedPatientDetails.id_image_url) && (
               <div className="staffmain-profile-section">
-                <h3 className="staffmain-profile-section-title">Personal Information</h3>
+                <h3 className="staffmain-profile-section-title">
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Eye size={18} />
+                    ID Verification
+                  </span>
+                </h3>
+                
+                {selectedPatientDetails.id_image_url ? (
+                  <div className="staffmain-id-verification-container">
+                    <div className="staffmain-id-image-wrapper">
+                      <img 
+                        src={selectedPatientDetails.id_image_url} 
+                        alt={`${selectedPatientDetails.id_type || 'ID'} - ${selectedPatientDetails.name}`}
+                        className="staffmain-id-image"
+                        onClick={() => window.open(selectedPatientDetails.id_image_url, '_blank')}
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          e.target.nextElementSibling.style.display = 'flex';
+                        }}
+                      />
+                      <div className="staffmain-id-image-error" style={{ display: 'none' }}>
+                        <div className="staffmain-id-image-error-icon">
+                          <File size={24} />
+                        </div>
+                        <span>ID image not available</span>
+                      </div>
+                    </div>
+                    
+                    <div className="staffmain-id-image-info">
+                      <div className="staffmain-id-image-details">
+                        <div className="staffmain-id-detail-item">
+                          <span className="staffmain-id-detail-label">Type:</span>
+                          <span className="staffmain-id-detail-value">
+                            {selectedPatientDetails.id_type || 'Not specified'}
+                          </span>
+                        </div>
+                        <div className="staffmain-id-detail-item">
+                          <span className="staffmain-id-detail-label">Number:</span>
+                          <span className="staffmain-id-detail-value">
+                            {selectedPatientDetails.id_number || 'Not provided'}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <button 
+                        className="staffmain-id-view-full-btn"
+                        onClick={() => window.open(selectedPatientDetails.id_image_url, '_blank')}
+                      >
+                        <Eye size={16} />
+                        View Full Size
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="staffmain-id-no-image">
+                    <div className="staffmain-id-no-image-icon">
+                      <File size={32} />
+                    </div>
+                    <div className="staffmain-id-no-image-text">
+                      <h4>No ID Image Available</h4>
+                      <p>Patient provided ID information but no image was uploaded.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selectedPatientDetails.emergencyContact && selectedPatientDetails.emergencyContact.length > 0 && (
+              <div className="staffmain-profile-section">
+                <h3 className="staffmain-profile-section-title">Emergency Contact</h3>
                 <div className="staffmain-profile-info-grid">
                   <div className="staffmain-profile-info-item">
-                    <label className="staffmain-profile-info-label">Birthday</label>
-                    <span className="staffmain-profile-info-value">
-                      {new Date(selectedPatientDetails.birthday).toLocaleDateString()}
-                    </span>
+                    <label className="staffmain-profile-info-label">Name</label>
+                    <span className="staffmain-profile-info-value">{selectedPatientDetails.emergencyContact[0].name}</span>
                   </div>
                   <div className="staffmain-profile-info-item">
-                    <label className="staffmain-profile-info-label">Age</label>
-                    <span className="staffmain-profile-info-value">{selectedPatientDetails.age} years</span>
-                  </div>
-                  <div className="staffmain-profile-info-item">
-                    <label className="staffmain-profile-info-label">Sex</label>
-                    <span className="staffmain-profile-info-value">{selectedPatientDetails.sex}</span>
-                  </div>
-                  <div className="staffmain-profile-info-item">
-                    <label className="staffmain-profile-info-label">Registration Date</label>
-                    <span className="staffmain-profile-info-value">
-                      {new Date(selectedPatientDetails.registration_date).toLocaleDateString()}
-                    </span>
+                    <label className="staffmain-profile-info-label">Relationship</label>
+                    <span className="staffmain-profile-info-value">{selectedPatientDetails.emergencyContact[0].relationship}</span>
                   </div>
                   <div className="staffmain-profile-info-item">
                     <label className="staffmain-profile-info-label">Phone</label>
-                    <span className="staffmain-profile-info-value">{selectedPatientDetails.contact_no}</span>
-                  </div>
-                  <div className="staffmain-profile-info-item">
-                    <label className="staffmain-profile-info-label">Email</label>
-                    <span className="staffmain-profile-info-value">{selectedPatientDetails.email}</span>
-                  </div>
-                  <div className="staffmain-profile-info-item">
-                    <label className="staffmain-profile-info-label">Address</label>
-                    <span className="staffmain-profile-info-value">{selectedPatientDetails.address}</span>
+                    <span className="staffmain-profile-info-value">{selectedPatientDetails.emergencyContact[0].contact_number}</span>
                   </div>
                 </div>
               </div>
+            )}
 
-              {selectedPatientDetails.emergencyContact && selectedPatientDetails.emergencyContact.length > 0 && (
-                <div className="staffmain-profile-section">
-                  <h3 className="staffmain-profile-section-title">Emergency Contact</h3>
-                  <div className="staffmain-profile-info-grid">
-                    <div className="staffmain-profile-info-item">
-                      <label className="staffmain-profile-info-label">Name</label>
-                      <span className="staffmain-profile-info-value">{selectedPatientDetails.emergencyContact[0].name}</span>
-                    </div>
-                    <div className="staffmain-profile-info-item">
-                      <label className="staffmain-profile-info-label">Relationship</label>
-                      <span className="staffmain-profile-info-value">{selectedPatientDetails.emergencyContact[0].relationship}</span>
-                    </div>
-                    <div className="staffmain-profile-info-item">
-                      <label className="staffmain-profile-info-label">Phone</label>
-                      <span className="staffmain-profile-info-value">{selectedPatientDetails.emergencyContact[0].contact_number}</span>
-                    </div>
-                  </div>
+            <div className="staffmain-profile-section">
+              <h3 className="staffmain-profile-section-title">Medical History ({detailsHistoryPagination.totalVisits} total visits)</h3>
+              {detailsHistoryLoading ? (
+                <div className="staffmain-loading-container">
+                  <div className="staffmain-loading-spinner"></div>
+                  <p>Loading medical history...</p>
                 </div>
-              )}
-
-              <div className="staffmain-profile-section">
-                <h3 className="staffmain-profile-section-title">Medical History ({detailsHistoryPagination.totalVisits} total visits)</h3>
-                {detailsHistoryLoading ? (
-                  <div className="staffmain-loading-container">
-                    <div className="staffmain-loading-spinner"></div>
-                    <p>Loading medical history...</p>
+              ) : patientDetailsHistory.length === 0 ? (
+                <div className="staffmain-empty-state">
+                  <div className="staffmain-empty-icon">
+                    <Clipboard size={40} />
                   </div>
-                ) : patientDetailsHistory.length === 0 ? (
-                  <div className="staffmain-empty-state">
-                    <div className="staffmain-empty-icon">
-                      <Clipboard size={40} />
-                    </div>
-                    <h3>No Medical History</h3>
-                    <p>This patient has no recorded visits yet.</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="staffmain-medical-history-timeline">
-                      {patientDetailsHistory.map((visit) => (
-                        <div key={visit.visit_id} className="staffmain-history-timeline-item">
-                          <div className="staffmain-history-timeline-date">
-                            {new Date(visit.visit_date).toLocaleDateString()} - {visit.visit_time}
+                  <h3>No Medical History</h3>
+                  <p>This patient has no recorded visits yet.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="staffmain-medical-history-timeline">
+                    {patientDetailsHistory.map((visit) => (
+                      <div key={visit.visit_id} className="staffmain-history-timeline-item">
+                        <div className="staffmain-history-timeline-date">
+                          {new Date(visit.visit_date).toLocaleDateString()} - {visit.visit_time}
+                        </div>
+                        <div className="staffmain-history-timeline-card">
+                          <div className="staffmain-history-timeline-title">
+                            {visit.appointment_type}
                           </div>
-                          <div className="staffmain-history-timeline-card">
-                            <div className="staffmain-history-timeline-title">
-                              {visit.appointment_type}
-                            </div>
-                            <div className="staffmain-history-timeline-details">
-                              {visit.queue && visit.queue.length > 0 && (
-                                <div className="staffmain-history-timeline-detail">
-                                  <strong>Department:</strong>
-                                  <span>{visit.queue[0].department.name}</span>
-                                </div>
-                              )}
+                          <div className="staffmain-history-timeline-details">
+                            {visit.queue && visit.queue.length > 0 && (
                               <div className="staffmain-history-timeline-detail">
-                                <strong>Queue No:</strong>
-                                <span>#{visit.queue[0].queue_no}</span>
+                                <strong>Department:</strong>
+                                <span>{visit.queue[0].department.name}</span>
                               </div>
-                              <div className="staffmain-history-timeline-detail">
-                                <strong>Chief Complaint:</strong>
-                                <span>{visit.symptoms}</span>
-                              </div>
+                            )}
+                            <div className="staffmain-history-timeline-detail">
+                              <strong>Queue No:</strong>
+                              <span>#{visit.queue[0].queue_no}</span>
                             </div>
+                            <div className="staffmain-history-timeline-detail">
+                              <strong>Chief Complaint:</strong>
+                              <span>{visit.symptoms}</span>
+                            </div>
+                          </div>
 
-                            {visit.diagnosis && visit.diagnosis.length > 0 && (
-                              <div className="staffmain-diagnoses-section">
-                                <strong>Diagnoses:</strong>
-                                {visit.diagnosis.map((diag) => (
-                                  <div key={diag.diagnosis_id} className="staffmain-diagnosis-item">
-                                    <div className="staffmain-diagnosis-header">
-                                      <span className={`status-badge ${diag.diagnosis_type}`}>
-                                        {diag.diagnosis_type}
-                                      </span>
-                                      <span className={`status-badge ${diag.severity}`}>
-                                        {diag.severity}
-                                      </span>
+                          {visit.diagnosis && visit.diagnosis.length > 0 && (
+                            <div className="staffmain-diagnoses-section">
+                              <strong>Diagnoses:</strong>
+                              {visit.diagnosis.map((diag) => (
+                                <div key={diag.diagnosis_id} className="staffmain-diagnosis-item">
+                                  <div className="staffmain-diagnosis-header">
+                                    <span className={`status-badge ${diag.diagnosis_type}`}>
+                                      {diag.diagnosis_type}
+                                    </span>
+                                    <span className={`status-badge ${diag.severity}`}>
+                                      {diag.severity}
+                                    </span>
+                                  </div>
+                                  <div className="staffmain-diagnosis-desc">{diag.diagnosis_description}</div>
+                                  {diag.notes && (
+                                    <div className="staffmain-diagnosis-notes">
+                                      <strong>Notes:</strong> {diag.notes}
                                     </div>
-                                    <div className="staffmain-diagnosis-desc">{diag.diagnosis_description}</div>
-                                    {diag.notes && (
-                                      <div className="staffmain-diagnosis-notes">
-                                        <strong>Notes:</strong> {diag.notes}
-                                      </div>
-                                    )}
-                                    {diag.healthStaff && (
-                                      <div className="staffmain-diagnosis-doctor-enhanced">
-                                        <div className="staffmain-doctor-info-card">
-                                          <div className="staffmain-doctor-avatar">
-                                            <UserStar size={20} />
-                                          </div>
-                                          <div className="staffmain-doctor-details">
-                                            <div className="staffmain-doctor-name">Dr. {diag.healthStaff.name}</div>
-                                            <div className="staffmain-doctor-specialty">{diag.healthStaff.specialization || 'General Practice'}</div>
-                                            <div className="staffmain-doctor-role">{diag.healthStaff.role}</div>
-                                          </div>
+                                  )}
+                                  {diag.healthStaff && (
+                                    <div className="staffmain-diagnosis-doctor-enhanced">
+                                      <div className="staffmain-doctor-info-card">
+                                        <div className="staffmain-doctor-avatar">
+                                          <UserStar size={20} />
+                                        </div>
+                                        <div className="staffmain-doctor-details">
+                                          <div className="staffmain-doctor-name">Dr. {diag.healthStaff.name}</div>
+                                          <div className="staffmain-doctor-specialty">{diag.healthStaff.specialization || 'General Practice'}</div>
+                                          <div className="staffmain-doctor-role">{diag.healthStaff.role}</div>
                                         </div>
                                       </div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
 
-                            {visit.labRequest && visit.labRequest.length > 0 && (
-                              <div className="staffmain-lab-requests-section">
-                                <strong>Lab Requests:</strong>
-                                {visit.labRequest.map((labReq, idx) => (
-                                  <div key={idx} className="staffmain-lab-request-item">
-                                    <span className="staffmain-lab-test-type">{labReq.test_type}</span>
-                                    <span className={`status-badge ${labReq.status}`}>{labReq.status}</span>
-                                    {labReq.healthStaff && (
-                                      <span className="staffmain-lab-requested-by">
-                                        Requested by: Dr. {labReq.healthStaff.name}
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                          {visit.labRequest && visit.labRequest.length > 0 && (
+                            <div className="staffmain-lab-requests-section">
+                              <strong>Lab Requests:</strong>
+                              {visit.labRequest.map((labReq, idx) => (
+                                <div key={idx} className="staffmain-lab-request-item">
+                                  <span className="staffmain-lab-test-type">{labReq.test_type}</span>
+                                  <span className={`status-badge ${labReq.status}`}>{labReq.status}</span>
+                                  {labReq.healthStaff && (
+                                    <span className="staffmain-lab-requested-by">
+                                      Requested by: Dr. {labReq.healthStaff.name}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      ))}
-                    </div>
-
-                    {detailsHistoryPagination.totalPages > 1 && (
-                      <div className="staffmain-pagination">
-                        <button 
-                          onClick={() => fetchPatientDetailsHistory(selectedPatientDetails.id, detailsHistoryPagination.currentPage - 1)}
-                          disabled={detailsHistoryPagination.currentPage === 1}
-                          className="staffmain-page-btn"
-                        >
-                          <ArrowLeft size={15} /> Previous
-                        </button>
-                        <span className="staffmain-page-info">
-                          Page {detailsHistoryPagination.currentPage} of {detailsHistoryPagination.totalPages}
-                        </span>
-                        <button 
-                          onClick={() => fetchPatientDetailsHistory(selectedPatientDetails.id, detailsHistoryPagination.currentPage + 1)}
-                          disabled={!detailsHistoryPagination.hasNextPage}
-                          className="staffmain-page-btn"
-                        >
-                          Next <ArrowLeft size={15} style={{ transform: 'rotate(180deg)' }} />
-                        </button>
                       </div>
-                    )}
-                  </>
-                )}
-              </div>
+                    ))}
+                  </div>
+
+                  {detailsHistoryPagination.totalPages > 1 && (
+                    <div className="staffmain-pagination">
+                      <button 
+                        onClick={() => fetchPatientDetailsHistory(selectedPatientDetails.id, detailsHistoryPagination.currentPage - 1)}
+                        disabled={detailsHistoryPagination.currentPage === 1}
+                        className="staffmain-page-btn"
+                      >
+                        <ArrowLeft size={15} /> Previous
+                      </button>
+                      <span className="staffmain-page-info">
+                        Page {detailsHistoryPagination.currentPage} of {detailsHistoryPagination.totalPages}
+                                            </span>
+                      <button 
+                        onClick={() => fetchPatientDetailsHistory(selectedPatientDetails.id, detailsHistoryPagination.currentPage + 1)}
+                        disabled={!detailsHistoryPagination.hasNextPage}
+                        className="staffmain-page-btn"
+                      >
+                        Next <ArrowLeft size={15} style={{ transform: 'rotate(180deg)' }} />
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+};
 
   const renderLabOrdersPage = () => {
     const filteredLabData = getFilteredLabData();
