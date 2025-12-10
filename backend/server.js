@@ -52,7 +52,24 @@
     const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this';
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+    const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const supabaseAdmin = SUPABASE_SERVICE_KEY 
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      })
+    : null;
+
+    console.log('🔑 Supabase Service Key:', SUPABASE_SERVICE_KEY ? 'Configured ✅' : '❌ MISSING');
+    console.log('🔑 Supabase Admin Client:', supabaseAdmin ? 'Ready ✅' : '❌ NOT CREATED');
+
 
     // ✅ Brevo SMTP Configuration
     const brevo = require('@getbrevo/brevo');
@@ -1051,6 +1068,15 @@
 
 const uploadToSupabaseStorage = async (fileBuffer, fileName, bucketName = 'lab-results') => {
   try {
+    // ✅ VALIDATE SERVICE KEY IS AVAILABLE
+    if (!SUPABASE_SERVICE_KEY) {
+      throw new Error('❌ SUPABASE_SERVICE_ROLE_KEY not configured in .env file');
+    }
+
+    if (!supabaseAdmin) {
+      throw new Error('❌ Supabase Admin client not initialized');
+    }
+
     // Get the file extension and determine MIME type
     const fileExt = path.extname(fileName).toLowerCase();
     let contentType;
@@ -1071,9 +1097,10 @@ const uploadToSupabaseStorage = async (fileBuffer, fileName, bucketName = 'lab-r
         throw new Error(`Unsupported file type: ${fileExt}. Only PDF, JPEG, PNG, and JPG files are allowed.`);
     }
 
-    console.log(`Uploading file: ${fileName} with content type: ${contentType}`);
+    console.log(`📤 Uploading file: ${fileName} with content type: ${contentType}`);
 
-    const { data, error } = await supabase.storage
+    // ✅ USE supabaseAdmin (bypasses RLS policies)
+    const { data, error } = await supabaseAdmin.storage
       .from(bucketName)
       .upload(fileName, fileBuffer, {
         contentType: contentType,
@@ -1081,16 +1108,16 @@ const uploadToSupabaseStorage = async (fileBuffer, fileName, bucketName = 'lab-r
       });
 
     if (error) {
-      console.error('Supabase upload error details:', error);
+      console.error('❌ Supabase upload error details:', error);
       throw error;
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
+    // Get public URL using admin client
+    const { data: urlData } = supabaseAdmin.storage
       .from(bucketName)
       .getPublicUrl(fileName);
 
-    console.log(`File uploaded successfully: ${urlData.publicUrl}`);
+    console.log(`✅ File uploaded successfully: ${urlData.publicUrl}`);
 
     return {
       success: true,
@@ -1098,7 +1125,7 @@ const uploadToSupabaseStorage = async (fileBuffer, fileName, bucketName = 'lab-r
       publicUrl: urlData.publicUrl
     };
   } catch (error) {
-    console.error('Supabase upload error:', error);
+    console.error('❌ Supabase upload error:', error);
     throw error;
   }
 };

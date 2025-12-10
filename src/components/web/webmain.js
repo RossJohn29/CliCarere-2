@@ -122,37 +122,8 @@ const WebMain = () => {
         registrationDate: fullPatientInfo.registration_date || '',
         emergencyContactName: emergencyContactInfo.name || fullPatientInfo.emergency_contact_name || '',
         emergencyContactRelationship: emergencyContactInfo.relationship || fullPatientInfo.emergency_contact_relationship || '',
-        emergencyContactNo: emergencyContactInfo.contact_no || fullPatientInfo.emergency_contact_no || '',
-        allergies: '',
-        medications: '',
-        previous_treatment: ''
+        emergencyContactNo: emergencyContactInfo.contact_no || fullPatientInfo.emergency_contact_no || ''
       });
-
-      // ✅ FIX: Fetch medical information from your backend API
-      try {
-        const response = await fetch(`http://localhost:5000/api/patient/medical-info/${patientId}`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          credentials: 'include'
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.medicalInfo) {
-            setPatientInfo(prev => ({
-              ...prev,
-              allergies: data.medicalInfo.allergies || '',
-              medications: data.medicalInfo.medications || '',
-              previous_treatment: data.medicalInfo.previous_treatment || ''
-            }));
-          }
-        }
-      } catch (error) {
-        console.warn('Could not fetch medical information:', error);
-      }
 
       await loadDashboardData();
       
@@ -948,22 +919,24 @@ const WebMain = () => {
                     <h3 className="webmain-profile-section-title">Medical Information</h3>
                     <div className="webmain-profile-info-grid">
                       <div className="webmain-profile-info-item">
+                        <label className="webmain-profile-info-label">Primary Physician</label>
+                        <span className="webmain-profile-info-value">Dr. Emily Davies</span>
+                      </div>
+                      <div className="webmain-profile-info-item">
                         <label className="webmain-profile-info-label">Known Allergies</label>
-                        <span className="webmain-profile-info-value">
-                          {patientInfo.allergies || 'None recorded'}
-                        </span>
+                        <span className="webmain-profile-info-value">Penicillin</span>
+                      </div>
+                      <div className="webmain-profile-info-item">
+                        <label className="webmain-profile-info-label">Chronic Conditions</label>
+                        <span className="webmain-profile-info-value">Hypertension</span>
+                      </div>
+                      <div className="webmain-profile-info-item">
+                        <label className="webmain-profile-info-label">Previous Surgeries</label>
+                        <span className="webmain-profile-info-value">Appendectomy (2020)</span>
                       </div>
                       <div className="webmain-profile-info-item">
                         <label className="webmain-profile-info-label">Current Medication</label>
-                        <span className="webmain-profile-info-value">
-                          {patientInfo.medications || 'None recorded'}
-                        </span>
-                      </div>
-                      <div className="webmain-profile-info-item">
-                        <label className="webmain-profile-info-label">Previous Treatment</label>
-                        <span className="webmain-profile-info-value">
-                          {patientInfo.previous_treatment || 'None recorded'}
-                        </span>
+                        <span className="webmain-profile-info-value">Atenolol 50mg</span>
                       </div>
                     </div>
                   </div>
@@ -1303,7 +1276,7 @@ const WebMain = () => {
                     </div>
                   </div>
 
-                  {/* ✅ MODIFIED: Show different UI based on status with doctor's notes */}
+                  {/* FIXED: Show different UI based on status */}
                   {request.status === 'pending' ? (
                     <button 
                       onClick={() => handleLabUpload(request.request_id)}
@@ -1338,20 +1311,6 @@ const WebMain = () => {
                         {request.decline_reason && (
                           <small className="decline-reason">Reason: {request.decline_reason}</small>
                         )}
-                        {/* ✅ NEW: Display doctor's notes for declined results */}
-                        {request.doctor_notes && (
-                          <div className="webmain-doctor-notes-section">
-                            <label className="webmain-doctor-notes-label">
-                              <strong>Doctor's Notes:</strong>
-                            </label>
-                            <p className="webmain-doctor-notes-text">{request.doctor_notes}</p>
-                            {request.reviewed_at && (
-                              <small className="webmain-review-date">
-                                Reviewed on {new Date(request.reviewed_at).toLocaleDateString()} at {new Date(request.reviewed_at).toLocaleTimeString()}
-                              </small>
-                            )}
-                          </div>
-                        )}
                         <p className="reupload-required">Please upload a new result</p>
                       </div>
                       <button 
@@ -1361,29 +1320,6 @@ const WebMain = () => {
                       >
                         {dataLoading ? '⏳ Uploading...' : 'Upload New Result'}
                       </button>
-                    </div>
-                  ) : request.status === 'completed' && request.labResult ? (
-                    <div className="webmain-completed-lab">
-                      <div className="webmain-completed-info">
-                        <p className="completion-notice">
-                          <CheckCircle size={16} /> Result accepted by doctor
-                        </p>
-                        <small>Uploaded: {request.labResult.file_name}</small>
-                        {/* ✅ NEW: Display doctor's notes for completed/accepted results */}
-                        {request.doctor_notes && (
-                          <div className="webmain-doctor-notes-section">
-                            <label className="webmain-doctor-notes-label">
-                              <strong>Doctor's Notes:</strong>
-                            </label>
-                            <p className="webmain-doctor-notes-text">{request.doctor_notes}</p>
-                            {request.reviewed_at && (
-                              <small className="webmain-review-date">
-                                Reviewed on {new Date(request.reviewed_at).toLocaleDateString()} at {new Date(request.reviewed_at).toLocaleTimeString()}
-                              </small>
-                            )}
-                          </div>
-                        )}
-                      </div>
                     </div>
                   ) : null}
                 </div>
